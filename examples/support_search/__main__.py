@@ -6,10 +6,19 @@ import json
 import os
 from pathlib import Path
 import signal
+from socketserver import TCPServer
 import sqlite3
 import sys
 
 from .app import App, MODES, work
+
+
+class FixtureServer(HTTPServer):
+    def server_bind(self):
+        # HTTPServer resolves the bound IP through getfqdn(). The fixture serves
+        # a literal loopback address and needs neither local nor external DNS.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -75,7 +84,7 @@ def main(argv=None):
     signal.signal(signal.SIGTERM, terminate)
     app = App(args.directory, args.run_id, args.mode, args.scenario)
     try:
-        with HTTPServer(("127.0.0.1", 0), Handler) as server:
+        with FixtureServer(("127.0.0.1", 0), Handler) as server:
             server.key = os.environ.get("SETRYA_FIXTURE_KEY", args.run_id)
             server.app = app
             ready = args.directory / "port"

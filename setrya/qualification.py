@@ -158,10 +158,28 @@ def _wait_for_fixture(temp, process):
     raise AssertionError("could not observe concurrent HTTP fixture")
 
 
+def _wait_for_held_worker(directory, process):
+    database = directory / "support.sqlite"
+    deadline = monotonic() + 5
+    while process.poll() is None and monotonic() < deadline:
+        if database.is_file():
+            try:
+                with closing(sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True, timeout=0.2)) as db:
+                    row = db.execute("SELECT status FROM queue").fetchone()
+                    if row and row[0] == "held":
+                        return
+            except sqlite3.OperationalError:
+                # The subprocess may still be initializing the database.
+                pass
+        sleep(0.01)
+    raise AssertionError("first worker did not acknowledge the held checkpoint")
+
+
 def isolation():
     with TemporaryDirectory(prefix="setrya-isolation-") as directory:
         temp = Path(directory)
         blocked_path = configuration(temp, "missing-checkpoint")
+        blocked_path.write_text(blocked_path.read_text().replace("checkpoint_ms = 2000", "checkpoint_ms = 8000"))
         fixed_path = configuration(temp, "fixed")
         first_report, second_report = temp / "first.json", temp / "second.json"
 
@@ -174,6 +192,7 @@ def isolation():
         second = None
         try:
             held_dir = _wait_for_fixture(temp, first)
+            _wait_for_held_worker(held_dir, first)
             second = start(fixed_path, second_report)
             timeout = monotonic() + 5
             other_dirs = []
@@ -186,15 +205,6 @@ def isolation():
             require(len(other_dirs) == 1 and first.poll() is None, "fixtures did not overlap")
             port = (held_dir / "port").read_text()
             require(port != (other_dirs[0] / "port").read_text(), "concurrent fixtures shared a port")
-            with closing(sqlite3.connect(held_dir / "support.sqlite", timeout=0.2)) as db:
-                deadline = monotonic() + 1
-                while monotonic() < deadline:
-                    row = db.execute("SELECT status FROM queue").fetchone()
-                    if row and row[0] == "held":
-                        break
-                    sleep(0.01)
-                else:
-                    raise AssertionError("first worker was not held")
             first.send_signal(signal.SIGINT)
             stdout, stderr = first.communicate(timeout=5)
             require(first.returncode == 2 and "interrupted" in stderr.lower(), f"interruption was not actionable: {stdout}{stderr}")
