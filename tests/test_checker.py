@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
 
+from examples.support_search.__main__ import FixtureServer, Handler
+
 from setrya.checker import Status, evaluate
 from setrya.cli import EXAMPLE, preflight
 from setrya.drill import Drill, InputError
@@ -127,6 +129,12 @@ class VerdictTests(unittest.TestCase):
         history.events[1]["question"] = "some private content"
         with self.assertRaisesRegex(InputError, "unsupported fields"):
             history.verdict()
+
+    def test_http_fixture_binds_without_reverse_dns(self):
+        with patch("socket.getfqdn", side_effect=AssertionError("reverse DNS is unavailable")):
+            with FixtureServer(("127.0.0.1", 0), Handler) as server:
+                self.assertEqual(server.server_name, "127.0.0.1")
+                self.assertGreater(server.server_port, 0)
 
     def test_fts5_preflight_names_missing_capability(self):
         import sqlite3
