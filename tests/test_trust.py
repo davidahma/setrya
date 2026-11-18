@@ -103,7 +103,6 @@ class TrustTests(unittest.TestCase):
             'factory = "examples.support_search.adapter:http_fixture"': f'factory = "{FACTORY}"',
             'mode = "fixed"': f'mode = "{mode}"',
             'freshness_ms = 1200': 'freshness_ms = 300',
-            'checkpoint_ms = 2000': 'checkpoint_ms = 250',
             'max_gap_ms = 225': 'max_gap_ms = 120',
             **replacements,
         }
@@ -236,7 +235,8 @@ class TrustTests(unittest.TestCase):
         self.assertIn("refund@B", replay.stdout)
 
     def test_demo_only_describes_observed_checkpoint_and_search_history(self):
-        result = run(Drill.load(self.config("missing-checkpoint")))
+        drill = self.config("missing-checkpoint", **{"checkpoint_ms = 2000": "checkpoint_ms = 250"})
+        result = run(Drill.load(drill))
         output = StringIO()
         with patch("setrya.cli.demo_case", return_value=result), redirect_stdout(output):
             self.assertEqual(demo("opaque"), 0)
