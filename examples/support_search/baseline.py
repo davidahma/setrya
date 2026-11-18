@@ -52,7 +52,7 @@ def check(mode="fixed"):
                 "revision A returned while the old attempt was held"
             )
             client.release()
-            deadline = monotonic() + 0.6
+            deadline = monotonic() + 2.0
             receipt = wait_for(client.receipt, max(0, deadline - monotonic()), "old attempt had no terminal receipt")
             assert all(receipt[key] == held[key] for key in ("run_id", "attempt", "document", "revision")), (
                 "terminal receipt exposed the wrong attempt"

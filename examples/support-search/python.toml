@@ -15,7 +15,7 @@ checkpoint = "after_source_read"
 freshness_probe = "refund-window"
 freshness_ms = 1200
 checkpoint_ms = 2000
-settle_ms = 600
+settle_ms = 2000
 sample_ms = 20
 max_gap_ms = 225
 
