@@ -81,13 +81,16 @@ def main(argv=None):
         work(args.directory, args.mode, args.scenario)
         return 0
 
+    return serve(App(args.directory, args.run_id, args.mode, args.scenario), args.directory, args.run_id)
+
+
+def serve(app, directory, run_id):
     signal.signal(signal.SIGTERM, terminate)
-    app = App(args.directory, args.run_id, args.mode, args.scenario)
     try:
         with FixtureServer(("127.0.0.1", 0), Handler) as server:
-            server.key = os.environ.get("SETRYA_FIXTURE_KEY", args.run_id)
+            server.key = os.environ.get("SETRYA_FIXTURE_KEY", run_id)
             server.app = app
-            ready = args.directory / "port"
+            ready = directory / "port"
             pending = ready.with_suffix(".tmp")
             pending.write_text(str(server.server_port), encoding="ascii")
             pending.replace(ready)

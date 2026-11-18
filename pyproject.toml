@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "setrya"
-version = "0.2.0"
-description = "Regression tests for stale search results after document updates"
+version = "0.3.0"
+description = "Regression tests for search results after indexing changes"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {file = "LICENSE"}
@@ -13,6 +13,7 @@ dependencies = []
 
 [project.optional-dependencies]
 pytest = ["pytest>=8"]
+pgvector = ["psycopg[binary]>=3.3,<4"]
 
 [project.scripts]
 setrya = "setrya.cli:console_main"
@@ -21,4 +22,4 @@ setrya = "setrya.cli:console_main"
 include = ["setrya*", "examples*"]
 
 [tool.setuptools.package-data]
-examples = ["support-search/*.toml"]
+examples = ["support-search/*.toml", "pgvector-search/*.toml", "pgvector-search/compose.yml"]

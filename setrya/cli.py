@@ -17,6 +17,7 @@ from .runner import RunResult, run
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = ROOT / "examples" / "support-search"
+PGVECTOR = ROOT / "examples" / "pgvector-search"
 DEMO_CASES = {"broken": Status.FAIL, "fixed": Status.PASS, "opaque": Status.NOT_TESTED}
 DEMO_PASSAGES = {"refund@A": "30 days", "refund@B": "14 days"}
 
@@ -120,7 +121,7 @@ def demo(selected: str | None) -> int:
 
 def rerun_command(path: str) -> str:
     # Reports and summaries avoid embedding private absolute paths or file names.
-    if re.fullmatch(r"examples/support-search/(drill|python|retired)\.toml", path):
+    if re.fullmatch(r"examples/(?:support-search/(?:drill|python|retired)|pgvector-search/(?:drill|reupload))\.toml", path):
         return "python3 -m setrya check " + shlex.quote(path)
     return 'python3 -m setrya check "$DRILL" --report run.json'
 
@@ -138,6 +139,10 @@ def console_main() -> int:
     return main()
 
 
+def _write_summary(path: str, title: str, text: str) -> None:
+    Path(path).write_text(f"### Setrya · {title}\n\n```text\n{text}\n```\n", encoding="utf-8")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="setrya", description="Test whether search stays current after document updates.")
     parser.add_argument("--version", action="version", version=__version__)
@@ -150,18 +155,36 @@ def main(argv=None) -> int:
     check.add_argument("--summary", help="write a Markdown summary")
     replay = commands.add_parser("replay", help="recompute a verdict from saved observations")
     replay.add_argument("report")
+    diagnose = commands.add_parser("diagnose", help="show the verdict and the first missing observation")
+    diagnose.add_argument("report")
+    comparison = commands.add_parser("compare", help="tell whether a before-and-after pair establishes a fix")
+    comparison.add_argument("before")
+    comparison.add_argument("after")
+    comparison.add_argument("--summary", help="write a Markdown summary")
     qualify = commands.add_parser("qualify", help="run the shipped qualification cases")
     qualify.add_argument("--case")
     qualify.add_argument("--quick", action="store_true", help="skip the 90-run repeatability case")
     args = parser.parse_args(argv)
 
     try:
-        if args.command == "replay":
+        if args.command in {"replay", "diagnose"}:
             report = Report.load(args.report)
             verdict = evaluate(report)
             print(format_verdict(verdict, report))
-            print(history(report))
+            if args.command == "replay":
+                print(history(report))
             return verdict.status.exit_code
+        if args.command == "compare":
+            from .comparison import compare
+
+            if args.summary and Path(args.summary).resolve() in {Path(args.before).resolve(), Path(args.after).resolve()}:
+                raise InputError("comparison summary must use a distinct file")
+            before, after = Report.load(args.before), Report.load(args.after)
+            code, summary = compare(before, after)
+            print(summary)
+            if args.summary:
+                _write_summary(args.summary, f"{before.rules.id} comparison", summary)
+            return code
         if args.command == "check":
             paths = [Path(path).resolve() for path in (args.drill, args.report, args.summary) if path is not None]
             if len(set(paths)) != len(paths):
@@ -175,8 +198,7 @@ def main(argv=None) -> int:
                                      replay_command(args.report))
             print(summary)
             if args.summary:
-                Path(args.summary).write_text(f"### Setrya · {result.report.rules.id}\n\n```text\n{summary}\n```\n",
-                                              encoding="utf-8")
+                _write_summary(args.summary, result.report.rules.id, summary)
             return result.verdict.status.exit_code
         preflight()
         if args.command == "demo":

@@ -1,0 +1,51 @@
+version = 1
+
+[adapter]
+factory = "examples.pgvector_search.adapter:http_fixture"
+
+[adapter.options]
+mode = "fixed"
+scenario = "reupload"
+
+[rules]
+id = "pgvector-delete-reupload"
+document = "refund"
+old_revision = "A"
+new_revision = "B"
+checkpoint = "after_source_read"
+freshness_probe = "refund-window"
+freshness_ms = 1200
+checkpoint_ms = 4000
+settle_ms = 3000
+sample_ms = 20
+max_gap_ms = 225
+
+[[probe]]
+id = "refund-window"
+route = "support-search"
+scope = "support-agent"
+question = "How do I return an order and get my refund?"
+top_k = 3
+before = ["refund@A"]
+require = ["refund@B", "refund@B.2", "refund@B.3"]
+forbid = ["refund@A"]
+
+[[probe]]
+id = "delivery"
+route = "support-search"
+scope = "support-agent"
+question = "When can I track my delivery?"
+top_k = 3
+before = ["delivery@1"]
+require = ["delivery@1"]
+forbid = []
+
+[[probe]]
+id = "refund-broad"
+route = "support-search"
+scope = "support-agent"
+question = "How do I return an order and get my refund?"
+top_k = 10
+before = ["refund@A"]
+require = ["refund@B", "refund@B.2", "refund@B.3"]
+forbid = ["refund@A"]

@@ -15,11 +15,11 @@ class FixtureError(RuntimeError):
 
 
 class Client:
-    def __init__(self, directory: Path, run_id: str, mode: str, scenario: str):
+    def __init__(self, directory: Path, run_id: str, mode: str, scenario: str, *, module="examples.support_search"):
         self.key = uuid4().hex
         ready = directory / "port"
         self.process = subprocess.Popen(
-            [sys.executable, "-m", "examples.support_search", "serve", str(directory), run_id, mode, scenario],
+            [sys.executable, "-m", module, "serve", str(directory), run_id, mode, scenario],
             env={**os.environ, "SETRYA_FIXTURE_KEY": self.key},
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -31,7 +31,7 @@ class Client:
                     self.port = int(ready.read_text(encoding="ascii"))
                     return
                 time.sleep(0.01)
-            raise FixtureError("support fixture did not start")
+            raise FixtureError("search fixture did not start")
         except BaseException:
             self.close()
             raise
@@ -44,7 +44,7 @@ class Client:
             })
             response = connection.getresponse()
             if response.status != 200:
-                raise FixtureError(f"support fixture returned HTTP {response.status}")
+                raise FixtureError(f"search fixture returned HTTP {response.status}")
             return json.loads(response.read())
         finally:
             connection.close()

@@ -5,6 +5,8 @@ from pathlib import Path
 import re
 import tomllib
 
+DRILL_VERSION = 1
+
 _LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.@-]{0,79}\Z")
 _FACTORY = re.compile(r"(?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*:[A-Za-z_]\w*\Z", re.ASCII)
 
@@ -141,7 +143,7 @@ class Drill:
         except (OSError, UnicodeError, tomllib.TOMLDecodeError):
             raise InputError("could not read drill as TOML") from None
         obj = mapping(document, "drill", {"version", "adapter", "rules", "probe"})
-        integer(obj["version"], "drill version", 1, 1)
+        integer(obj["version"], "drill version", DRILL_VERSION, DRILL_VERSION)
         adapter = mapping(obj["adapter"], "adapter", {"factory"}, {"options"})
         factory = adapter["factory"]
         options = adapter.get("options", {})

@@ -10,7 +10,7 @@ from uuid import uuid4
 from .adapter import RunContext
 from .checker import NS_PER_MS, Status, Verdict, evaluate
 from .drill import Drill, InputError, Probe, label
-from .evidence import Report, establishes_baseline, matches_search, validate_observation
+from .evidence import SCHEMA, Report, bind_inputs, establishes_baseline, matches_search, validate_observation
 
 
 @dataclass(frozen=True)
@@ -54,6 +54,7 @@ class _Execution:
         self.drill = drill
         self.run_id = run_id
         self.rules = drill.rules
+        self.inputs = bind_inputs(drill)
         self.probes = {probe.id: probe for probe in self.rules.probes}
         self.started = monotonic_ns()
         self.events = []
@@ -79,7 +80,7 @@ class _Execution:
         return getattr(self.adapter, operation)(*args)
 
     def result(self) -> RunResult:
-        report = Report(self.run_id, self.rules, tuple(self.events))
+        report = Report(self.run_id, self.rules, tuple(self.events), schema=SCHEMA, inputs=self.inputs)
         return RunResult(evaluate(report), report)
 
     def probe(self, probe: Probe, stage: str) -> dict:

@@ -12,7 +12,7 @@ import sys
 from tempfile import TemporaryDirectory
 from time import monotonic, sleep
 
-from .cli import EXAMPLE
+from .cli import EXAMPLE, PGVECTOR
 from .checker import Status, evaluate
 from .drill import Drill, InputError
 from .runner import run
@@ -38,9 +38,9 @@ def scenario(mode, filename="drill.toml"):
     return run(replace(drill, options={**drill.options, "mode": mode}))
 
 
-def configuration(directory, mode, filename="drill.toml", question=None):
+def configuration(directory, mode, filename="drill.toml", question=None, *, examples=EXAMPLE):
     path = Path(directory) / f"{mode}.toml"
-    contents = (EXAMPLE / filename).read_text(encoding="utf-8").replace('mode = "fixed"', f'mode = "{mode}"')
+    contents = (examples / filename).read_text(encoding="utf-8").replace('mode = "fixed"', f'mode = "{mode}"')
     if question is not None:
         contents = contents.replace("How long do I have to return an order?", question)
     path.write_text(contents, encoding="utf-8")
@@ -154,6 +154,71 @@ def report_replay():
         outcome(command("-m", "setrya", "check", str(path)), 2, "could not read drill")
 
 
+def report_comparison():
+    with TemporaryDirectory(prefix="setrya-compare-") as directory:
+        target = Path(directory)
+        reports = {}
+        for mode, code in (("broken", 1), ("fixed", 0), ("opaque", 3)):
+            path = configuration(directory, mode)
+            report = target / f"{mode}.json"
+            outcome(command("-m", "setrya", "check", str(path), "--report", str(report)), code, "")
+            path.unlink()
+            reports[mode] = str(report)
+        summary = target / "compare.md"
+        checked = command("-m", "setrya", "compare", reports["broken"], reports["fixed"], "--summary", str(summary))
+        outcome(checked, 0, "FIX VERIFIED")
+        require("support-agent" in summary.read_text() and "Before FAIL · event" in summary.read_text(),
+                "comparison did not show the caller and decisive failing observation")
+        outcome(command("-m", "setrya", "compare", reports["fixed"], reports["broken"]), 1, "REGRESSION")
+        outcome(command("-m", "setrya", "compare", reports["broken"], reports["opaque"]), 3, "visibility evidence")
+        outcome(command("-m", "setrya", "diagnose", reports["opaque"]), 3, "Missing search visibility evidence")
+        for old, new, detail in (("How long do I have to return an order?", "Can I return an order?", "Question changed"),
+                                 ("top_k = 3", "top_k = 1", "Search depth changed")):
+            path = configuration(directory, "fixed")
+            path.write_text(path.read_text().replace(old, new, 1))
+            report = target / "changed.json"
+            outcome(command("-m", "setrya", "check", str(path), "--report", str(report)), 0, "PASS")
+            if detail.startswith("Question"):
+                require(new not in report.read_text(), "report included raw query text")
+            outcome(command("-m", "setrya", "compare", reports["broken"], str(report)), 3, detail)
+        legacy = json.loads(Path(reports["fixed"]).read_text())
+        legacy.update(schema=2, checker=2)
+        legacy.pop("inputs")
+        Path(reports["fixed"]).write_text(json.dumps(legacy))
+        outcome(command("-m", "setrya", "replay", reports["fixed"]), 0, "PASS")
+        outcome(command("-m", "setrya", "compare", reports["broken"], reports["fixed"]), 3, "input fingerprints")
+
+
+def pgvector():
+    with TemporaryDirectory(prefix="setrya-vector-qualification-") as directory:
+        reports = {}
+        for filename, failure_text in (("drill.toml", "refund@A at rank"), ("reupload.toml", "refund@B.3 was absent")):
+            for mode, code, detail in (("broken", 1, failure_text), ("fixed", 0, "PASS"),
+                                       ("opaque", 3, "Missing search visibility evidence")):
+                path = configuration(directory, mode, filename, examples=PGVECTOR)
+                report = Path(directory) / f"{filename}-{mode}.json"
+                outcome(command("-m", "setrya", "check", str(path), "--report", str(report)), code, detail)
+                reports[mode] = report
+            outcome(command("-m", "setrya", "compare", str(reports["broken"]), str(reports["fixed"])), 0, "FIX VERIFIED")
+            outcome(command("-m", "setrya", "diagnose", str(reports["opaque"])), 3, "Missing search visibility evidence")
+            if filename == "reupload.toml":
+                broken = json.loads(reports["broken"].read_text())
+                fixed = json.loads(reports["fixed"].read_text())
+
+                def final_probes(bundle):
+                    return {event["probe_id"]: event["passages"] for event in bundle["events"]
+                            if event.get("stage") == "final"}
+
+                observed = final_probes(broken)
+                require(observed["refund-window"] == ["refund@B", "refund@B.2"],
+                        "broken ranked response did not contain exactly two current passages")
+                require(observed["refund-broad"] == ["refund@B", "refund@B.2", "refund@B.3"],
+                        "the broad search did not still find the missing top-three passage")
+                expected = final_probes(fixed)
+                require(expected["refund-window"] == observed["refund-broad"] and expected["delivery"] == ["delivery@1"],
+                        "guarded write did not restore all three passages and preserve the one-result control")
+
+
 def _wait_for_fixture(temp, process):
     deadline = monotonic() + 5
     while process.poll() is None and monotonic() < deadline:
@@ -257,19 +322,20 @@ def repeatability():
 CASES = {
     "demo": demo, "late-write": late_write, "retired-chunks": retired_chunks, "early-stale": early_stale,
     "missing-evidence": missing_evidence, "adapter-handoff": adapter_handoff, "report-replay": report_replay,
-    "isolation": isolation, "repeatability": repeatability,
+    "report-comparison": report_comparison, "isolation": isolation, "repeatability": repeatability,
 }
 
 
 def qualify(selected=None, quick=False):
-    if selected and selected not in CASES:
-        raise InputError(f"unknown case; choose from {', '.join(CASES)}")
+    available = {**CASES, "pgvector": pgvector}
+    if selected and selected not in available:
+        raise InputError(f"unknown case. Choose from {', '.join(available)}.")
     names = [selected] if selected else [name for name in CASES if not quick or name != "repeatability"]
     failed = False
     for name in names:
         started = monotonic()
         try:
-            CASES[name]()
+            available[name]()
         except (AssertionError, subprocess.TimeoutExpired) as error:
             print(f"FAIL  {name} · {error}", flush=True)
             failed = True

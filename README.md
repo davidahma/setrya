@@ -1,6 +1,6 @@
 # Setrya
 
-**Regression tests for search results that go stale after a document update.**
+**Regression tests for what search returns after an indexing change.**
 
 Your team shortens the refund window from 30 days to 14. The support assistant’s search returns the new policy. An hour later, an indexing job resumes with the copy it read yesterday. The same search now returns the 30-day policy.
 
@@ -44,7 +44,16 @@ For CI, `check` and `replay` exit **0** for PASS, **1** for FAIL, **2** for an i
 
 If an agent searches company policy before suggesting a refund, run the drill against its search tool using the agent’s caller identity. The report shows which policy the tool returned. Testing the refund the agent recommends or issues takes a separate check. The [Python example](examples/support-search/python.toml) shows how to exercise a retrieval function directly.
 
-A coding agent changing your indexing worker can run the same drill before and after a patch. Give it the drill path and ask it to save both reports. A reviewer can replay them to see the stale result on the old code and check whether the patch fixed it.
+## Decide whether an indexing patch fixed the result
+
+Save reports for the broken version and the patch using the same question, caller, and result depth. Compare them after both apps shut down.
+
+```sh
+python3 -m setrya compare before.json after.json --summary comparison.md
+python3 -m setrya diagnose after.json
+```
+
+The comparison shows the affected probe and decisive observations. Changed questions or depths make the runs incomparable. Missing write evidence leaves the result inconclusive. Attach the report pair and Markdown summary to the pull request. [Evidence and comparison contract](docs/evidence.md#compare-two-saved-runs)
 
 ## Connect your own search
 
@@ -61,6 +70,8 @@ The [adapter guide](docs/adapters.md) covers the interface, a Python retrieval f
 A PASS applies to the configured caller, route, queries, result depths, and time windows. The intended caller saw the replacement while the old worker was paused. After release, each query found its required passages in a search that accounted for the old write. If a search returns both refund policies, it fails even when the new one ranks first. A forbidden passage in a later result on the tested path also fails the drill. Conversation history, other caches, and physical deletion need separate tests. [Verdict and evidence contract](docs/evidence.md)
 
 A document can also shrink from five chunks to three while a removed clause still turns up in search. The [retired-chunk drill](examples/support-search/retired.toml) asks specifically for that clause, which a general refund query can miss.
+
+The optional [PostgreSQL/pgvector example](docs/pgvector.md) catches a second failure. During delete-and-reupload, an orphaned candidate can take a top-three slot, leaving two current passages while a required clause drops out. The [paired pytest benchmark](docs/benchmark.md) runs the late overwrite and re-upload against the same app and hooks.
 
 ## Develop and verify
 

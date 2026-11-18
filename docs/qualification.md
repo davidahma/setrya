@@ -21,6 +21,7 @@ The offline harness uses a loopback-only network namespace on Linux and a loopba
 | `early-stale` | Observe a stale read before the old worker resumes with matching attribution. |
 | `missing-evidence` | Clean stale-view observations, exposure when the view advances, a missing revision identity, and a missing checkpoint. |
 | `adapter-handoff` | Compare broken and fixed HTTP fixtures through the CLI and the plain regression test. Exercise the Python-function entry point. |
+| `report-comparison` | Verify a fix and a regression. Reject changed questions, changed depth, older input bindings, and inconclusive write evidence. |
 | `report-replay` | Recompute reports after the drill changes and app exits. Check exit codes, attribution, schema rejection, and default output redaction. |
 | `isolation` | Run independent fixtures concurrently, interrupt and restart one, and preserve the other run's results. |
 | `repeatability` | 30 fresh-process samples each of the broken, guarded, and unobservable fixtures. A retry does not erase a failed first attempt. |
@@ -28,5 +29,7 @@ The offline harness uses a loopback-only network namespace on Linux and a loopba
 **Scope of evidence.** The fixture comparison uses one shared worker checkpoint and the same six HTTP controls for seeding, start, acknowledgment, publication, release, and receipt. Both consumers exercise the same source contents, questions, depth, and expectations. Setrya adds the TOML rule mapping and reusable adapter. The plain test keeps orchestration and assertions in one Python file. Both diagnose the deliberately broken refund fixture. Setrya also saves an independently replayable event history, which the plain test currently reports as assertion output. Unaided setup time, the two-minute newcomer interpretation target, third-party compatibility, and adoption through a team's later release are awaiting observation.
 
 For a handoff trial, give an engineer and a reviewer separate copies of the same disposable drill and one broken update. Record active setup time. After the app exits, give the reviewer the saved report, the commit, and the drill path. Record time to the first correct diagnosis, whether they can explain a missing-evidence verdict, and whether they rerun the scenario without help. Use the same fixture with the plain test as a comparison. A later release decision using the drill provides a separate adoption observation.
+
+The optional `python3 -m setrya qualify --case pgvector` runs six end-to-end checks against PostgreSQL. It verifies the clean but incomplete top-three response, the broader retrieval that still finds the third passage, and the guarded run's one-result delivery control. CI runs this case and the paired benchmark from an unpacked archive. [PostgreSQL setup](pgvector.md) · [Paired benchmark](benchmark.md)
 
 For a release, keep the archive validated by CI, checksum, OS/Python/SQLite version, and qualification logs. Link the exact workflow run from release notes.

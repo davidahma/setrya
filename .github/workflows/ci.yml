@@ -61,14 +61,61 @@ jobs:
           python3 -m setrya replay run.failed.json || status=$?
           test "$status" -eq 1
 
+  pgvector:
+    name: PostgreSQL and pgvector
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.7-pg17-bookworm@sha256:b513c48566e4777cd3370451400000c78eda6a08131d68f4c31d4a76f27bd8fd
+        env:
+          POSTGRES_DB: setrya_fixture
+          POSTGRES_USER: setrya
+          POSTGRES_PASSWORD: setrya-local
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U setrya -d setrya_fixture"
+          --health-interval 2s --health-timeout 2s --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install '.[pgvector,pytest]'
+      - name: Enable pgvector in the disposable database
+        env:
+          SERVICE_ID: ${{ job.services.postgres.id }}
+        run: |
+          docker exec "$SERVICE_ID" psql -U setrya -d setrya_fixture -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'
+      - name: Qualify the pgvector fixture from an unpacked archive
+        shell: bash
+        env:
+          SETRYA_PGVECTOR_DSN: postgresql://setrya:setrya-local@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/setrya_fixture
+        run: |
+          source_dir="$(mktemp -d)"
+          git archive HEAD | tar -x -C "$source_dir"
+          cd "$source_dir"
+          python3 -m setrya qualify --case pgvector
+          python3 -m examples.pgvector_search.benchmark --repeats 3 --output "$RUNNER_TEMP/setrya-benchmark"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ !cancelled() }}
+        with:
+          name: pgvector-benchmark
+          path: ${{ runner.temp }}/setrya-benchmark/
+          if-no-files-found: warn
+
   ci:
     name: CI
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
-    needs: [tests]
+    needs: [tests, pgvector]
     steps:
       - name: Require all matrix cells to pass
         env:
           MATRIX_RESULT: ${{ needs.tests.result }}
-        run: test "$MATRIX_RESULT" = success
+          PGVECTOR_RESULT: ${{ needs.pgvector.result }}
+        run: test "$MATRIX_RESULT" = success && test "$PGVECTOR_RESULT" = success

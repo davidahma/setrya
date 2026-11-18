@@ -226,6 +226,7 @@ class TrustTests(unittest.TestCase):
         self.assert_exit(self.check(), 0, "PASS")
         legacy = self.bundle()
         legacy.update(schema=1, checker=1)
+        legacy.pop("inputs", None)
         for event in legacy["events"]:
             for field in ("route", "scope", "publication"):
                 event.pop(field, None)

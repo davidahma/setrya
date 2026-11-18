@@ -56,3 +56,7 @@ For pytest, install the optional dependency using `python3 -m pip install '.[pyt
 def test_refund_index(setrya_check):
     setrya_check("examples/support-search/drill.toml")
 ```
+
+## PostgreSQL reference integration
+
+The [pgvector walkthrough](pgvector.md) uses an independent queued worker, current-upload filtering, and the normal HTTP search response. Run `setrya diagnose REPORT` for the first missing evidence when a check is inconclusive. For example, a terminal write receipt and a search snapshot watermark are separate observations. Use [offline comparison](evidence.md#compare-two-saved-runs) to hand off results from a broken run and its patch.

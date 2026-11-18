@@ -16,3 +16,11 @@ The report attributes a stale passage to the old write only when its recorded or
 A JSON report saves schema and checker versions, an opaque run ID, text-free effective rules, ordered event times, actual query route and caller, passage markers, and publication, receipt, or read evidence. Replay uses those saved rules and events. It never invokes the adapter. Schema 1 reports still show their event history and replay as NOT TESTED because they lack the current publication and caller evidence. A corrupt or unsupported bundle exits with code 2.
 
 Keep report artifacts with the exact commit and CI run. Share only synthetic or approved identifiers in public GitHub issues. Default output has no query or passage strings. The bundled fixtures use synthetic data and their independent search endpoint returns the full synthetic snippets to its local caller.
+
+## Compare two saved runs
+
+Run `python3 -m setrya compare before.json after.json --summary comparison.md` to check a patch offline. A verified fix starts with a recorded failure and ends with a passing run that proves the affected probe in the same phase. A missing prerequisite or final write visibility stays inconclusive. The output names the probe, caller, route, depth, and decisive events. Exit codes are 0 for a verified fix, 1 for a failure in the after run, 2 for an input or execution error, and 3 for an inconclusive or incomparable pair.
+
+Schema 3 reports carry the drill format version, effective rules, and SHA-256 fingerprints of the adapter factory and each exact question. Comparisons require these bindings to match. Adapter options and implementation code can change across patch runs. Keep the test data, hooks, and intended environment equivalent, and record the commits with the reports. Schema 2 verdicts still replay. Generate two current reports to compare them.
+
+The question fingerprint is an unkeyed digest for equality checks. It can reveal the use of a guessable question to someone who hashes a candidate. Share synthetic or approved report data publicly. The command prints the fingerprint and probe ID, and raw question text stays out of the report.

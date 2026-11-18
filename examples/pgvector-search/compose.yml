@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg17-bookworm@sha256:b513c48566e4777cd3370451400000c78eda6a08131d68f4c31d4a76f27bd8fd
+    environment:
+      POSTGRES_DB: setrya_fixture
+      POSTGRES_USER: setrya
+      POSTGRES_PASSWORD: setrya-local
+    ports:
+      - "127.0.0.1:${SETRYA_PGVECTOR_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "setrya", "-d", "setrya_fixture"]
+      interval: 1s
+      timeout: 2s
+      retries: 20

@@ -1,15 +1,19 @@
 """Portable, versioned evidence for the offline checker."""
 
 from dataclasses import asdict, dataclass
+from hashlib import sha256
 import json
+import re
 import os
 from pathlib import Path
 import tempfile
 
-from .drill import InputError, ProbeRules, Rules, integer, label, mapping
+from .drill import DRILL_VERSION, Drill, InputError, ProbeRules, Rules, integer, label, mapping
 
-SCHEMA = 2
-CHECKER = 2
+SCHEMA = 3
+CHECKER = 3
+_CHECKERS = {1: 1, 2: 2, SCHEMA: CHECKER}
+_HEX = re.compile(r"[0-9a-f]{64}\Z")
 MAX_REPORT_BYTES = 16 * 1024 * 1024
 _MAX_TIME = 2**63 - 1
 PUBLICATION_IDENTITY = {"run_id", "document", "revision"}
@@ -30,12 +34,24 @@ _TRANSITIONS = {
 _STAGES = {"seeded": "baseline", "published": "freshness", "released": "final"}
 
 
+def bind_inputs(drill: Drill) -> dict:
+    def fingerprint(text: str) -> str:
+        return sha256(text.encode("utf-8")).hexdigest()
+
+    return {
+        "drill_version": DRILL_VERSION,
+        "adapter": fingerprint(drill.factory),
+        "questions": {probe.rules.id: fingerprint(probe.question) for probe in drill.probes},
+    }
+
+
 @dataclass(frozen=True)
 class Report:
     run_id: str
     rules: Rules
     events: tuple[dict, ...]
-    schema: int = SCHEMA
+    schema: int = 2
+    inputs: dict | None = None
 
     def save(self, path: str | Path) -> None:
         self.validate()
@@ -46,10 +62,13 @@ class Report:
             ) as stream:
                 temporary = Path(stream.name)
                 try:
-                    json.dump({
-                        "schema": self.schema, "checker": 1 if self.schema == 1 else CHECKER,
+                    bundle = {
+                        "schema": self.schema, "checker": _CHECKERS[self.schema],
                         "run_id": self.run_id, "rules": asdict(self.rules), "events": self.events,
-                    }, stream, indent=2)
+                    }
+                    if self.schema == SCHEMA:
+                        bundle["inputs"] = self.inputs
+                    json.dump(bundle, stream, indent=2)
                     stream.write("\n")
                     if stream.tell() > MAX_REPORT_BYTES:
                         raise InputError("report exceeds size limit")
@@ -70,24 +89,32 @@ class Report:
             obj = json.loads(data)
         except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
             raise InputError("could not read report as JSON") from None
-        fields = mapping(obj, "report", {"schema", "checker", "run_id", "rules", "events"})
-        schema = fields["schema"]
-        if type(schema) is not int or schema not in {1, SCHEMA}:
+        schema = obj.get("schema") if isinstance(obj, dict) else None
+        if type(schema) is not int or schema not in _CHECKERS:
             raise InputError("unsupported report schema")
-        if type(fields["checker"]) is not int or fields["checker"] != (1 if schema == 1 else CHECKER):
+        keys = {"schema", "checker", "run_id", "rules", "events"}
+        fields = mapping(obj, "report", keys | ({"inputs"} if schema == SCHEMA else set()))
+        if type(fields["checker"]) is not int or fields["checker"] != _CHECKERS[schema]:
             raise InputError("unsupported checker version")
         if not isinstance(fields["events"], list):
             raise InputError("report events must be a list")
         rules = Rules.parse(fields["rules"], legacy=schema == 1)
-        report = cls(label(fields["run_id"], "run ID"), rules, tuple(fields["events"]), schema)
+        report = cls(label(fields["run_id"], "run ID"), rules, tuple(fields["events"]), schema, fields.get("inputs"))
         report.validate()
         return report
 
     def validate(self) -> None:
         """Validate event types, contents and order for live and replayed reports."""
-        if type(self.schema) is not int or self.schema not in {1, SCHEMA}:
+        if type(self.schema) is not int or self.schema not in _CHECKERS:
             raise InputError("unsupported report schema")
         probes = {probe.id: probe for probe in self.rules.probes}
+        if self.schema == SCHEMA:
+            inputs = mapping(self.inputs, "report inputs", {"drill_version", "adapter", "questions"})
+            integer(inputs["drill_version"], "report drill version", DRILL_VERSION, DRILL_VERSION)
+            questions = mapping(inputs["questions"], "question fingerprints", set(probes))
+            for digest in (inputs["adapter"], *questions.values()):
+                if not isinstance(digest, str) or not _HEX.fullmatch(digest):
+                    raise InputError("invalid input fingerprint")
         previous_ns = 0
         stage = None
         receipt_seen = False
