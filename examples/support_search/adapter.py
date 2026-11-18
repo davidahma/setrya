@@ -1,6 +1,6 @@
 """Map an application's regular search and worker observations into Setrya."""
 
-from setrya.adapter import Checkpoint, ReadView, Receipt, RunContext, SearchResult
+from setrya.adapter import Checkpoint, Publication, ReadView, Receipt, RunContext, SearchResult
 from setrya.drill import InputError, Probe
 
 from .app import App, MODES
@@ -22,7 +22,7 @@ class SupportAdapter:
         return Checkpoint(**observed) if observed is not None else None
 
     def publish(self):
-        self.fixture.publish()
+        return Publication(**self.fixture.publish())
 
     def release(self):
         self.fixture.release()
@@ -37,6 +37,7 @@ class SupportAdapter:
             passages=tuple(hit["id"] for hit in result["hits"]),
             view=ReadView(**result["view"]) if result["view"] is not None else None,
             origins=tuple(hit["origin"] for hit in result["hits"]),
+            route=result["route"], scope=result["scope"],
         )
 
     def close(self):

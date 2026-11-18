@@ -34,14 +34,32 @@ jobs:
       - run: python3 -m unittest discover -s tests -v
       - run: python3 -m setrya qualify --quick
       - name: Publish synthetic replay evidence
-        if: runner.os == 'Linux' && matrix.python == '3.11'
+        if: ${{ !cancelled() && runner.os == 'Linux' && matrix.python == '3.11' }}
         run: python3 -m setrya check examples/support-search/drill.toml --report run.json --summary "$GITHUB_STEP_SUMMARY"
+      - name: Capture a known failing check
+        id: failing_evidence
+        if: ${{ !cancelled() && runner.os == 'Linux' && matrix.python == '3.11' }}
+        continue-on-error: true
+        run: |
+          sed 's/mode = "fixed"/mode = "broken"/' examples/support-search/drill.toml > "$RUNNER_TEMP/setrya-broken.toml"
+          python3 -m setrya check "$RUNNER_TEMP/setrya-broken.toml" --report run.failed.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        if: runner.os == 'Linux' && matrix.python == '3.11'
+        if: ${{ !cancelled() && runner.os == 'Linux' && matrix.python == '3.11' }}
         with:
           name: synthetic-search-report
-          path: run.json
+          path: |
+            run.json
+            run.failed.json
           if-no-files-found: error
+      - name: Verify the saved failure replays
+        if: ${{ !cancelled() && runner.os == 'Linux' && matrix.python == '3.11' }}
+        env:
+          CAPTURE_OUTCOME: ${{ steps.failing_evidence.outcome }}
+        run: |
+          test "$CAPTURE_OUTCOME" = failure
+          status=0
+          python3 -m setrya replay run.failed.json || status=$?
+          test "$status" -eq 1
 
   ci:
     name: CI

@@ -117,6 +117,7 @@ class App:
             if self.mode in {"opaque", "lag-exposed"}:
                 snapshot(db)
         self.published = True
+        return {"run_id": self.run_id, "document": "refund", "revision": "B"}
 
     def release(self):
         with connect(self.path) as db:
@@ -160,6 +161,7 @@ class App:
                 (" OR ".join(terms), top_k),
             ).fetchall() if terms else []
         return {
+            "route": route, "scope": scope,
             "hits": [{"id": None if hide_identity else row["marker"],
                       "origin": row["origin"], "text": row["body"]} for row in rows],
             "view": None if self.mode == "opaque" else {

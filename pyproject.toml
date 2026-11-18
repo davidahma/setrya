@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "setrya"
-version = "0.1.0"
+version = "0.2.0"
 description = "Regression tests for stale search results after document updates"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,7 +15,7 @@ dependencies = []
 pytest = ["pytest>=8"]
 
 [project.scripts]
-setrya = "setrya.cli:main"
+setrya = "setrya.cli:console_main"
 
 [tool.setuptools.packages.find]
 include = ["setrya*", "examples*"]

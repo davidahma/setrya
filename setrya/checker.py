@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from enum import Enum
 
-from .evidence import Report
+from .evidence import Report, establishes_baseline, matches_search
 
 NS_PER_MS = 1_000_000
 
@@ -11,6 +11,7 @@ NS_PER_MS = 1_000_000
 class Status(Enum):
     PASS = ("PASS", 0)
     FAIL = ("FAIL", 1)
+    ERROR = ("ERROR", 2)
     NOT_TESTED = ("NOT TESTED", 3)
 
     @property
@@ -55,7 +56,23 @@ def _attribution(event: dict, rank: int, release: dict | None, receipt: dict | N
 
 def evaluate(report: Report) -> Verdict:
     report.validate()
+    if report.schema == 1:
+        return Verdict(Status.NOT_TESTED, "Report schema 1 lacks current publication and caller evidence. Rerun the drill.")
+    verdict = _evaluate(report)
+    if verdict.status is not Status.FAIL:
+        error = next((event for event in report.events if event["kind"] == "adapter_error"), None)
+        if error:
+            return Verdict(Status.ERROR, "The adapter could not complete the drill", error["seq"])
+    return verdict
+
+
+def _evaluate(report: Report) -> Verdict:
     rules = report.rules
+    primary = next(probe for probe in rules.probes if probe.id == rules.freshness_probe)
+    if not any(event.get("stage") == "baseline" and event.get("probe_id") == primary.id
+               and establishes_baseline(event, primary, freshness=True) for event in report.events):
+        return Verdict(Status.NOT_TESTED, "Baseline search did not distinguish the original revision from its replacement",
+                       probe=primary.id)
     events = {event["kind"]: event for event in report.events if event["kind"] != "probe"}
     attempt = events.get("started", {}).get("attempt")
     identity = {"run_id": report.run_id, "attempt": attempt, "document": rules.document,
@@ -69,12 +86,15 @@ def evaluate(report: Report) -> Verdict:
     if not _matches(receipt, identity):
         receipt = None
     publication = events.get("published")
-    if publication is None:
-        return Verdict(Status.NOT_TESTED, "Missing publication of the new revision")
+    expected_publication = {"run_id": report.run_id, "document": rules.document, "revision": rules.new_revision}
+    if not publication or not _matches(publication["publication"], expected_publication):
+        return Verdict(Status.NOT_TESTED, f"Missing matching publication of revision {rules.new_revision} for {rules.document}",
+                       probe=primary.id)
 
     probes = {probe.id: probe for probe in rules.probes}
     first_fresh = None
     last_pre_deadline = None
+    saw_freshness_probe = False
     baseline = set()
     final = {}
     proof = set()
@@ -86,20 +106,19 @@ def evaluate(report: Report) -> Verdict:
         if event["kind"] != "probe":
             continue
         probe = probes[event["probe_id"]]
-        view = event["view"]
-        if view and (view["route"], view["scope"]) != (probe.route, probe.scope):
+        if not matches_search(event, probe):
             continue
         passages = event["passages"]
         has_identity = None not in passages
         required = set(probe.require) <= set(passages)
         stage = event["stage"]
         if stage == "baseline":
-            if set(probe.before) <= set(passages):
+            if establishes_baseline(event, probe, freshness=probe.id == primary.id):
                 baseline.add(probe.id)
             continue
 
-        is_freshness_probe = probe.id == rules.freshness_probe
-        if is_freshness_probe and first_fresh is None:
+        if probe.id == primary.id and stage == "freshness" and first_fresh is None:
+            saw_freshness_probe = True
             covered_boundary = last_pre_deadline is not None and (
                 event["ns"] - last_pre_deadline <= rules.max_gap_ms * NS_PER_MS
             )
@@ -137,6 +156,9 @@ def evaluate(report: Report) -> Verdict:
                            event["seq"], probe.id)
         final[probe.id] = event
 
+    if not saw_freshness_probe:
+        return Verdict(Status.NOT_TESTED, "Missing freshness observation on the declared route and caller before release",
+                       probe=primary.id)
     if first_fresh is None or first_fresh["ns"] > cutoff:
         return Verdict(Status.NOT_TESTED, "Freshness deadline could not be evaluated from the sampled search responses",
                        probe=rules.freshness_probe)
@@ -153,7 +175,7 @@ def evaluate(report: Report) -> Verdict:
         if probe.id not in proof:
             return Verdict(Status.NOT_TESTED, "Missing correlated write rejection or visibility evidence on the tested search path",
                            probe=probe.id)
-    decisive = max(final.values(), key=lambda event: event["seq"])
+    decisive = final[primary.id]
     resolved = "Index rejected the old write" if receipt["outcome"] == "rejected" else "Search observed the completed write"
     return Verdict(Status.PASS, f"{resolved}. All final probes found their required passages.",
                    decisive["seq"], decisive["probe_id"])

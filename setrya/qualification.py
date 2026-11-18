@@ -55,9 +55,9 @@ def check_status(result, expected, text):
 def demo():
     started = monotonic()
     completed = command("-m", "setrya", "demo", timeout=120)
-    outcome(completed, 0, "old write rejected")
+    outcome(completed, 0, "Old write rejected")
     require(monotonic() - started < 120, "demo exceeded the two-minute target")
-    for text in ("FAIL", "PASS", "NOT TESTED", "30 days", "14 days", "no proof",
+    for text in ("FAIL", "PASS", "NOT TESTED", "30 days", "14 days", "visibility evidence",
                  "demo --case broken", "demo --case fixed", "demo --case opaque"):
         require(text in completed.stdout, f"demo omitted {text}")
 
@@ -117,7 +117,8 @@ def adapter_handoff():
         for mode, code, text in (("fixed", 0, "PASS"), ("broken", 1, "refund@A at rank")):
             path = configuration(directory, mode)
             outcome(command("-m", "setrya", "check", str(path)), code, text)
-            outcome(command("-m", "examples.support_search.baseline", "--mode", mode), code, text)
+            for flags in ((), ("-O",)):
+                outcome(command(*flags, "-m", "examples.support_search.baseline", "--mode", mode), code, text)
     outcome(command("-m", "setrya", "check", str(EXAMPLE / "python.toml")), 0, "PASS")
 
 
@@ -132,6 +133,11 @@ def report_replay():
             original = command("-m", "setrya", "check", str(path), "--report", str(artifact),
                                "--summary", str(summary))
             outcome(original, code, detail)
+            summary_text = summary.read_text()
+            require("python3 -m setrya replay" in summary_text, "review summary omitted replay command")
+            if mode == "fixed":
+                require("Probe refund-window" in summary_text and "Published refund revision B" in summary_text,
+                        "review summary omitted the primary probe or published revision")
             for artifact_text in (original.stdout, original.stderr, artifact.read_text(), summary.read_text()):
                 require(all(text not in artifact_text for text in (secret, "14 days", "30 days", "127.0.0.1", directory)),
                         "default output contained application text or local addresses")

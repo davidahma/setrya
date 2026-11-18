@@ -24,6 +24,13 @@ class Checkpoint:
 
 
 @dataclass(frozen=True)
+class Publication:
+    run_id: str
+    document: str
+    revision: str
+
+
+@dataclass(frozen=True)
 class Receipt:
     run_id: str
     attempt: str
@@ -48,6 +55,9 @@ class SearchResult:
     passages: tuple[str | None, ...]
     view: ReadView | None = None
     origins: tuple[str | None, ...] | None = None
+    # The actual retrieval route and caller, even when no watermark is available.
+    route: str | None = None
+    scope: str | None = None
 
 
 class Adapter(Protocol):
@@ -56,7 +66,7 @@ class Adapter(Protocol):
     def seed(self) -> None: ...
     def start_old(self) -> str: ...
     def checkpoint(self) -> Checkpoint | None: ...
-    def publish(self) -> None: ...
+    def publish(self) -> Publication | None: ...
     def search(self, probe: Probe) -> SearchResult: ...
     def release(self) -> None: ...
     def receipt(self) -> Receipt | None: ...

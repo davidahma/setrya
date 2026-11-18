@@ -1,6 +1,6 @@
 """Read the versioned drill format and derive its text-free rules."""
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 import re
 import tomllib
@@ -32,7 +32,7 @@ def mapping(value: object, field: str, required: set, optional: set = frozenset(
 
 
 def labels(value: object, field: str) -> tuple[str, ...]:
-    if not isinstance(value, list):
+    if not isinstance(value, (list, tuple)):
         raise InputError(f"{field} must be a list of identifiers")
     result = tuple(label(item, field) for item in value)
     if len(set(result)) != len(result):
@@ -82,11 +82,11 @@ class Rules:
     probes: tuple[ProbeRules, ...]
 
     @classmethod
-    def parse(cls, value: object) -> "Rules":
+    def parse(cls, value: object, *, legacy: bool = False) -> "Rules":
         names = {"id", "document", "old_revision", "new_revision", "checkpoint", "freshness_probe"}
         times = {"freshness_ms", "checkpoint_ms", "settle_ms", "sample_ms", "max_gap_ms"}
         obj = mapping(value, "drill rules", names | times | {"probes"})
-        if not isinstance(obj["probes"], list) or not 2 <= len(obj["probes"]) <= 16:
+        if not isinstance(obj["probes"], (list, tuple)) or not 2 <= len(obj["probes"]) <= 16:
             raise InputError("declare a freshness probe and at least one separate control")
         probes = tuple(ProbeRules.parse(probe) for probe in obj["probes"])
         rules = cls(**{name: label(obj[name], name) for name in names},
@@ -97,6 +97,9 @@ class Rules:
             raise InputError("probe IDs must be distinct and include freshness_probe")
         if rules.old_revision == rules.new_revision or not selected.before or not selected.forbid:
             raise InputError("freshness probe needs distinct revisions, before passages and forbidden passages")
+        if not legacy and (not set(selected.require) - set(selected.before)
+                           or not set(selected.before) & set(selected.forbid)):
+            raise InputError("freshness probe needs a revision-specific required marker and a forbidden baseline marker")
         if not rules.sample_ms < rules.max_gap_ms <= min(rules.freshness_ms, rules.settle_ms):
             raise InputError("sample_ms must be less than max_gap_ms, within both observation windows")
         if (rules.freshness_ms + rules.settle_ms * len(probes)) // rules.sample_ms > 10_000:
@@ -116,6 +119,19 @@ class Drill:
     probes: tuple[Probe, ...]
     factory: str
     options: dict
+
+    def validate(self) -> None:
+        """Reject inconsistent programmatic drills before loading adapter code."""
+        if not isinstance(self.rules, Rules) or Rules.parse(asdict(self.rules)) != self.rules:
+            raise InputError("invalid drill rules")
+        if (not isinstance(self.probes, tuple)
+                or not all(isinstance(probe, Probe) for probe in self.probes)
+                or tuple(probe.rules for probe in self.probes) != self.rules.probes):
+            raise InputError("execution probes must match the report rules, including result depth")
+        if any(not isinstance(probe.question, str) or not probe.question.strip() for probe in self.probes):
+            raise InputError("each probe needs a question")
+        if not isinstance(self.factory, str) or not _FACTORY.fullmatch(self.factory) or not isinstance(self.options, dict):
+            raise InputError("adapter needs a Python module:factory and an optional options table")
 
     @classmethod
     def load(cls, path: str | Path) -> "Drill":

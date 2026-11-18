@@ -19,7 +19,7 @@ class History:
         self.probe(4, "baseline", ["delivery@1"], "delivery")
         self.add("started", 6, attempt="attempt")
         self.add("held", 8, **self.identity, name="after_source_read")
-        self.add("published", 10)
+        self.add("published", 10, publication={"run_id": "run", "document": "refund", "revision": "B"})
 
     def add(self, kind, ms, **evidence):
         self.events.append({"kind": kind, "seq": len(self.events) + 1, "ns": ms * 1_000_000, **evidence})
@@ -27,7 +27,8 @@ class History:
     def probe(self, ms, stage, markers, name="refund-window", *, start=None, view=None, origins=None):
         self.add("probe", ms, probe_id=name, stage=stage, passages=markers, view=view,
                  started_ns=(ms - 1 if start is None else start) * 1_000_000,
-                 origins=[None] * len(markers) if origins is None else origins)
+                 origins=[None] * len(markers) if origins is None else origins,
+                 route="support-search", scope="support-agent")
 
     def resume(self):
         self.probe(40, "freshness", ["refund@B"])

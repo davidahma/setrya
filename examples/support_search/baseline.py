@@ -23,7 +23,13 @@ def wait_for(observe, seconds, message):
     raise AssertionError(message)
 
 
+def verify(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
 def ids(result):
+    verify((result["route"], result["scope"]) == (ROUTE, SCOPE), "search used the wrong route or caller")
     return [hit["id"] for hit in result["hits"]]
 
 
@@ -33,47 +39,46 @@ def check(mode="fixed"):
         client = Client(Path(directory), run_id, mode, "refund")
         try:
             client.seed()
-            assert "refund@A" in ids(client.search(REFUND, ROUTE, SCOPE, 3)), "baseline refund passage was absent"
-            assert "delivery@1" in ids(client.search(DELIVERY, ROUTE, SCOPE, 3)), "baseline delivery passage was absent"
+            original = ids(client.search(REFUND, ROUTE, SCOPE, 3))
+            verify("refund@A" in original and "refund@B" not in original,
+                   "baseline did not distinguish the original revision")
+            verify("delivery@1" in ids(client.search(DELIVERY, ROUTE, SCOPE, 3)), "baseline delivery passage was absent")
             attempt = client.start_old()
             held = wait_for(client.checkpoint, 2.0, "old attempt never reached the read checkpoint")
-            assert held == {"run_id": run_id, "attempt": attempt, "document": "refund",
-                            "revision": "A", "name": CHECKPOINT}, "checkpoint exposed the wrong attempt"
-            client.publish()
+            verify(held == {"run_id": run_id, "attempt": attempt, "document": "refund",
+                            "revision": "A", "name": CHECKPOINT}, "checkpoint exposed the wrong attempt")
+            verify(client.publish() == {"run_id": run_id, "document": "refund", "revision": "B"},
+                   "publication exposed the wrong revision")
 
             def fresh():
                 result = client.search(REFUND, ROUTE, SCOPE, 3)
                 return result if "refund@B" in ids(result) else None
 
-            assert "refund@A" not in ids(wait_for(fresh, 1.2, "revision B missed the freshness deadline")), (
-                "revision A was present alongside B"
-            )
-            assert "refund@A" not in ids(client.search(REFUND, ROUTE, SCOPE, 3)), (
-                "revision A returned while the old attempt was held"
-            )
+            verify("refund@A" not in ids(wait_for(fresh, 1.2, "revision B missed the freshness deadline")),
+                   "revision A was present alongside B")
+            verify("refund@A" not in ids(client.search(REFUND, ROUTE, SCOPE, 3)),
+                   "revision A returned while the old attempt was held")
             client.release()
             deadline = monotonic() + 2.0
             receipt = wait_for(client.receipt, max(0, deadline - monotonic()), "old attempt had no terminal receipt")
-            assert all(receipt[key] == held[key] for key in ("run_id", "attempt", "document", "revision")), (
-                "terminal receipt exposed the wrong attempt"
-            )
+            verify(all(receipt[key] == held[key] for key in ("run_id", "attempt", "document", "revision")),
+                   "terminal receipt exposed the wrong attempt")
             for question, required, forbidden in ((REFUND, "refund@B", "refund@A"),
                                                   (DELIVERY, "delivery@1", None)):
                 while True:
                     result = client.search(question, ROUTE, SCOPE, 3)
                     observed = ids(result)
-                    assert forbidden is None or forbidden not in observed, (
-                        f"expected {required}. Observed {forbidden} at rank {observed.index(forbidden) + 1}."
-                    )
+                    if forbidden is not None and forbidden in observed:
+                        raise AssertionError(f"expected {required}. Observed {forbidden} at rank {observed.index(forbidden) + 1}.")
                     view = result["view"]
                     if receipt["outcome"] == "rejected" or (
                         view and view["generation"] == receipt["generation"] and view["commit"] >= receipt["commit"]
                         and view["route"] == ROUTE and view["scope"] == SCOPE
                     ):
-                        assert monotonic() <= deadline, "final search missed the deadline"
-                        assert None not in observed and required in observed, f"expected {required}. Observed {observed}."
+                        verify(monotonic() <= deadline, "final search missed the deadline")
+                        verify(None not in observed and required in observed, f"expected {required}. Observed {observed}.")
                         break
-                    assert monotonic() < deadline, "search visibility was unverified"
+                    verify(monotonic() < deadline, "search visibility was unverified")
                     sleep(0.02)
         finally:
             client.close()

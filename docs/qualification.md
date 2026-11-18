@@ -9,6 +9,8 @@ python3 -m setrya qualify --case report-replay
 scripts/qualify-offline.sh
 ```
 
+The Linux CI report step also runs a known-broken check, uploads its saved report, and verifies that replay exits with FAIL. The unit suite exercises wrong-caller and post-release observations, mismatched Python search depth, false publication claims, and adapter errors after a proven regression.
+
 The offline harness uses a loopback-only network namespace on Linux and a loopback-only sandbox profile on macOS. It checks loopback and attempts a connection to a reserved off-host address to verify the isolation. On Linux, the harness needs permission for `unshare --net` and `ip link`. CI uses non-interactive sudo to configure the namespace. Set `SETRYA_PYTHON` to an absolute Python executable to override interpreter discovery.
 
 | Case | Expected evidence |
@@ -24,5 +26,7 @@ The offline harness uses a loopback-only network namespace on Linux and a loopba
 | `repeatability` | 30 fresh-process samples each of the broken, guarded, and unobservable fixtures. A retry does not erase a failed first attempt. |
 
 **Scope of evidence.** The fixture comparison uses one shared worker checkpoint and the same six HTTP controls for seeding, start, acknowledgment, publication, release, and receipt. Both consumers exercise the same source contents, questions, depth, and expectations. Setrya adds the TOML rule mapping and reusable adapter. The plain test keeps orchestration and assertions in one Python file. Both diagnose the deliberately broken refund fixture. Setrya also saves an independently replayable event history, which the plain test currently reports as assertion output. Unaided setup time, the two-minute newcomer interpretation target, third-party compatibility, and adoption through a team's later release are awaiting observation.
+
+For a handoff trial, give an engineer and a reviewer separate copies of the same disposable drill and one broken update. Record active setup time. After the app exits, give the reviewer the saved report, the commit, and the drill path. Record time to the first correct diagnosis, whether they can explain a missing-evidence verdict, and whether they rerun the scenario without help. Use the same fixture with the plain test as a comparison. A later release decision using the drill provides a separate adoption observation.
 
 For a release, keep the archive validated by CI, checksum, OS/Python/SQLite version, and qualification logs. Link the exact workflow run from release notes.

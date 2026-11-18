@@ -6,7 +6,7 @@ Start with the [HTTP configuration](../examples/support-search/drill.toml) or ru
 python3 -m setrya check examples/support-search/python.toml --report run.json
 ```
 
-A drill names a Python `module:factory` inside the trusted checkout or Python path. Treat a drill and its adapter as executable test code. Setrya imports the adapter module and calls its factory with a `RunContext` containing a run ID, an isolated temporary directory, and the parsed drill. Use the run ID to namespace external state. Use only disposable data and make each operation bounded. Setrya manages the polling schedule, and the adapter manages timeouts for its own calls.
+A drill names a Python `module:factory` inside the trusted checkout or Python path. Both the installed `setrya` command and `python3 -m setrya` can import adapters from the working directory. Treat a drill and its adapter as executable test code. Setrya imports the adapter module and calls its factory with a `RunContext` containing a run ID, an isolated temporary directory, and the parsed drill. Use the run ID to namespace external state. Use only disposable data and make each operation bounded. Setrya manages the polling schedule, and the adapter manages timeouts for its own calls.
 
 ## Adapter methods
 
@@ -17,13 +17,13 @@ The [public types](../setrya/adapter.py) and the [reference adapter](../examples
 | `seed()` | A disposable source revision A and a searchable unrelated control. |
 | `start_old()` | A job that reads A, plus the ID of that exact attempt. |
 | `checkpoint()` | Acknowledgment that the attempt holds the revision it actually read and is waiting at the named checkpoint. Return `None` while the acknowledgment is unavailable. |
-| `publish()` | A publication acknowledgment for revision B. Keep this path independent of the held attempt. |
-| `search(probe)` | Ordered passage IDs from the declared route, scope, and depth. Return `None` for an unidentified passage. Include a read snapshot when the path exposes one. |
+| `publish()` | A `Publication(run_id, document, revision)` receipt for what was actually published. Return `None` if acknowledgment is unavailable. Keep this path independent of the held attempt. |
+| `search(probe)` | A `SearchResult` with ordered passage IDs at the requested depth and the route and scope that actually served the response. Use `None` for an unidentified passage. Include a read snapshot when the path exposes one. |
 | `release()` | Release of the specific held attempt. |
 | `receipt()` | A terminal rejection or commit for the specific old attempt. Return `None` while terminal evidence is unavailable. |
 | `close()` | Bounded cleanup of resources owned by the current run. The factory cleans up any resources it started if initialization fails. |
 
-Use the IDs of returned revisions or map distinct markers in synthetic passages to stable, opaque IDs. Keep those markers out of questions. Only count text from the search response that the named caller actually receives. For write attribution, a result can also carry the attempt that produced each passage. A rejection receipt binds to the run, attempt, document, and old revision. A commit receipt also carries an index generation and commit number. A read watermark describes the snapshot that produced the response, including its route and caller scope.
+Use the IDs of returned revisions or map distinct markers in synthetic passages to stable, opaque IDs. A document ID shared across revisions can accompany a revision-specific marker. The primary probe needs a required marker unique to the replacement, and a forbidden marker observed at baseline. Keep those markers out of questions. Only count text from the search response that the named caller actually receives. For write attribution, a result can also carry the attempt that produced each passage. A rejection receipt binds to the run, attempt, document, and old revision. A commit receipt also carries an index generation and commit number. A read watermark describes the snapshot that produced the response, including its route and caller scope. A result without a watermark can still identify the actual route and caller using `SearchResult.route` and `SearchResult.scope`. Use the identity of the retrieval path the adapter exercised. Copying the expected identity from the drill can conceal a routing mistake.
 
 ## Drill fields
 
@@ -39,14 +39,16 @@ The file uses `version = 1`, an `[adapter]` table, a `[rules]` table, and two or
 | Report says | What to check |
 | --- | --- |
 | Missing checkpoint acknowledgment | Verify the worker received the job and reports the run, attempt, document, revision it read, and checkpoint name after it pauses. |
-| Baseline passage missing | Reproduce the query in the same route and caller scope with the configured depth. Choose a query that retrieves the original passage before changing it. |
+| Baseline search did not distinguish the original revision | Reproduce the query in the same route, caller scope, and depth. Choose a query that retrieves an old marker and verify that the replacement marker is absent before publication. |
+| Missing matching publication | Inspect the update acknowledgment and return the actual run, document, and replacement revision. |
+| Missing freshness observation on the declared route and caller | Check which endpoint and caller served the probe while the worker was held. A later response from the intended caller cannot establish that event order. |
 | Revision or passage identity missing | Return revision metadata or map a distinct synthetic passage marker to an opaque ID. |
 | Write rejection or visibility evidence missing | Bind the rejection to the held attempt or return the watermark for the snapshot that served each probe. A worker log or index database inspection establishes a different observation. |
 | Freshness deadline could not be evaluated | Inspect the saved event times. Make sure the sample schedule covers the deadline, the app responds within the sampling window, and results carry passage IDs. |
 
 ## Import from Python or pytest
 
-Call `setrya.runner.run` with a parsed `Drill` or a path. It returns a `RunResult` with `verdict` and `report`. Save the latter using `result.report.save("run.json")`.
+Call `setrya.runner.run` with a parsed `Drill` or a path. If you construct a `Drill` directly, use the same `ProbeRules` in `drill.rules.probes` and in each `Probe`. A mismatch is rejected before the adapter loads. It returns a `RunResult` with `verdict` and `report`. Save the latter using `result.report.save("run.json")`.
 
 For pytest, install the optional dependency using `python3 -m pip install '.[pytest]'` on a development machine, then enable the plugin with `python3 -m pytest -p setrya.pytest_plugin`.
 
