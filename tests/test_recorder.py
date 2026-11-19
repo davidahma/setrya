@@ -1,4 +1,6 @@
+from contextlib import redirect_stdout
 from dataclasses import replace
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -6,7 +8,7 @@ from unittest.mock import patch
 
 from setrya.adapter import Checkpoint, Publication, ReadView, Receipt, SearchResult
 from setrya.checker import Status, evaluate
-from setrya.cli import EXAMPLE
+from setrya.cli import EXAMPLE, main
 from setrya.comparison import compare
 from setrya.drill import Drill, InputError
 from setrya.evidence import Report
@@ -145,7 +147,23 @@ class RecorderTests(unittest.TestCase):
                 self.assertIn(CANDIDATE, text)
         self.assertEqual(compare(base_pass, candidate_pass)[0], 3)
 
-    def test_review_refuses_mismatched_revision_or_test_identity(self):
+    def test_review_summary_includes_replay_commands_without_private_paths(self):
+        base = self.directory / "base.json"
+        candidate = self.directory / "private-filename.json"
+        summary = self.directory / "review.md"
+        self.record(result="refund@A").save(base)
+        self.record(CANDIDATE).save(candidate)
+        with redirect_stdout(StringIO()):
+            code = main(["review", str(base), str(candidate), "--base-commit", BASE,
+                         "--candidate-commit", CANDIDATE, "--base-exit", "1", "--candidate-exit", "0",
+                         "--summary", str(summary)])
+        self.assertEqual(code, 0)
+        text = summary.read_text()
+        self.assertIn("python3 -m setrya replay base.json", text)
+        self.assertIn('python3 -m setrya replay "$CANDIDATE_REPORT"', text)
+        self.assertNotIn(str(self.directory), text)
+        self.assertNotIn(candidate.name, text)
+
         base = self.record()
         candidate = self.record(CANDIDATE)
         code, text = review(base, candidate, base_commit=CANDIDATE, candidate_commit=BASE,

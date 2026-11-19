@@ -128,10 +128,10 @@ def rerun_command(path: str) -> str:
     return 'python3 -m setrya check "$DRILL" --report run.json'
 
 
-def replay_command(report_path: str | None) -> str:
+def replay_command(report_path: str | None, *, artifact: str = "run.json", variable: str = "REPORT") -> str:
     if report_path is None:
         return "Save with --report run.json, then run python3 -m setrya replay run.json"
-    target = "run.json" if report_path == "run.json" else '"$REPORT"'
+    target = artifact if Path(report_path).name == artifact else f'"${variable}"'
     return f"python3 -m setrya replay {target}"
 
 
@@ -196,6 +196,9 @@ def main(argv=None) -> int:
 
                 code, summary = review(before, after, base_commit=args.base_commit, candidate_commit=args.candidate_commit,
                                        base_exit=args.base_exit, candidate_exit=args.candidate_exit)
+                base_replay = replay_command(args.before, artifact="base.json", variable="BASE_REPORT")
+                candidate_replay = replay_command(args.after, artifact="candidate.json", variable="CANDIDATE_REPORT")
+                summary += f"\nReplay base  {base_replay}\nReplay candidate  {candidate_replay}"
             else:
                 code, summary = compare(before, after)
             print(summary)
