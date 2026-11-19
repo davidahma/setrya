@@ -12,7 +12,7 @@ from time import monotonic, sleep
 from uuid import uuid4
 
 from setrya.integrations.celery import CeleryCheckpoint
-from .contract import QUESTION
+from .contract import QUESTION, SCOPES
 from .store import Store
 from .worker import TASK, broker
 
@@ -35,13 +35,13 @@ class _AnswerHandler(BaseHTTPRequestHandler):
             if not 0 < size <= 1024:
                 raise ValueError
             payload = json.loads(self.rfile.read(size))
-            if payload != {"question": QUESTION}:
+            if not isinstance(payload, dict) or set(payload) != {"question"} or payload["question"] not in tuple(SCOPES):
                 raise ValueError
         except (ValueError, UnicodeError):
             self.send_error(400)
             return
         try:
-            answer = app.store.answer(caller, payload["question"], app.attempt)
+            answer = app.store.answer(caller, payload["question"], app.read_attempt)
         except Exception:
             self.send_error(500)
             return
@@ -58,6 +58,7 @@ class Application:
         self.store = Store(run_id, mode)
         self.run_id, self.mode = run_id, mode
         self.attempt = uuid4().hex
+        self.read_attempt = self.attempt
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         self.scratch = TemporaryDirectory(prefix="answer-", dir=directory)
@@ -98,12 +99,12 @@ class Application:
         if self.process is None or self.process.poll() is not None:
             raise RuntimeError("Celery worker is unavailable")
 
-    def start_old(self):
+    def start_old(self, caller="revoked", question=QUESTION):
         self._worker_alive()
         if self.dispatched:
             raise RuntimeError("cache fill already dispatched")
         self.dispatched = True
-        self.producer.send_task(TASK, task_id=self.attempt)
+        self.producer.send_task(TASK, args=(caller, question, True), task_id=self.attempt)
         return self.attempt
 
     def checkpoint(self):
@@ -113,15 +114,21 @@ class Application:
     def captured(self):
         return self.store.captured(self.attempt)
 
+    def refill(self, caller, question):
+        self._worker_alive()
+        self.read_attempt = uuid4().hex
+        self.producer.send_task(TASK, args=(caller, question, False), task_id=self.read_attempt)
+        return self.read_attempt
+
     def revoke(self):
         return self.store.revoke()
 
     def release(self):
         self.gate.release()
 
-    def receipt(self):
+    def receipt(self, attempt=None):
         self._worker_alive()
-        return self.store.receipt(self.attempt)
+        return self.store.receipt(attempt or self.attempt)
 
     def answer(self, caller, question=QUESTION):
         connection = HTTPConnection(*self.server.server_address, timeout=5)

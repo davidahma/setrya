@@ -17,6 +17,8 @@ def verify(directory, mode):
     expected = Status.FAIL if broken else Status.PASS
     if verdict.status != expected or trace["mode"] != mode:
         raise ValueError(f"{mode}: expected {expected.label} for the selected worker policy")
+    if trace.get("version") != 2 or trace.get("receipt_before_release") is not False:
+        raise ValueError(f"{mode}: missing the pending receipt check before release")
     attempt = trace["worker_capture"]["attempt"]
     receipt = next(event for event in report.events if event["kind"] == "receipt")
     if (receipt["attempt"] != attempt or trace["held_after_reads"]["attempt"] != attempt

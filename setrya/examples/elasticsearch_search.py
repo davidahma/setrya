@@ -16,7 +16,11 @@ class Fixture:
         self.run_id = context.run_id
         self.index = f"setrya-{self.run_id}"
         self.weak = context.drill.rules.visibility == "observed-after-refresh"
-        self.broken = context.drill.options.get("mode") == "broken"
+        mode = context.drill.options.get("mode", "fixed")
+        if mode not in ("fixed", "broken", "opaque"):
+            raise InputError("unknown Elasticsearch fixture mode")
+        self.broken = mode == "broken"
+        self.opaque = mode == "opaque"
         self.port = int(os.environ["SETRYA_ELASTICSEARCH_PORT"])
         self.client = build_opener(ProxyHandler({}))
         self.created = False
@@ -67,7 +71,10 @@ class Fixture:
                        self.refresh_generation if self.weak else position.generation, None if self.weak else position.commit)
 
     def refresh(self, receipt, probe):
-        return elasticsearch_refresh(self.request("POST", "/_refresh"), receipt=receipt, generation=self.refresh_generation,
+        response = self.request("POST", "/_refresh")
+        if self.opaque:
+            return None
+        return elasticsearch_refresh(response, receipt=receipt, generation=self.refresh_generation,
                                      route="support-search", scope="support-agent")
 
     def search(self, probe):
@@ -85,7 +92,7 @@ class Fixture:
         hits = response["hits"]["hits"]
         witness = next((hit for hit in hits if hit["_id"] == "refund"), None)
         view = None
-        if witness and not self.weak:
+        if witness and not self.weak and not self.opaque:
             view = elasticsearch_position(witness, index_uuid=self.uuid, shard=0).view("support-search", "support-agent")
         return SearchResult(tuple(hit["_source"].get("setrya_marker") for hit in hits), view=view,
                             route="support-search", scope="support-agent")

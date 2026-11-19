@@ -54,7 +54,8 @@ class SyntheticAnswers:
         self.revoked_reads = 0
 
     def receipt(self):
-        if self.fault == "missing-write":
+        early = self.fault == "early-before-change" or (self.fault == "early-after-change" and self.revoked)
+        if self.fault == "missing-write" or (not self.released and not early):
             return None
         if self.mode == "broken" or self.fault == "unseen":
             return Receipt(self.run_id, "task-1", "policy", "granted", "committed", self.run_id, 7)
@@ -119,6 +120,17 @@ class AnswerCacheDrillTests(unittest.TestCase):
         _, (verdict, _) = self.exercise("guarded", "retained-miss")
         self.assertIs(verdict.status, Status.FAIL)
 
+    def test_early_terminal_result_cannot_stand_in_for_the_released_task(self):
+        for fault in ("early-before-change", "early-after-change"):
+            with self.subTest(fault=fault):
+                directory, (verdict, _) = self.exercise("guarded", fault)
+                self.assertIs(verdict.status, Status.NOT_TESTED)
+                self.assertIn("terminal receipt before release", verdict.detail)
+                self.assertIs(json.loads((directory / MANIFEST).read_bytes())["receipt_before_release"], True)
+                events = json.loads((directory / "run.json").read_bytes())["events"]
+                self.assertNotIn("released", {e["kind"] for e in events})
+                self.assertEqual(replay(directory)[0], verdict)
+
     def test_body_leak_wins_over_filtered_sources_or_later_cleanup_error(self):
         _, (verdict, _) = self.exercise("guarded", "body-leak")
         self.assertIs(verdict.status, Status.FAIL)
@@ -138,6 +150,9 @@ class AnswerCacheDrillTests(unittest.TestCase):
                 path.write_text(json.dumps(data | {"observations": [*data["observations"][:-1], row]}))
                 with self.assertRaises(InputError):
                     replay(directory)
+        for pending in (None, True):
+            path.write_text(json.dumps(data | {"receipt_before_release": pending}))
+            self.assertIs(replay(directory)[0].status, Status.NOT_TESTED)
         path.write_text(json.dumps(data | {"held_after_reads": None}))
         self.assertIs(replay(directory)[0].status, Status.NOT_TESTED)
         path.write_text(json.dumps(data | {"report_sha256": "0" * 64}))

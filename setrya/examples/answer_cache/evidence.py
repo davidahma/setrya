@@ -90,6 +90,8 @@ def sample(probe_id, stage, response, captured=None):
         "caller": _label_or_none(response.get("caller")), "status": status if type(status) is int else None,
         "capture_sha256": capture_digest(captured),
         "body": _body(response.get("answer")), "sources": _sources(response.get("sources")), "cache_hit": hit if type(hit) is bool else None,
+        "generation_skipped": (response["generation_skipped"]
+                               if type(response.get("generation_skipped")) is bool else None),
         "cache_writer": _label_or_none(response.get("cache_writer")),
         "generation": _label_or_none(response.get("generation")),
         "commit": position if type(position) is int and 0 <= position < 2**64 else None,
@@ -100,6 +102,10 @@ def observation(row):
     """Encode the observed answer and its ranked sources into one Recorder read."""
     expected = {"capture_sha256", "probe", "stage", "route", "caller", "status", "body", "sources",
                  "cache_hit", "cache_writer", "generation", "commit"}
+    if isinstance(row, dict) and "generation_skipped" in row:
+        expected.add("generation_skipped")
+        if row["generation_skipped"] is not None and type(row["generation_skipped"]) is not bool:
+            raise InputError("invalid generation observation")
     if (not isinstance(row, dict) or set(row) != expected or row["body"] not in BODIES
             or not isinstance(row["sources"], list) or len(row["sources"]) > 2
             or any(s not in (None, PRIVATE, PUBLIC) for s in row["sources"])
@@ -134,15 +140,25 @@ def observation(row):
     return SearchResult(tuple(markers), view=view, origins=tuple(origins), route=row["route"], scope=row["caller"])
 
 
-def replay(directory):
+def pending_before_release(manifest):
+    # A v1 bundle is replayed under its published contract.
+    return manifest["version"] == 1 or manifest["receipt_before_release"] is False
+
+
+def _read_bundle(directory):
     directory = Path(directory)
     try:
         manifest, _ = read_json(directory / MANIFEST, "answer cache manifest")
     except InvalidReport as error:
         raise InputError(str(error)) from None
     keys = {"format", "version", "mode", "run_id", "report_sha256", "held_after_reads", "worker_capture", "observations"}
+    if isinstance(manifest, dict) and manifest.get("version") == 2:
+        keys.add("receipt_before_release")
+        before = manifest.get("receipt_before_release")
+        if before is not None and type(before) is not bool:
+            raise InputError("invalid pre-release terminal observation")
     if (not isinstance(manifest, dict) or set(manifest) != keys or manifest["format"] != FORMAT
-            or type(manifest["version"]) is not int or manifest["version"] != 1
+            or type(manifest["version"]) is not int or manifest["version"] not in (1, 2)
             or manifest["mode"] not in ("broken", "guarded") or not isinstance(manifest["observations"], list)
             or not isinstance(manifest["report_sha256"], str)):
         raise InputError("invalid answer cache manifest")
@@ -165,6 +181,8 @@ def replay(directory):
     if verified:
         lines.append(f"Task {attempt} captured the private answer for the revoked user before release.")
     for event, row in zip(probes, rows):
+        if not isinstance(row, dict) or ("generation_skipped" in row) != (manifest["version"] == 2):
+            raise InputError("answer response fields differ from the manifest version")
         observed = observation(row)
         expected_capture = None if event["stage"] == "baseline" else capture_digest(captured)
         if (expected_capture != row["capture_sha256"] or (event["stage"], event["probe_id"], event["route"], event["scope"]) !=
@@ -175,7 +193,7 @@ def replay(directory):
         cache = {True: "hit", False: "miss"}.get(row["cache_hit"], "unknown")
         origin = ""
         if (row["stage"] == "final" and row["cache_hit"] and attempt and row["cache_writer"] == attempt
-                and receipt.get("outcome") == "committed" and receipt["attempt"] == attempt
+                and pending_before_release(manifest) and receipt.get("outcome") == "committed" and receipt["attempt"] == attempt
                 and receipt["run_id"] == report.run_id and event["seq"] > receipt["seq"] and observed.view
                 and observed.view.generation == receipt["generation"] and receipt["commit"] is not None
                 and observed.view.commit >= receipt["commit"]):
@@ -199,6 +217,11 @@ def replay(directory):
                     (r["route"], r["caller"]) != (required[k].route, required[k].scope) for k, r in reads.items())):
                 verdict = Verdict(Status.NOT_TESTED, "Missing an identified HTTP answer for both callers at " + stage)
                 break
+    if verdict.status in (Status.PASS, Status.NOT_TESTED) and not pending_before_release(manifest):
+        if manifest["receipt_before_release"] is True:
+            verdict = Verdict(Status.NOT_TESTED, "The selected task already had a terminal receipt before release.")
+        elif verdict.status is Status.PASS:
+            verdict = Verdict(Status.NOT_TESTED, "No observation confirmed the selected task was still pending before release.")
     if verdict.status is Status.PASS:
         worker = "rejected the late fill" if receipt["outcome"] == "rejected" else "committed its late fill"
         verdict = replace(verdict, detail=f"The worker {worker}. The revoked user received the public answer "
@@ -207,4 +230,9 @@ def replay(directory):
         verdict = replace(verdict, detail=f"At event {verdict.event} the revoked user received the private answer "
                           f"from the resumed task's cache write ({attempt}).")
     summary = "\n".join([verdict.status.label + "  " + verdict.detail, *lines])
+    return verdict, summary, report, manifest
+
+
+def replay(directory):
+    verdict, summary, _, _ = _read_bundle(directory)
     return verdict, summary

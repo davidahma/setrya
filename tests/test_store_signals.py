@@ -19,7 +19,7 @@ from test_runtime_evidence import make_report
 class VisibilityTests(unittest.TestCase):
     def test_refresh_receipt_preserves_base64url_index_identities(self):
         fixture = Fixture.__new__(Fixture)
-        fixture.run_id, fixture.weak = "run", True
+        fixture.run_id, fixture.weak, fixture.opaque = "run", True, False
         fixture.captured = {"revision": "A"}
         fixture.write = {"_id": "doc", "_index": "index", "_primary_term": 1, "_seq_no": 3}
         fixture.request = lambda *args: {"_shards": {"total": 1, "successful": 1, "failed": 0}}

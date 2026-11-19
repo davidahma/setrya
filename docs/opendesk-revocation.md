@@ -25,7 +25,7 @@ Both lanes run OpenDesk v0.4.14 at source commit `779e28e5ff0ac59cda609edabefa1e
 
 ## Review the decision offline
 
-Install Setrya and unpack the [release bundle](https://github.com/davidahma/setrya/releases/download/v0.11.0/opendesk-revocation-review.zip) into an `opendesk-revocation` directory. A local trial or the workflow artifact produces the same files. Read `decision.txt` for the two event numbers. Then open `base-observations.json` and `candidate-observations.json` and compare the departing agent with the colleague at `membership-removed-worker-held` and `worker-completed`. The rows distinguish a newly recomputed summary from the initial one. [Trial runs and artifacts](https://github.com/davidahma/setrya/actions/workflows/opendesk-revocation.yml)
+Install Setrya and unpack the [release bundle](https://github.com/davidahma/setrya/releases/download/v0.12.0/opendesk-revocation-review.zip) into an `opendesk-revocation` directory. A local trial or the workflow artifact produces the same files. Read `decision.txt` for the two event numbers. Then open `base-observations.json` and `candidate-observations.json` and compare the departing agent with the colleague at `membership-removed-worker-held` and `worker-completed`. The rows distinguish a newly recomputed summary from the initial one. [Trial runs and artifacts](https://github.com/davidahma/setrya/actions/workflows/opendesk-revocation.yml)
 
 ```sh
 setrya review opendesk-revocation/base.json opendesk-revocation/candidate.json \

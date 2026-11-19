@@ -33,7 +33,7 @@ A Celery task retrieves a private policy and pauses before writing the answer to
 
 The LangChain and pgvector example runs the task and calls the application's HTTP answer endpoint as the revoked user and a colleague. In the broken configuration, the revoked user receives a private cache hit after the worker resumes. The guarded configuration returns the public answer to that user, and the colleague can still get the private answer from cache.
 
-To try the evidence first, [install core Setrya](#use-the-python-sdk-in-your-tests) and unpack the [late-cache-fill bundle](https://github.com/davidahma/setrya/releases/download/v0.11.0/late-cache-fill.zip). From the directory containing `broken/` and `guarded/`, run:
+To try the evidence first, [install core Setrya](#use-the-python-sdk-in-your-tests) and unpack the [late-cache-fill bundle](https://github.com/davidahma/setrya/releases/download/v0.12.0/late-cache-fill.zip). From the directory containing `broken/` and `guarded/`, run:
 
 ```sh
 setrya replay broken
@@ -41,6 +41,10 @@ setrya replay guarded
 ```
 
 The first command exits 1 and the second exits 0. To run the worker yourself, use the `answer-cache` extra and a disposable pgvector database. The ingestion, retrieval, and worker checkpoint helpers can also be used separately in an existing test. [Run the live drill and adapt the hooks](docs/answer-cache.md)
+
+A second drill asks what happens to the rest of the cache. A worker already holds yesterday’s refund answer when a better refund policy enters the index. The guarded app rejects that fill, serves the updated policy, and keeps the same cached delivery answer for the same user. The broken app returns correct delivery text but forces another generation. Run `setrya answer-cache --case selective --mode guarded --output scoped` against the fixture, or download both runs and replay them offline. [Selective invalidation drill](docs/answer-cache.md#invalidate-a-refund-answer-and-keep-a-delivery-hit) · [Evidence bundle](https://github.com/davidahma/setrya/releases/download/v0.12.0/selective-cache.zip)
+
+For your own app, record the ordered chunks supplied to generation and the access and retrieval versions that made the answer valid. Local counters distinguish measured cache hits, skipped generations and stale answers among checked requests. Store and queue adapters can run the same conformance assertions as the bundled integrations. [Answer dependency SDK](docs/answer-dependencies.md) · [Metrics and Prometheus](docs/cache-metrics.md) · [Adapter tests](docs/adapter-conformance.md)
 
 ## Exercise retries, duplicate deliveries, and access changes
 
@@ -53,7 +57,7 @@ python3 -m setrya replay access-run
 
 The same commands accept `update` and `delete`. If one worker sees the access change and a later search by a second worker returns the revoked passage, replay names both observations. Run the same scenario on two app commits and give the directories to `setrya review` for a PR decision. [Schedules and adapter contract](docs/scenarios.md) · [Evidence from real stores](docs/store-signals.md)
 
-In the OpenDesk trial, an actual summary job starts before one agent loses team membership and finishes afterward. Both agents stay in the workspace. With a workspace-readable team, both still find the new summary. With a private team, only the retained colleague does. The two deployments run the same OpenDesk binary. [Reproduce the release decision](docs/opendesk-revocation.md) · [Download both caller traces](https://github.com/davidahma/setrya/releases/download/v0.11.0/opendesk-revocation-review.zip)
+In the OpenDesk trial, an actual summary job starts before one agent loses team membership and finishes afterward. Both agents stay in the workspace. With a workspace-readable team, both still find the new summary. With a private team, only the retained colleague does. The two deployments run the same OpenDesk binary. [Reproduce the release decision](docs/opendesk-revocation.md) · [Download both caller traces](https://github.com/davidahma/setrya/releases/download/v0.12.0/opendesk-revocation-review.zip)
 
 ## Test tenant offboarding
 
@@ -65,16 +69,16 @@ python3 -m setrya offboarding demo --output offboarding-run
 
 The **CI gate** checks whether the support agent can still read Acme’s summary and whether it can still read another tenant’s. The broken worker produces FAIL, the guarded worker produces PASS, and a missing baseline produces NOT TESTED.
 
-The **deletion receipt** belongs to one request issued before the job starts. In a separate run, the app passes its technical checks and a provider reports deletion. The receipt still says `OPEN_ITEMS` because the backup operator supplied an expiry schedule. A reviewer can verify that result offline against the original request and exhibits. [Run the gate, issue a request, and replay a receipt](docs/offboarding.md) · [Download the synthetic example](https://github.com/davidahma/setrya/releases/download/v0.11.0/offboarding-example.zip)
+The **deletion receipt** belongs to one request issued before the job starts. In a separate run, the app passes its technical checks and a provider reports deletion. The receipt still says `OPEN_ITEMS` because the backup operator supplied an expiry schedule. A reviewer can verify that result offline against the original request and exhibits. [Run the gate, issue a request, and replay a receipt](docs/offboarding.md) · [Download the synthetic example](https://github.com/davidahma/setrya/releases/download/v0.12.0/offboarding-example.zip)
 
-Already using Axiom? Setrya can run its SQLite observer and pinned OpenDesk trial, validate historical demo reports, and verify deletion receipts. A reviewer can download the single-file offboarding CLI and replay a case offline. [Axiom command map](docs/offboarding.md#migrate-from-axiom) · [Portable CLI and evidence](https://github.com/davidahma/setrya/releases/tag/v0.11.0)
+Already using Axiom? Setrya can run its SQLite observer and pinned OpenDesk trial, validate historical demo reports, and verify deletion receipts. A reviewer can download the single-file offboarding CLI and replay a case offline. [Axiom command map](docs/offboarding.md#migrate-from-axiom) · [Portable CLI and evidence](https://github.com/davidahma/setrya/releases/tag/v0.12.0)
 
 ## Use the Python SDK in your tests
 
 Install the release in your project’s virtual environment. Omit `[pytest]` for the core SDK, which uses only the Python standard library.
 
 ```sh
-python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.11.0/setrya-0.11.0.tar.gz'
+python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.12.0/setrya-0.12.0.tar.gz'
 ```
 
 A *drill* is a TOML file that names the document revisions, the caller and search route, and the passage IDs each query must return or exclude. The refund drill checks the top three hits for the support agent. A second query checks that the delivery policy stays findable. [Example drill](setrya/examples/recorded-search/drill.toml)
@@ -171,7 +175,7 @@ After PASS · event 11 · refund-window · final · refund@B
   Index rejected the old write. All final probes found their required passages.
 ```
 
-The example also saves `opaque.json`, which replays as NOT TESTED even though the test found the 14-day policy. You can download all three reports and the summary from the release. [Sample review bundle](https://github.com/davidahma/setrya/releases/download/v0.11.0/recorded-pytest-review.zip)
+The example also saves `opaque.json`, which replays as NOT TESTED even though the test found the 14-day policy. You can download all three reports and the summary from the release. [Sample review bundle](https://github.com/davidahma/setrya/releases/download/v0.12.0/recorded-pytest-review.zip)
 
 To run your own test on both application revisions, install the pytest extra, fetch both refs, and run this from the application checkout:
 
@@ -181,9 +185,9 @@ setrya run-pr --repo . --base origin/main --candidate HEAD \
   -- python -m pytest -p setrya.pytest_plugin -q tests/test_index.py::test_refund_update
 ```
 
-Setrya checks out each commit in a temporary directory and records the test exit beside its report. Keep the command's exit as a CI gate and upload the output directory even on failure. For a two-worker fix, the comparison can point to a search between the first write and the second worker's release. For route coverage, give `setrya coverage` a repository-owned map and the candidate evidence. A new agent-summary route can then name its owner in the PR even when the existing support-search test passes. [Map routes and jobs](docs/coverage.md) · [Two-worker review bundle](https://github.com/davidahma/setrya/releases/download/v0.11.0/worker-order-review.zip)
+Setrya checks out each commit in a temporary directory and records the test exit beside its report. Keep the command's exit as a CI gate and upload the output directory even on failure. For a two-worker fix, the comparison can point to a search between the first write and the second worker's release. For route coverage, give `setrya coverage` a repository-owned map and the candidate evidence. A new agent-summary route can then name its owner in the PR even when the existing support-search test passes. [Map routes and jobs](docs/coverage.md) · [Two-worker review bundle](https://github.com/davidahma/setrya/releases/download/v0.12.0/worker-order-review.zip)
 
-In a pipeline that already captures both lanes, give `setrya review` two search reports or two matching scenario directories, the expected commit IDs, and the observed exits. A scenario review lists the schedules, identifies the decisive delivery, and gives the reviewer a replay command. [Review a multi-worker run](docs/scenarios.md#compare-the-base-and-candidate-in-ci) · [Download the two-commit scenario review](https://github.com/davidahma/setrya/releases/download/v0.11.0/scenario-review.zip)
+In a pipeline that already captures both lanes, give `setrya review` two search reports or two matching scenario directories, the expected commit IDs, and the observed exits. A scenario review lists the schedules, identifies the decisive delivery, and gives the reviewer a replay command. [Review a multi-worker run](docs/scenarios.md#compare-the-base-and-candidate-in-ci) · [Download the two-commit scenario review](https://github.com/davidahma/setrya/releases/download/v0.12.0/scenario-review.zip)
 
 For recorded tests, keep both reports with the PR. Attach the JSON and Markdown even when the test fails. For a downloaded report, use the installed `setrya replay` command. Replay recomputes the verdict without loading the adapter. The report stores passage IDs and question fingerprints and omits raw queries and passage text. Choose identifiers you can share. [CI recipe and review command](docs/recording.md#use-it-in-a-pull-request) · [GitHub Actions example](.github/workflows/ci.yml)
 

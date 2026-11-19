@@ -38,7 +38,7 @@ docker compose -f setrya/examples/pgvector-search/compose.yml down
 
 ## Review the evidence after teardown
 
-With core Setrya installed, replay the complete directory. You can also unpack the [release evidence](https://github.com/davidahma/setrya/releases/download/v0.11.0/late-cache-fill.zip) and run the same commands.
+With core Setrya installed, replay the complete directory. You can also unpack the [release evidence](https://github.com/davidahma/setrya/releases/download/v0.12.0/late-cache-fill.zip) and run the same commands.
 
 ```sh
 setrya replay broken
@@ -46,6 +46,8 @@ setrya replay guarded
 ```
 
 Look for the revoked caller's answer while the task is held and after it finishes. A private answer after a previously clean read exposes the regression. The colleague's private **cache hit** verifies that the retained path continued to serve cached answers. A cache flush that makes every request miss cannot establish this result.
+
+Current drills check the selected task’s receipt while it is held and again before release. A terminal outcome that already exists cannot establish what the resumed task did. Archived v1 revocation bundles replay under the contract recorded by that release.
 
 The worker records its actual input before pausing. Replay matches its task ID, caller, query fingerprint and captured sources to the evidence. In the broken run, the cache entry identifies that same task as its writer, and the endpoint observes its write in the same PostgreSQL snapshot used to serve the answer. A missing capture or write witness leaves the corresponding claim unverified.
 
@@ -96,4 +98,18 @@ The test waits for `gate.checkpoint()` to acknowledge capture, applies the chang
 
 ## What the example cache checks
 
-The guarded app stores the caller, question, source chunk IDs, and the access and catalog versions with each answer. It checks the versions before writing a late fill. On a cache hit it also checks that the caller can still read every cited chunk. Revocation evicts the affected caller’s entry. In this single-workspace fixture, a chunk insertion, update, or deletion advances the whole catalog version, so a change can invalidate unrelated entries. A physically present obsolete row produces a miss. The app owns those checks. The reusable Setrya hooks capture what it did. The sample uses a deterministic answer derived from its selected passages. Assessing the quality of generated prose or guaranteeing freshness for every query needs additional tests.
+Each generated answer carries an answer ID, tenant, access scope and version, retrieval scope and version, and the ordered chunks used to produce it. The guarded app checks current versions when a worker fills the cache and checks authorization again when serving a hit. Revocation invalidates the affected caller. Inserting or changing a chunk advances the version of its retrieval scope. Moving a chunk between scopes affects both. This catches a new passage that outranks an old one even when the old answer never cited it. The application defines which queries each scope covers. [Portable answer dependency record](answer-dependencies.md)
+
+## Invalidate a refund answer and keep a delivery hit
+
+The second drill starts with two warm answers for the same user. A Celery task captures the old refund policy and pauses. The app inserts a better-ranked refund passage, then Setrya queries both answers while the task is held, after it finishes, and after a fresh task fills the refund cache.
+
+```sh
+setrya answer-cache --case selective --mode broken --output broad
+setrya answer-cache --case selective --mode guarded --output scoped
+setrya replay broad
+setrya replay scoped
+setrya cache-metrics broad scoped
+```
+
+Both configurations can return the correct delivery text. The broken case evicts the delivery answer too, forcing another generation. The guarded case must retain its original cached answer and writer, reject the old refund fill, and serve the replacement from the fresh worker. The eight HTTP observations and the two task outcomes can be replayed after teardown. The metrics show observed freshness and generation decisions separately. [Download both runs](https://github.com/davidahma/setrya/releases/download/v0.12.0/selective-cache.zip) · [Read the counters](cache-metrics.md)

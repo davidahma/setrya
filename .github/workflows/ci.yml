@@ -150,9 +150,16 @@ jobs:
           setrya answer-cache --mode broken --output "$out/broken" || rc=$?
           test "$rc" -eq 1
           setrya answer-cache --mode guarded --output "$out/guarded"
+          selective="$RUNNER_TEMP/selective-cache"
+          mkdir "$selective"
+          rc=0
+          setrya answer-cache --case selective --mode broken --output "$selective/broken" || rc=$?
+          test "$rc" -eq 1
+          setrya answer-cache --case selective --mode guarded --output "$selective/guarded"
+          python3 -m unittest discover -s "$GITHUB_WORKSPACE/tests" -p 'test_adapter_conformance.py' -v
           python3 -m unittest discover -s "$GITHUB_WORKSPACE/tests" -p 'test_framework_hooks.py' -v
           python3 -m unittest discover -s "$GITHUB_WORKSPACE/tests" -p 'test_answer_cache*.py' -v
-      - name: Replay both answer bundles offline with only the Python standard library
+      - name: Replay the revocation and selective invalidation drills without the database
         working-directory: ${{ runner.temp }}
         env:
           PG_SERVICE_ID: ${{ job.services.postgres.id }}
@@ -168,6 +175,21 @@ jobs:
           "$RUNNER_TEMP/core-replay/bin/setrya" replay "$out/guarded" > "$out/guarded.txt"
           "$py" "$GITHUB_WORKSPACE/scripts/verify-answer-cache.py" "$out"
           cat "$out/broken.txt" "$out/guarded.txt" >> "$GITHUB_STEP_SUMMARY"
+          cli="$RUNNER_TEMP/core-replay/bin/setrya"
+          selective="$RUNNER_TEMP/selective-cache"
+          rc=0
+          "$cli" replay "$selective/broken" > "$selective/broken.txt" || rc=$?
+          test "$rc" -eq 1
+          "$cli" replay "$selective/guarded" > "$selective/guarded.txt"
+          "$cli" cache-metrics "$selective/broken" "$selective/guarded" > "$selective/metrics.txt"
+          "$py" "$GITHUB_WORKSPACE/scripts/verify-selective-cache.py" "$selective"
+          cat "$selective/broken.txt" "$selective/guarded.txt" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ !cancelled() }}
+        with:
+          name: selective-cache
+          path: ${{ runner.temp }}/selective-cache/
+          if-no-files-found: error
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: ${{ !cancelled() }}
         with:

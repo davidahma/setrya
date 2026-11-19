@@ -66,3 +66,5 @@ The [pgvector walkthrough](pgvector.md) uses an independent queued worker, curre
 The SQLite demo and its bundled adapters need FTS5. Other adapters use their own backend prerequisites. If an adapter changes the working directory during a check, relative report and summary destinations still refer to the directory where the check began. Use separate paths for the drill and each output.
 
 For chunk metadata, native PostgreSQL positions, Elasticsearch sequence numbers and refresh-only observations, see [Store evidence and ingestion](store-signals.md).
+
+Run the three store controls or verify a queue task's capture, hold, release and terminal receipt before relying on an adapter in CI. [Adapter conformance suite](adapter-conformance.md)

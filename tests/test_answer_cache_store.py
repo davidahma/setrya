@@ -29,10 +29,12 @@ class AnswerCacheStoreTests(unittest.TestCase):
         self.app.revoke()
         # Put an old copy back independently of the cache-fill guard.
         with connection(self.app.store.schema) as db:
-            db.execute("""INSERT INTO answers SELECT 'revoked', question,body,sources,acl_epoch,catalog_epoch,writer
-                          FROM answers WHERE caller='retained'""")
+            db.execute("""INSERT INTO answers SELECT 'revoked', question, body,
+                          jsonb_set(dependencies,'{access_scope}','"revoked"'), writer FROM answers
+                          WHERE caller='retained' AND question=%s""", (QUESTION,))
             # Even a row stamped as current must have readable dependencies.
-            db.execute("""UPDATE answers SET acl_epoch=(SELECT epoch FROM access_policy WHERE caller='revoked')
+            db.execute("""UPDATE answers SET dependencies=jsonb_set(dependencies,'{access_version}',
+                           to_jsonb((SELECT epoch::text FROM access_policy WHERE caller='revoked')))
                           WHERE caller='revoked'""")
         revoked = self.app.answer("revoked")
         retained = self.app.answer("retained")
@@ -69,6 +71,42 @@ class AnswerCacheStoreTests(unittest.TestCase):
         row = self.app.answer("retained")
         self.assertEqual((row["cache_hit"], row["answer"]), (False, PUBLIC_TEXT))
         self.assertNotIn(updated["setrya_marker"], row["sources"])
+
+    def test_rank_changing_insert_preserves_other_scope_and_move_invalidates_both(self):
+        from setrya.examples.answer_cache.contract import DELIVERY_QUERY, PRIVATE, REFUND_QUERY
+        from setrya.examples.pgvector_search.app import connection
+
+        store = self.app.store
+        refund = store.capture("retained", REFUND_QUERY)
+        delivery = store.capture("retained", DELIVERY_QUERY)
+        store.supersede_refund()
+        store.fill(refund, "former-rank")
+        store.fill(delivery, "still-delivery")
+        self.assertEqual(store.receipt("former-rank").outcome, "rejected")
+        self.assertEqual(store.receipt("still-delivery").outcome, "committed")
+        self.assertEqual(self.app.answer("retained", DELIVERY_QUERY)["cache_writer"], "still-delivery")
+
+        refund = store.capture("retained", REFUND_QUERY)
+        with connection(store.schema) as db:
+            db.execute("UPDATE chunks SET scope='delivery' WHERE marker=%s", (PRIVATE,))
+        for question, capture in ((REFUND_QUERY, refund), (DELIVERY_QUERY, delivery)):
+            attempt = capture.dependencies.retrieval_scope
+            store.fill(capture, attempt)
+            self.assertEqual(store.receipt(attempt).outcome, "rejected")
+            self.assertFalse(self.app.answer("retained", question)["cache_hit"])
+
+    def test_truncation_rejects_all_previously_captured_fills(self):
+        from setrya.examples.answer_cache.contract import DELIVERY_QUERY, REFUND_QUERY
+        from setrya.examples.pgvector_search.app import connection
+
+        store = self.app.store
+        captures = [store.capture("retained", question) for question in (REFUND_QUERY, DELIVERY_QUERY)]
+        with connection(store.schema) as db:
+            db.execute("TRUNCATE chunks")
+        for capture in captures:
+            attempt = capture.dependencies.retrieval_scope
+            store.fill(capture, attempt)
+            self.assertEqual(store.receipt(attempt).outcome, "rejected")
 
     def test_endpoint_requires_a_real_credential_and_refuses_client_supplied_identity(self):
         for headers, payload, expected in [

@@ -6,7 +6,7 @@ from celery import Celery
 from celery.signals import worker_ready
 
 from setrya.integrations.celery import CeleryCheckpoint
-from .contract import CHECKPOINT, PRIVATE, QUESTION
+from .contract import CHECKPOINT, PRIVATE
 from .store import Store
 
 TASK = "setrya_fixture.fill_answer"
@@ -30,13 +30,14 @@ def serve(directory, run_id, mode):
     store = Store(run_id, mode)
 
     @app.task(name=TASK, bind=True, ignore_result=True)
-    def fill(task):
-        old = store.capture("revoked", QUESTION)
-        if not old.granted or PRIVATE not in old.sources:
+    def fill(task, caller, question, pause):
+        old = store.capture(caller, question)
+        if pause and (not old.granted or PRIVATE not in old.sources):
             raise RuntimeError("worker did not capture the private source")
         store.record_capture(old, task.request.id)
-        CeleryCheckpoint(directory / "gate.sqlite").hold(
-            task, run_id=run_id, document="policy", revision=old.revision, name=CHECKPOINT, timeout=30)
+        if pause:
+            CeleryCheckpoint(directory / "gate.sqlite").hold(
+                task, run_id=run_id, document="policy", revision=old.revision, name=CHECKPOINT, timeout=30)
         store.fill(old, task.request.id)
 
     @worker_ready.connect(weak=False)

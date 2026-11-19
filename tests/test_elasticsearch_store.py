@@ -6,11 +6,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from setrya.checker import Status, evaluate
+from setrya.conformance import assert_store_contract
 from setrya.cli import EXAMPLE
 from setrya.drill import Drill
-from setrya.evidence import Report
-from setrya.runner import run
 from setrya.store_signals import passage_metadata
 
 
@@ -22,17 +20,15 @@ class ElasticsearchIntegrationTests(unittest.TestCase):
         for doc, revision in (("refund", "A"), ("refund", "B"), ("delivery", "1")):
             source = source.replace(f"{doc}@{revision}", passage_metadata(doc, revision, "0")["setrya_marker"])
         with TemporaryDirectory() as temp:
-            config, evidence = Path(temp, "drill.toml"), Path(temp, "run.json")
+            config = Path(temp, "drill.toml")
             config.write_text(source)
             drill = Drill.load(config)
             for policy, tier in (("strict", "write-confirmed"), ("observed-after-refresh", "observed-after-refresh")):
-                for mode in ("fixed", "broken"):
-                    with self.subTest(policy=policy, mode=mode):
-                        result = run(replace(drill, rules=replace(drill.rules, visibility=policy), options={"mode":mode}))
-                        self.assertIs(result.verdict.status, Status.PASS if mode == "fixed" else Status.FAIL,
-                                      (result.verdict.detail, [e for e in result.report.events
-                                                           if e["kind"] == "adapter_error"]))
-                        if mode == "fixed":
-                            self.assertEqual(result.verdict.evidence_tier, tier)
-                        result.report.save(evidence)
-                        self.assertEqual(evaluate(Report.load(evidence)), result.verdict)
+                with self.subTest(policy=policy):
+                    configured = replace(drill, rules=replace(drill.rules, visibility=policy))
+                    assert_store_contract(
+                        broken=replace(configured, options={"mode": "broken"}),
+                        guarded=replace(configured, options={"mode": "fixed"}),
+                        opaque=replace(configured, options={"mode": "opaque"}),
+                        expected_tier=tier,
+                    )

@@ -62,6 +62,9 @@ def _exercise(app, recorder, spec, manifest, wait_seconds):
     rules = spec.rules
     if held != Checkpoint(recorder.run_id, attempt, rules.document, rules.old_revision, CHECKPOINT):
         return
+    if app.receipt() is not None:
+        manifest["receipt_before_release"] = True
+        return
     manifest["worker_capture"] = worker_capture(app.captured())
     publication = app.revoke()
     recorder.published(publication)
@@ -71,6 +74,9 @@ def _exercise(app, recorder, spec, manifest, wait_seconds):
             or not verified_capture(manifest["worker_capture"], recorder.run_id, attempt)):
         return
     manifest["held_after_reads"] = asdict(held)
+    manifest["receipt_before_release"] = app.receipt() is not None
+    if manifest["receipt_before_release"]:
+        return
     app.release()
     recorder.released(attempt)
     receipt = _wait(app.receipt, wait_seconds)
@@ -91,8 +97,8 @@ def run(directory, mode, *, application=None, wait_seconds=30):
     out.mkdir(parents=True, exist_ok=False)
     spec = drill()
     recorder = Recorder(spec, test_id=TEST_ID, report=out / JOURNAL)
-    manifest = {"format": FORMAT, "version": 1, "run_id": recorder.run_id, "mode": mode,
-                "worker_capture": None, "held_after_reads": None, "observations": []}
+    manifest = {"format": FORMAT, "version": 2, "run_id": recorder.run_id, "mode": mode,
+                "worker_capture": None, "held_after_reads": None, "receipt_before_release": None, "observations": []}
     try:
         with recorder, TemporaryDirectory(prefix="setrya-answer-cache-") as work:
             with application(recorder.run_id, mode, Path(work)) as app:
@@ -113,11 +119,24 @@ def main(argv=None):
     action.add_argument("--output", type=Path, help="save a live run in a new directory")
     action.add_argument("--replay", type=Path, help="recompute a saved decision offline")
     parser.add_argument("--mode", choices=("guarded", "broken"), help="live worker policy (default: guarded)")
+    parser.add_argument("--case", choices=("late-fill", "selective"), help="live drill (default: late-fill)")
     args = parser.parse_args(argv)
-    if args.replay and args.mode is not None:
-        parser.error("--mode selects a live application policy")
+    if args.replay and (args.mode is not None or args.case is not None):
+        parser.error("--case and --mode select a live drill")
     try:
-        verdict, text = replay(args.replay) if args.replay else run(args.output, args.mode or "guarded")
+        if args.replay:
+            from setrya.offboarding.inputs import read_json
+            from . import selective
+
+            manifest, _ = read_json(args.replay / MANIFEST, "answer cache manifest")
+            reader = selective.replay if isinstance(manifest, dict) and manifest.get("format") == selective.FORMAT else replay
+            verdict, text = reader(args.replay)
+        elif args.case == "selective":
+            from . import selective
+
+            verdict, text = selective.run(args.output, args.mode or "guarded")
+        else:
+            verdict, text = run(args.output, args.mode or "guarded")
     except FileExistsError:
         print("ERROR  Choose a new answer-cache output directory.", file=sys.stderr)
         return 2

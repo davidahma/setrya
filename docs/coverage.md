@@ -55,7 +55,7 @@ This is an inventory the team maintains. Owners choose the relationship between 
 
 ## Replay the example
 
-Unpack the [coverage review bundle](https://github.com/davidahma/setrya/releases/download/v0.11.0/route-coverage-review.zip). The bundle contains a two-commit synthetic application, the ordinary test handoff and the coverage summary.
+Unpack the [coverage review bundle](https://github.com/davidahma/setrya/releases/download/v0.12.0/route-coverage-review.zip). The bundle contains a two-commit synthetic application, the ordinary test handoff and the coverage summary.
 
 ```sh
 git clone -b main application.bundle fixture
