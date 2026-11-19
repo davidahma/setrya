@@ -1,17 +1,17 @@
 # Setrya
 
-**Regression tests for what search returns after an indexing change.**
+Setrya is an open-source Python SDK and CLI for testing whether a document update reaches search and stays visible after an older indexing job finishes.
 
-Your team shortens the refund window from 30 days to 14. The support assistant’s search returns the new policy. An hour later, an indexing job resumes with the copy it read yesterday. The same search now returns the 30-day policy.
-
-Setrya lets engineers who maintain search for AI agents, support assistants, and internal tools reproduce that sequence on demand. Pause the old worker, publish the replacement, and check what the same caller retrieves before and after the worker resumes. Save the run so the next engineer can see which revision came back, at what rank, and in what order.
+Your team shortens the refund window from 30 days to 14. The support agent searches and gets the new policy. Then a worker resumes with the copy it read yesterday. In a Setrya regression test, you release that worker on purpose and search again as the same agent. If the 30-day policy comes back, the report identifies the passage and its rank. A teammate can replay the failure after the app shuts down.
 
 [![Tests](https://github.com/davidahma/setrya/actions/workflows/ci.yml/badge.svg)](https://github.com/davidahma/setrya/actions/workflows/ci.yml)
 [![Offline qualification](https://github.com/davidahma/setrya/actions/workflows/qualification.yml/badge.svg)](https://github.com/davidahma/setrya/actions/workflows/qualification.yml)
 
+[Run the demo](#run-the-demo) · [Use the Python SDK](#use-the-python-sdk-in-your-tests) · [Review a fix in CI](#review-an-indexing-change-in-a-pull-request)
+
 ## Run the demo
 
-You need Git and Python 3.11 or later with SQLite FTS5. Once cloned, the demo runs offline with synthetic documents and the Python standard library.
+The demo queries a local SQLite index with synthetic policies. You need Git and Python 3.11 or later with SQLite FTS5. After cloning, you can run it offline.
 
 ```sh
 git clone https://github.com/davidahma/setrya.git
@@ -19,69 +19,125 @@ cd setrya
 python3 -m setrya demo
 ```
 
-The demo runs the same refund-policy change three ways. The last two look identical to someone spot-checking search.
-
-| Verdict | What the support agent finds | What happened to the old write |
+| Verdict | What the support agent retrieves | What happened |
 | --- | --- | --- |
-| **FAIL** | 30 days → 14 days → 30 days | The worker wrote the old revision back. The old policy was the first search result. |
-| **PASS** | 30 days → 14 days | The worker checked the source revision and rejected its stale write. Final searches found the new refund policy and the unaffected delivery policy. |
-| **NOT TESTED** | 30 days → 14 days | The old write committed. The search response supplied no evidence that it had seen that commit. |
+| FAIL | 30 days → 14 days → 30 days | The old worker committed. The next search returned the old policy at rank 1. |
+| PASS | 30 days → 14 days | The worker rejected its stale write. Final searches found the 14-day policy and the unrelated delivery policy. |
+| NOT TESTED | 30 days → 14 days | The old worker committed. Search still returned 14 days. The response didn’t identify a snapshot that included the old write. |
 
-## Save a run and replay it in code review
+## Use the Python SDK in your tests
 
-The bundled HTTP example starts a disposable search app with its own worker and SQLite index. It runs the fixed case through the app’s regular search endpoint and writes two files.
+Install the release in your project’s virtual environment. Omit `[pytest]` for the core SDK, which uses only the Python standard library.
+
+```sh
+python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.5.1/setrya-0.5.1.tar.gz'
+```
+
+A *drill* is a TOML file that names the document revisions, the caller and search route, and the passage IDs each query must return or exclude. The refund drill checks the top three hits for the support agent. A second query checks that the delivery policy stays findable. [Example drill](examples/recorded-search/drill.toml)
+
+From the cloned checkout you can run a complete drill in Python.
+
+```python
+from setrya.runner import run
+
+result = run("examples/support-search/drill.toml")
+print(result.verdict.status.label)  # PASS
+```
+
+### Keep your existing pytest test
+
+Keep your setup and assertions. The `setrya_record` fixture records what they observe. Here, your `open_app` fixture starts a disposable app for this run. Its methods wait for the worker, return a checkpoint and write receipt, and search as the support agent. [Working pytest example](examples/recorded_search/existing_test.py) · [Observation types](docs/adapters.md#adapter-methods)
+
+```python
+def test_refund_update(open_app, setrya_record):
+    with setrya_record("tests/refund.toml") as rec, open_app(rec.run_id) as app:
+        check_refund_update(app, rec)
+
+
+def check_refund_update(app, rec):
+    app.seed()
+    rec.seeded()
+    rec.search("refund-window", app.search)
+    rec.search("delivery", app.search)
+
+    attempt = app.start_old()
+    rec.started(attempt)
+    rec.held(app.wait_for_checkpoint(attempt))
+    rec.published(app.publish())
+    fresh = rec.search("refund-window", app.search)
+    assert (fresh.route, fresh.scope) == ("support-search", "support-agent")
+    assert "refund@B" in fresh.passages
+
+    app.release()
+    rec.released(attempt)
+    rec.receipt(app.wait_for_receipt(attempt))
+    rec.search("refund-window", app.search)
+    rec.search("delivery", app.search)
+```
+
+Copy the example drill to `tests/refund.toml` and run `python -m pytest -p setrya.pytest_plugin`. This example makes the replacement searchable when publication returns. If your index refreshes asynchronously, record each search while you wait for the new revision, or let Setrya schedule the searches through an adapter.
+
+On exit the fixture saves a JSON report. A FAIL or NOT TESTED verdict fails pytest. If your own assertion raises first, you keep its traceback and the observations up to that point.
+
+### Use Recorder outside pytest
+
+Use `Recorder` around the same test code. Your test decides how to act on the verdict.
+
+```python
+from setrya.checker import Status
+from setrya.recorder import Recorder
+
+
+def verify_refund(open_app):
+    with Recorder("tests/refund.toml", test_id="refund-worker", report="run.json") as rec:
+        with open_app(rec.run_id) as app:
+            check_refund_update(app, rec)
+
+    verdict = rec.result.verdict
+    if verdict.status is not Status.PASS:
+        raise AssertionError(f"{verdict.status.label}: {verdict.detail}")
+```
+
+## Connect your own search
+
+If you want Setrya to pause the worker and schedule the searches, give the drill a Python adapter. From the checkout, run the bundled adapter against its HTTP endpoint and save the result. The Markdown summary names the tested revision and gives the reviewer a replay command.
 
 ```sh
 python3 -m setrya check examples/support-search/drill.toml --report run.json --summary summary.md
 python3 -m setrya replay run.json
 ```
 
-The commands above run from a trusted source checkout. For downloaded reports, install Setrya and use the `setrya replay` command printed in the summary. Share `summary.md` in the pull request and attach `run.json` to the CI run. After the app shuts down, a reviewer can replay the JSON to recompute the verdict from the recorded rules and observations. Reports include passage IDs, caller, route, rank order, timing, and write evidence. Question text and passage text stay out of the report. Use identifiers you can share.
+In pytest, the `setrya_check` fixture runs the whole adapter-driven drill and requires a PASS. For your app, the adapter must identify the revision the worker read, acknowledge publication of its replacement, and query the route as the intended caller. If the old write commits, each final search needs evidence that its index snapshot includes that commit. A PASS covers the configured queries, ranks, caller, and time windows. For an AI agent, that tells you which passages its retrieval tool returned. Checking the answer it wrote takes a separate assertion. [Adapter guide](docs/adapters.md) · [Verdict rules](docs/evidence.md)
 
-For CI, `check` and `replay` exit **0** for PASS, **1** for FAIL, **2** for an input or execution error, and **3** for NOT TESTED. The demo exits successfully when all three examples produce their expected outcomes. The [CI workflow](.github/workflows/ci.yml) shows how to retain and replay a failing report.
+## Review an indexing change in a pull request
 
-## Use Setrya with AI agents
-
-If an agent searches company policy before suggesting a refund, run the drill against its search tool using the agent’s caller identity. The report shows which policy the tool returned. Testing the refund the agent recommends or issues takes a separate check. The [Python example](examples/support-search/python.toml) shows how to exercise a retrieval function directly.
-
-## Decide whether an indexing patch fixed the result
-
-Save reports for the broken version and the patch using the same question, caller, and result depth. Compare them after both apps shut down.
+The bundled example runs the same pytest test on two Git commits, one with a broken worker and one with the fix. It captures both test exits and writes the comparison to `review-run/review.md`. With Git and the pytest extra installed, choose a new output directory for each run.
 
 ```sh
-python3 -m setrya compare before.json after.json --summary comparison.md
-python3 -m setrya diagnose after.json
+python -m examples.recorded_search.verify --output review-run
+setrya replay review-run/candidate.json
 ```
 
-The comparison shows the affected probe and decisive observations. Changed questions or depths make the runs incomparable. Missing write evidence leaves the result inconclusive. Attach the report pair and Markdown summary to the pull request. [Evidence and comparison contract](docs/evidence.md#compare-two-saved-runs)
+The summary reports `FIX VERIFIED` and shows what changed on the caller’s final search.
 
-## Keep your existing pytest test
-
-If your test already controls the indexing worker, use the `setrya_record` pytest fixture around its existing steps. It saves a replayable report and fails the test when search returns stale content or the observations cannot establish a PASS. Run the same test on the base and candidate commits, then use `setrya review` for a pull-request summary with both replay commands. [Recording and CI example](docs/recording.md)
-
-## Connect your own search
-
-Start with one document your users rely on, one question that retrieves it, and a second question about an unrelated document. Run the drill against a disposable instance of your application.
-
-1. **Define what must stay findable.** Copy the [HTTP drill](examples/support-search/drill.toml). It asks the support agent’s refund question at a depth of three, requires `refund@B`, and forbids `refund@A`. A separate delivery query checks that `delivery@1` survives the update. If your results lack revision IDs, put distinct markers in the synthetic passages and map them to IDs in your adapter.
-2. **Control the timing.** Connect a test hook after the indexing worker reads the old revision and before it writes. While that worker waits, publish the new revision independently and return a receipt identifying what was published.
-3. **Observe the user’s search path.** Have the adapter call the endpoint or retrieval function the app uses and report the route and caller that actually served the response. After release, supply either a rejection receipt for the old attempt or evidence that each final search saw an index snapshot at or beyond its commit. If evidence is missing, the report explains which observation the drill needs.
-
-The [adapter guide](docs/adapters.md) covers the interface, a Python retrieval function, pytest integration, and troubleshooting. To see how a conventional integration test handles the same worker and search endpoint, read the [standalone comparison](examples/support_search/baseline.py).
-
-## What a pass covers
-
-A PASS applies to the configured caller, route, queries, result depths, and time windows. The intended caller saw the replacement while the old worker was paused. After release, each query found its required passages in a search that accounted for the old write. If a search returns both refund policies, it fails even when the new one ranks first. A forbidden passage in a later result on the tested path also fails the drill. Conversation history, other caches, and physical deletion need separate tests. [Verdict and evidence contract](docs/evidence.md)
-
-A document can also shrink from five chunks to three while a removed clause still turns up in search. The [retired-chunk drill](examples/support-search/retired.toml) asks specifically for that clause, which a general refund query can miss.
-
-The optional [PostgreSQL/pgvector example](docs/pgvector.md) catches a second failure. During delete-and-reupload, an orphaned candidate can take a top-three slot, leaving two current passages while a required clause drops out. The [paired pytest benchmark](docs/benchmark.md) runs the late overwrite and re-upload against the same app and hooks.
-
-## Develop and verify
-
-```sh
-python3 -m unittest discover -s tests -v
-python3 -m setrya qualify
+```text
+Before FAIL · event 11 · refund-window · final · refund@A
+  Expected refund@B. Observed forbidden refund@A at rank 1.
+After PASS · event 11 · refund-window · final · refund@B
+  Index rejected the old write. All final probes found their required passages.
 ```
 
-The [qualification guide](docs/qualification.md) covers offline runs, replay, and 90 first-attempt repeatability trials. See [Contributing](CONTRIBUTING.md) to submit a drill or change. Setrya is licensed under [Apache 2.0](LICENSE).
+The example also saves `opaque.json`, which replays as NOT TESTED even though the test found the 14-day policy. You can download all three reports and the summary from the release. [Sample review bundle](https://github.com/davidahma/setrya/releases/download/v0.5.1/recorded-pytest-review.zip)
+
+In your CI job, run `setrya review` with both reports, the expected commit IDs, and the test exits. Attach the JSON and Markdown even when the test fails. For a downloaded report, use the installed `setrya replay` command. Replay recomputes the verdict without loading the adapter. The report stores passage IDs and question fingerprints and omits raw queries and passage text. Choose identifiers you can share. [CI recipe and review command](docs/recording.md#use-it-in-a-pull-request) · [GitHub Actions example](.github/workflows/ci.yml)
+
+For a single report, `setrya diagnose` explains a missing observation. For a pair without CI commit and exit information, `setrya compare` checks whether the recorded evidence establishes a fix. The `check` and `replay` commands exit 0 for PASS, 1 for FAIL, 2 for an input or execution error, and 3 for NOT TESTED. [Evidence and comparison](docs/evidence.md#compare-two-saved-runs)
+
+## More search regressions
+
+- **A deleted paragraph still appears in search.** The refund document shrinks from five chunks to three. A query for the retired clause catches a stale chunk that the general refund query misses. [Retired-chunk drill](examples/support-search/retired.toml)
+- **A re-upload hides a current passage.** An orphaned pgvector candidate takes a top-three slot. The search returns two current passages and drops the clause about the original payment method. [PostgreSQL/pgvector walkthrough](docs/pgvector.md)
+
+If your suite already catches late writes, compare the plain Python test with Setrya’s saved evidence. The paired benchmark runs both approaches against the same pgvector database and worker hooks. [Plain test](examples/support_search/baseline.py) · [Paired benchmark](docs/benchmark.md)
+
+To contribute a drill, include a broken case that exposes the regression and a control query that should keep working. [Contributing](CONTRIBUTING.md) · [Offline qualification](docs/qualification.md) · [Security policy](SECURITY.md) · [Apache 2.0 license](LICENSE)
