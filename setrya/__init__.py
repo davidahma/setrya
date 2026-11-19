@@ -1,3 +1,3 @@
 """Regression tests for search results after indexing changes."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

@@ -10,10 +10,10 @@ import tempfile
 
 from .drill import DRILL_VERSION, Drill, InputError, ProbeRules, Rules, integer, label, mapping
 
-SCHEMA = 4
-CHECKER = 4
+SCHEMA = 5
+CHECKER = 5
 _INPUT_SCHEMA = 3
-_CHECKERS = {1: 1, 2: 2, 3: 3, SCHEMA: CHECKER}
+_CHECKERS = {1: 1, 2: 2, 3: 3, 4: 4, SCHEMA: CHECKER}
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
 _COMMIT = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 MAX_REPORT_BYTES = 16 * 1024 * 1024

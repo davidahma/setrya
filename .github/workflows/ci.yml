@@ -119,7 +119,10 @@ jobs:
         with:
           python-version: '3.11'
       - run: python3 -m pip install '.[pytest]'
-      - name: Record the same test on two fixture revisions
+      - name: Exercise the pytest fixture through the native test runner
+        run: python3 -m pytest -q tests/pytest_recording
+      - name: Run the installed example on two fixture revisions
+        working-directory: ${{ runner.temp }}
         run: python3 -m examples.recorded_search.verify --output "$RUNNER_TEMP/recorded-review"
       - name: Publish the review summary
         if: ${{ !cancelled() }}

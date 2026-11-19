@@ -8,6 +8,7 @@ import re
 import shlex
 import sqlite3
 import sys
+from tempfile import NamedTemporaryFile
 
 from . import __version__
 from .checker import Status, Verdict, evaluate
@@ -142,7 +143,20 @@ def console_main() -> int:
 
 
 def _write_summary(path: str, title: str, text: str) -> None:
-    Path(path).write_text(f"### Setrya · {title}\n\n```text\n{text}\n```\n", encoding="utf-8")
+    target = Path(path).resolve()
+    temporary = None
+    try:
+        if target.exists() and not target.is_file():
+            raise InputError("summary destination must be a regular file")
+        with NamedTemporaryFile("w", dir=target.parent, prefix=".setrya-", encoding="utf-8", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(f"### Setrya · {title}\n\n```text\n{text}\n```\n")
+        temporary.replace(target)
+    except OSError:
+        raise InputError("could not write summary. Check the destination directory.") from None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def main(argv=None) -> int:
@@ -167,10 +181,10 @@ def main(argv=None) -> int:
     review_parser = commands.add_parser("review", help="decide a base-versus-candidate CI check from two reports")
     review_parser.add_argument("before")
     review_parser.add_argument("after")
-    review_parser.add_argument("--base-commit", required=True)
-    review_parser.add_argument("--candidate-commit", required=True)
-    review_parser.add_argument("--base-exit", type=int, required=True)
-    review_parser.add_argument("--candidate-exit", type=int, required=True)
+    review_parser.add_argument("--base-commit", help="expected full base Git commit ID (required)")
+    review_parser.add_argument("--candidate-commit", help="expected full candidate Git commit ID (required)")
+    review_parser.add_argument("--base-exit", help="native base test exit (required)")
+    review_parser.add_argument("--candidate-exit", help="native candidate test exit (required)")
     review_parser.add_argument("--summary", help="write a Markdown summary")
     qualify = commands.add_parser("qualify", help="run the shipped qualification cases")
     qualify.add_argument("--case")
@@ -190,21 +204,24 @@ def main(argv=None) -> int:
 
             if args.summary and Path(args.summary).resolve() in {Path(args.before).resolve(), Path(args.after).resolve()}:
                 raise InputError("comparison summary must use a distinct file")
-            before, after = Report.load(args.before), Report.load(args.after)
             if args.command == "review":
-                from .review import review
+                from .review import ReviewInput, review_inputs
 
-                code, summary = review(before, after, base_commit=args.base_commit, candidate_commit=args.candidate_commit,
-                                       base_exit=args.base_exit, candidate_exit=args.candidate_exit)
-                base_replay = replay_command(args.before, artifact="base.json", variable="BASE_REPORT")
-                candidate_replay = replay_command(args.after, artifact="candidate.json", variable="CANDIDATE_REPORT")
-                summary += f"\nReplay base  {base_replay}\nReplay candidate  {candidate_replay}"
+                base = ReviewInput.load(args.before, args.base_commit, args.base_exit)
+                candidate = ReviewInput.load(args.after, args.candidate_commit, args.candidate_exit)
+                code, summary = review_inputs(base, candidate)
+                for name, lane, path in (("base", base, args.before), ("candidate", candidate, args.after)):
+                    if lane.report is not None:
+                        command = replay_command(path, artifact=f"{name}.json", variable=f"{name.upper()}_REPORT")
+                        summary += f"\nReplay {name}  {command}"
+                title = f"{base.report.rules.id} release review" if base.report else "release review"
             else:
+                before, after = Report.load(args.before), Report.load(args.after)
                 code, summary = compare(before, after)
+                title = f"{before.rules.id} comparison"
             print(summary)
             if args.summary:
-                title = "release review" if args.command == "review" else "comparison"
-                _write_summary(args.summary, f"{before.rules.id} {title}", summary)
+                _write_summary(args.summary, title, summary)
             return code
         if args.command == "check":
             paths = [Path(path).resolve() for path in (args.drill, args.report, args.summary) if path is not None]

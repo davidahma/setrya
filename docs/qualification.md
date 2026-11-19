@@ -32,6 +32,6 @@ For a handoff trial, give an engineer and a reviewer separate copies of the same
 
 The optional `python3 -m setrya qualify --case pgvector` runs six end-to-end checks against PostgreSQL. It verifies the clean but incomplete top-three response, the broader retrieval that still finds the third passage, and the guarded run's one-result delivery control. CI runs this case and the paired benchmark from an unpacked archive. [PostgreSQL setup](pgvector.md) · [Paired benchmark](benchmark.md)
 
-The recorded pytest CI job compares the same test on two actual Git checkouts of the bundled fixture. It requires the expected native test exit codes and a verified fix in the saved evidence. The [Dify case study](dify-regression.md) records the result of a separate upstream test on the pinned base and fixed commits. Its observable boundary is the keyword index.
+The recorded pytest CI job compares the same test on two actual Git checkouts of the bundled fixture. It requires a failing pytest base, a passing candidate, and a verified fix in the saved evidence. It also runs the same pytest test with an opaque search view. Pytest must fail and the report must replay as NOT TESTED, even though the native passage assertions saw the expected policy. The [Dify case study](dify-regression.md) records the result of a separate upstream test on the pinned base and fixed commits. Its observable boundary is the keyword index.
 
 For a release, keep the archive validated by CI, checksum, OS/Python/SQLite version, and qualification logs. Link the exact workflow run from release notes.

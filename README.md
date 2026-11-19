@@ -57,7 +57,7 @@ The comparison shows the affected probe and decisive observations. Changed quest
 
 ## Keep your existing pytest test
 
-If your test already controls the indexing worker, add a recorder at the checkpoint, publication, and search calls. Run the same test on the base and candidate commits, then use `setrya review` to publish one CI decision with the two reports. [Recording and CI example](docs/recording.md)
+If your test already controls the indexing worker, use the `setrya_record` pytest fixture around its existing steps. It saves a replayable report and fails the test when search returns stale content or the observations cannot establish a PASS. Run the same test on the base and candidate commits, then use `setrya review` for a pull-request summary with both replay commands. [Recording and CI example](docs/recording.md)
 
 ## Connect your own search
 

@@ -46,6 +46,14 @@ def _visible(view: dict | None, receipt: dict, probe) -> bool:
     )
 
 
+def _write_resolved(event: dict, receipt: dict | None, probe) -> bool:
+    if receipt is None:
+        return False
+    if receipt["outcome"] == "rejected":
+        return event["seq"] > receipt["seq"] and event["started_ns"] >= receipt["ns"]
+    return _visible(event["view"], receipt, probe)
+
+
 def _attribution(event: dict, rank: int, release: dict | None, receipt: dict | None, probe) -> str:
     if release is None or event["seq"] < release["seq"]:
         return "Observed while the old worker was held"
@@ -100,10 +108,7 @@ def _evaluate(report: Report) -> Verdict:
     last_pre_deadline = None
     saw_freshness_probe = False
     baseline = set()
-    final = {}
-    proof = set()
-    final_search = set()
-    missing_identity = set()
+    latest_final = {}
     cutoff = publication["ns"] + rules.freshness_ms * NS_PER_MS
     final_cutoff = release["ns"] + rules.settle_ms * NS_PER_MS if release else None
 
@@ -111,12 +116,15 @@ def _evaluate(report: Report) -> Verdict:
         if event["kind"] != "probe":
             continue
         probe = probes[event["probe_id"]]
+        stage = event["stage"]
+        in_final_window = stage == "final" and release_valid and event["ns"] <= final_cutoff
+        if in_final_window and (event["route"], event["scope"]) == (probe.route, probe.scope):
+            latest_final[probe.id] = event
         if not matches_search(event, probe):
             continue
         passages = event["passages"]
         has_identity = None not in passages
         required = set(probe.require) <= set(passages)
-        stage = event["stage"]
         if stage == "baseline":
             if establishes_baseline(event, probe, freshness=probe.id == primary.id):
                 baseline.add(probe.id)
@@ -146,23 +154,10 @@ def _evaluate(report: Report) -> Verdict:
                 return Verdict(Status.FAIL, f"Expected {', '.join(probe.require)}. Observed forbidden {marker} at rank {rank}.",
                                event["seq"], probe.id, _attribution(event, rank, release, receipt, probe))
 
-        if first_fresh is None or stage != "final" or not release_valid:
-            continue
-        if event["ns"] <= final_cutoff:
-            final_search.add(probe.id)
-        rejected = receipt and receipt["outcome"] == "rejected" and event["started_ns"] >= receipt["ns"]
-        visible = receipt and receipt["outcome"] == "committed" and _visible(event["view"], receipt, probe)
-        if not (rejected or visible) or event["ns"] > final_cutoff:
-            continue
-        proof.add(probe.id)
-        if not has_identity:
-            missing_identity.add(probe.id)
-            continue
-        if not required:
+        if first_fresh and in_final_window and has_identity and not required and _write_resolved(event, receipt, probe):
             missing = ", ".join(marker for marker in probe.require if marker not in passages)
             return Verdict(Status.FAIL, f"Required passage {missing} was absent after the write was resolved",
                            event["seq"], probe.id)
-        final[probe.id] = event
 
     if not saw_freshness_probe:
         return Verdict(Status.NOT_TESTED, "Missing freshness observation on the declared route and caller before release",
@@ -178,17 +173,19 @@ def _evaluate(report: Report) -> Verdict:
     if receipt is None:
         return Verdict(Status.NOT_TESTED, "Missing terminal receipt for the exact old write", probe=primary.id)
     for probe in (primary, *(probe for probe in rules.probes if probe.id != primary.id)):
-        if probe.id in final:
-            continue
-        if probe.id in missing_identity:
-            return Verdict(Status.NOT_TESTED, "Final result lacked revision or passage identity", probe=probe.id)
-        if probe.id not in final_search:
+        latest = latest_final.get(probe.id)
+        if latest is None:
             return Verdict(Status.NOT_TESTED, "Missing final search observation on the declared route and caller", probe=probe.id)
-        if probe.id not in proof:
+        if not matches_search(latest, probe):
+            return Verdict(Status.NOT_TESTED, "Final search view did not match the declared route and caller",
+                           latest["seq"], probe.id)
+        if not _write_resolved(latest, receipt, probe):
             detail = ("Missing search visibility evidence for the old write" if receipt["outcome"] == "committed"
                       else "Missing a final search observation after the old write rejection")
-            return Verdict(Status.NOT_TESTED, detail, probe=probe.id)
-    decisive = final[primary.id]
+            return Verdict(Status.NOT_TESTED, detail, latest["seq"], probe.id)
+        if None in latest["passages"]:
+            return Verdict(Status.NOT_TESTED, "Final result lacked revision or passage identity", latest["seq"], probe.id)
+    decisive = latest_final[primary.id]
     resolved = "Index rejected the old write" if receipt["outcome"] == "rejected" else "Search observed the completed write"
     return Verdict(Status.PASS, f"{resolved}. All final probes found their required passages.",
-                   decisive["seq"], decisive["probe_id"], confirmed=tuple(event["seq"] for event in final.values()))
+                   decisive["seq"], decisive["probe_id"], confirmed=tuple(event["seq"] for event in latest_final.values()))

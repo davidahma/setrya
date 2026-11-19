@@ -79,11 +79,13 @@ def compare(before: Report, after: Report, *, allow_passing_pair: bool = False) 
             3, "INCONCLUSIVE  The after report lacks a confirmed observation at the affected phase."
         )
     elif new.status is Status.FAIL:
-        state = 1, "REGRESSION  The after report records a failure." if old.status is Status.PASS else (
-            "FAILURE OBSERVED  The after report records a failure."
-        )
+        state = 1, "FAILURE OBSERVED  The after report records a failure."
         if old.status is Status.PASS:
             old_event = _matching_proof(before, old, probe, new_event)
+            if old_event is None:
+                state = 1, "FAILURE OBSERVED  The before report lacks a confirmed observation at the affected phase."
+            else:
+                state = 1, "REGRESSION  The affected probe passed before and failed after at the matching phase."
     elif new.status is Status.ERROR or old.status is Status.ERROR:
         state = 2, "ERROR  An execution error leaves the comparison unresolved."
     elif new.status is Status.NOT_TESTED or old.status is Status.NOT_TESTED:

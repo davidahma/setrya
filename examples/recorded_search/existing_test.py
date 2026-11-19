@@ -1,30 +1,25 @@
 """An ordinary pytest test that records evidence while keeping its own worker hooks."""
 
 import os
-from pathlib import Path
 import subprocess
 
 from examples.support_search.app import ROUTE, SCOPE
 from examples.support_search.baseline import wait_for
 from examples.support_search.client import Client
 from setrya.adapter import Checkpoint, Publication, ReadView, Receipt, SearchResult
-from setrya.checker import Status
-from setrya.recorder import Recorder
 
 
-def test_old_worker_cannot_restore_refund_policy(tmp_path):
+def test_old_worker_cannot_restore_refund_policy(tmp_path, setrya_record):
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    recorder = Recorder(
+    with setrya_record(
         os.environ["SETRYA_REVIEW_DRILL"], test_id="refund-worker",
         report=os.environ["SETRYA_REVIEW_REPORT"], revision=revision,
-    )
-    with recorder:
-        app = Client(tmp_path, recorder.run_id, "fixed", "refund")
+    ) as recorder:
+        app = Client(tmp_path, recorder.run_id, os.environ.get("SETRYA_REVIEW_MODE", "fixed"), "refund")
         try:
             _check(app, recorder)
         finally:
             app.close()
-    assert recorder.result.verdict.status is Status.PASS, recorder.result.verdict.detail
 
 
 def _check(app, recorder):
