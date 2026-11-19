@@ -181,10 +181,10 @@ def report_comparison():
             if detail.startswith("Question"):
                 require(new not in report.read_text(), "report included raw query text")
             outcome(command("-m", "setrya", "compare", reports["broken"], str(report)), 3, detail)
-        legacy = json.loads(Path(reports["fixed"]).read_text())
-        legacy.update(schema=2, checker=2)
-        legacy.pop("inputs")
-        Path(reports["fixed"]).write_text(json.dumps(legacy))
+        from .evidence import Report
+
+        legacy = replace(Report.load(reports["fixed"]), schema=2, inputs=None)
+        legacy.save(reports["fixed"])
         outcome(command("-m", "setrya", "replay", reports["fixed"]), 0, "PASS")
         outcome(command("-m", "setrya", "compare", reports["broken"], reports["fixed"]), 3, "input fingerprints")
 

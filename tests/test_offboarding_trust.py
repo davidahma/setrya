@@ -1,3 +1,4 @@
+import copy
 import io
 import json
 from contextlib import redirect_stderr
@@ -62,6 +63,47 @@ class TrustTests(unittest.TestCase):
                                                  "--trusted-root", str(root.resolve()),
                                                  "--certificate-identity", "reviewer@example.com",
                                                  "--certificate-oidc-issuer", "https://issuer.example"])
+
+    def test_schema_is_required_before_signing_or_verifying(self):
+        original = json.loads(RECEIPT.read_bytes())
+        minimal = {key: original[key] for key in ("version", "request_sha256", "evidence_sha256",
+                                                   "technical_verdict", "review_status")}
+        invalid = [minimal]
+        for path, replacement in (
+            (("version",), True),
+            (("request_sha256",), "not-a-digest"),
+            (("observed_at",), "2026-02-30T09:00:00Z"),
+            (("items", 0, "document_sha256"), "a" * 63),
+            (("items", 0, "status"), "SCHEDULED"),
+            (("items", 0, "outcome"), "reported_retained"),
+            (("items", 1, "expires_on"), "2026-02-30"),
+            (("probes", 0, "reasons"), [False]),
+            (("probes", 0, "extra"), "unexpected"),
+            (("probes",), []),
+        ):
+            value = copy.deepcopy(original)
+            target = value
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = replacement
+            invalid.append(value)
+        missing_nested = copy.deepcopy(original)
+        del missing_nested["items"][0]["issuer"]
+        invalid.append(missing_nested)
+
+        with tempfile.TemporaryDirectory() as tmp, patch("subprocess.run") as runner:
+            path, bundle = Path(tmp, "receipt.json"), Path(tmp, "bundle.json")
+            flags = ["--receipt", str(path), "--bundle", str(bundle)]
+            verify = ["verify-signature", *flags, "--trusted-root", str(Path(tmp, "root.json")),
+                      "--identity", "user@example.com", "--issuer", "https://example.com"]
+            for case, receipt in enumerate(invalid):
+                path.write_text(json.dumps(receipt))
+                for args in (["sign-receipt", *flags], verify):
+                    with self.subTest(case=case, command=args[0]), redirect_stderr(io.StringIO()) as stderr:
+                        self.assertEqual(main(args), 2)
+                        self.assertIn("v1 schema", stderr.getvalue())
+            runner.assert_not_called()
+            self.assertFalse(bundle.exists())
 
     def test_archived_receipt_has_frozen_schema_fields(self):
         schema = json.loads((ROOT / "setrya/offboarding/receipt-v1.schema.json").read_bytes())

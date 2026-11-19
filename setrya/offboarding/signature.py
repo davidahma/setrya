@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 import subprocess
 import sys
 
+from .receipt_schema import validate_receipt
 from .inputs import InvalidReport, MAX_JSON_BYTES, regular_file_opener, unique_fields
 
 
@@ -32,9 +33,7 @@ def run(args):
         if len(raw) > MAX_JSON_BYTES:
             raise InvalidReport("Receipt exceeds the 1 MiB limit.")
         obj = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_fields)
-        if (not isinstance(obj, dict) or type(obj.get("version")) is not int or obj["version"] != 1
-                or not {"request_sha256", "evidence_sha256", "technical_verdict", "review_status"} <= obj.keys()):
-            raise InvalidReport("Expected a version 1 deletion receipt.")
+        validate_receipt(obj)
         if signing:
             if os.path.lexists(args.bundle):
                 raise InvalidReport("Choose a new output path for the signature bundle.")

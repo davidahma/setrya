@@ -50,6 +50,6 @@ In Python, call `run_scenario("revoke", "reverse", output, drill=drill, factory=
 
 ## Hand the evidence to a reviewer
 
-Keep the whole output directory together. Each delivery has an ordinary Setrya search report. The v1 `scenario.json` manifest binds its message IDs, physical attempts, configuration fingerprint and reports. Suite manifests also bind the exact child manifests. These local hashes detect accidental file substitution. Use your CI artifact provenance to authenticate the producer.
+Keep the whole output directory together. Each delivery has an ordinary Setrya search report. The v1 `scenario.json` manifest binds its message IDs, physical attempts, configuration fingerprint and SHA-256 of each delivery report’s exact published bytes. Suite manifests also bind the exact child manifests. These local hashes detect accidental file substitution. Use your CI artifact provenance to authenticate the producer.
 
 Replay recomputes each delivery verdict, checks message identity and worker ordering, then combines them. An intact delivery showing a forbidden passage establishes FAIL even if another delivery or suite member is missing. Without a confirmed failure, damaged inputs and execution errors yield ERROR, missing runtime evidence yields NOT TESTED, and only a fully verified schedule passes. A passing suite keeps the weakest visibility tier used by any delivery. If a probe relied on a refresh acknowledgment, live output and offline replay both say that write visibility is unverified.

@@ -203,8 +203,9 @@ def run_scenario(kind: str, schedule: str, output: str | Path, *,
                     manifest["error"] = type(error).__name__
             for i, lane in enumerate(lanes):
                 report = lane.result().report
-                report.save(output / f"delivery-{i}.json")
-                manifest["deliveries"].append(_digest(asdict(report)))
+                path = output / f"delivery-{i}.json"
+                report.save(path)
+                manifest["deliveries"].append(sha256(path.read_bytes()).hexdigest())
             save(manifest, output / "scenario.json")
     return replay(output)
 
@@ -247,10 +248,13 @@ def _replay_lane_group(directory, meta):
     reports = {}
     for i in range(len(messages)):
         try:
-            report = Report.load(directory / f"delivery-{i}.json")
+            expected_digest = meta["deliveries"][i]
+            if not isinstance(expected_digest, str):
+                raise InputError("missing delivery report digest")
+            report = Report.load(directory / f"delivery-{i}.json", expected_sha256=expected_digest)
             identity = _test_id(meta["kind"], schedule, i, meta["config"])
             expected = sha256(f"recorded-test:{identity}".encode()).hexdigest()
-            if (report.run_id != run_id or _digest(asdict(report)) != meta["deliveries"][i] or not report.inputs
+            if (report.run_id != run_id or not report.inputs
                     or report.inputs["adapter"] != expected):
                 raise InputError("delivery report does not belong to this scenario")
             _check_kind(meta["kind"], report.rules)

@@ -30,4 +30,4 @@ setrya offboarding verify-signature --receipt receipt.json --bundle receipt.sigs
   --issuer 'https://token.actions.githubusercontent.com'
 ```
 
-Exit 0 authenticates the signer and bytes. Verify the underlying deletion evidence separately. Changing the receipt, including whitespace, invalidates the signature. Verification requires Cosign 3, Python 3.11+ and the local files. [Sigstore blob signing](https://docs.sigstore.dev/cosign/signing/signing_with_blobs/) · [Sigstore verification](https://docs.sigstore.dev/cosign/verifying/verify/)
+Both signature commands validate the complete receipt against the frozen v1 schema before invoking Cosign. Exit 0 from verification authenticates the signer and bytes. Verify the underlying deletion evidence separately. Changing the receipt, including whitespace, invalidates the signature. Verification requires Cosign 3, Python 3.11+ and the local files. [Sigstore blob signing](https://docs.sigstore.dev/cosign/signing/signing_with_blobs/) · [Sigstore verification](https://docs.sigstore.dev/cosign/verifying/verify/)

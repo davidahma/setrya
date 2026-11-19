@@ -39,6 +39,7 @@ PACKAGE_FILES = (
     "setrya/offboarding/signature.py",
     "setrya/offboarding/observer.py",
     "setrya/offboarding/receipt-v1.schema.json",
+    "setrya/offboarding/receipt_schema.py",
     "setrya/offboarding/reference.py",
     "setrya/examples/__init__.py",
     "setrya/examples/offboarding/__init__.py",

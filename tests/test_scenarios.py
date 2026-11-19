@@ -3,6 +3,7 @@ from contextlib import redirect_stdout
 from dataclasses import replace
 from io import StringIO
 import json
+from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -29,6 +30,10 @@ class ScenarioTests(unittest.TestCase):
                             self.assertEqual(replay(out), result)
                             if schedule == "reverse":
                                 reports = [Report.load(out / f"delivery-{i}.json") for i in (0, 1)]
+                                manifest = json.loads((out / "scenario.json").read_bytes())
+                                self.assertEqual(manifest["deliveries"], [
+                                    sha256((out / f"delivery-{i}.json").read_bytes()).hexdigest() for i in (0, 1)
+                                ])
                                 released = [next(e["ns"] for e in r.events if e["kind"] == "released") for r in reports]
                                 self.assertLess(released[1], released[0])
 

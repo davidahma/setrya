@@ -128,7 +128,7 @@ class Report:
             raise InputError("could not write report. Check the destination directory.") from None
 
     @classmethod
-    def load(cls, path: str | Path) -> "Report":
+    def load(cls, path: str | Path, *, expected_sha256: str | None = None) -> "Report":
         def open_nonblocking(filename, flags):
             return os.open(filename, flags | getattr(os, "O_NONBLOCK", 0))
 
@@ -144,6 +144,8 @@ class Report:
             raise InputError("could not read report as JSON") from None
         if len(data) > MAX_REPORT_BYTES:
             raise InputError("report exceeds size limit")
+        if expected_sha256 is not None and sha256(data).hexdigest() != expected_sha256:
+            raise InputError("report digest differs from the schedule manifest")
         try:
             obj = json.loads(data, object_pairs_hook=_unique_object)
         except (ValueError, RecursionError):
