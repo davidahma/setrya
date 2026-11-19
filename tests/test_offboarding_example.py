@@ -4,6 +4,7 @@ import sqlite3
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from setrya.examples.offboarding import fixture
 
@@ -15,8 +16,9 @@ class OffboardingExampleTests(unittest.TestCase):
             ("fixed", "absent", "present"),
             ("inconclusive", "absent", "unavailable"),
         ):
-            with self.subTest(mode=mode):
+            with self.subTest(mode=mode), patch.object(fixture, "_support_service", wraps=fixture._support_service) as service:
                 packet = fixture.run_case(mode)
+                service.assert_called_once()
                 probes = {p["id"]: p for p in packet["probes"]}
                 self.assertEqual(len(probes), 6)
                 self.assertEqual(probes["support-after_worker"]["before"]["subject"], baseline)

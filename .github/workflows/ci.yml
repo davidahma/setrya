@@ -116,7 +116,21 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.11'
-      - run: python3 -m pip install '.[answer-cache,pytest]'
+      - name: Install the full integration stack in a clean environment
+        run: |
+          runtime="$RUNNER_TEMP/setrya-runtime"
+          python3 -m venv "$runtime"
+          "$runtime/bin/python" -m pip install --upgrade pip
+          python3 -c 'from pathlib import Path; import tomllib; print(*tomllib.loads(Path("pyproject.toml").read_text())["build-system"]["requires"], sep="\n")' > "$RUNNER_TEMP/build-requires.txt"
+          "$runtime/bin/python" -m pip install --upgrade -r "$RUNNER_TEMP/build-requires.txt" '.[answer-cache,pytest]'
+          echo "$runtime/bin" >> "$GITHUB_PATH"
+      - name: Audit the installed integration and build packages
+        run: |
+          tool="$RUNNER_TEMP/setrya-auditor"
+          python3 -m venv "$tool"
+          "$tool/bin/python" -m pip install 'pip-audit==2.10.1'
+          python3 -m pip list --format=freeze --exclude setrya > "$RUNNER_TEMP/installed.txt"
+          "$tool/bin/pip-audit" --strict --no-deps --disable-pip -r "$RUNNER_TEMP/installed.txt"
       - name: Enable pgvector in the disposable database
         env:
           SERVICE_ID: ${{ job.services.postgres.id }}

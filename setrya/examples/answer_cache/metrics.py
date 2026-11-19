@@ -10,7 +10,7 @@ from setrya.drill import InputError
 from setrya.offboarding.inputs import read_json
 
 from .contract import PRIVATE
-from .evidence import FORMAT, MANIFEST, _read_bundle, observation, pending_before_release, verified_capture
+from .evidence import FORMAT, MANIFEST, _read_bundle, matches_question, observation, pending_before_release, verified_capture
 
 
 def _late_fill_metrics(directory):
@@ -37,7 +37,8 @@ def _late_fill_metrics(directory):
     reads = (e for e in report.events if e["kind"] == "probe")
     for event, row in zip(reads, manifest["observations"], strict=True):
         probe = probes[event["probe_id"]]
-        scoped = (row["status"] == 200 and (row["route"], row["caller"]) == (probe.route, probe.scope))
+        scoped = (row["status"] == 200 and matches_question(row)
+                  and (row["route"], row["caller"]) == (probe.route, probe.scope))
         hit = row["cache_hit"] if scoped and row["cache_hit"] == (row["cache_writer"] is not None) else None
         skipped = row.get("generation_skipped") if hit is not None else None
         if skipped and not hit:
@@ -46,7 +47,7 @@ def _late_fill_metrics(directory):
         baseline = row["stage"] == "baseline"
         after_revoke = row["caller"] == "revoked" and not baseline and published
         if scoped and after_revoke and (row["body"] in ("private-and-public", "contains-private")
-                                         or PRIVATE in row["sources"]):
+                                         or PRIVATE in row["sources"] or row.get("overflow_private_rank") is not None):
             stale = True
         elif scoped and None not in observation(row).passages and (baseline or published):
             # A clean-looking final read can precede the old write becoming visible.

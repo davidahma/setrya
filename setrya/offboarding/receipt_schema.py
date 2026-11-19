@@ -5,13 +5,26 @@ from importlib.resources import files
 import json
 import re
 
-from .inputs import InvalidReport
+from .gate import technical_verdict
+from .inputs import InvalidReport, require
+from .receipt import review_status
 
 
 def validate_receipt(value):
     schema = json.loads(files(__package__).joinpath("receipt-v1.schema.json").read_bytes())
     if not _matches(value, schema, schema["$defs"]):
         raise InvalidReport("Receipt does not match the published v1 schema.")
+
+    probes, items = value["probes"], value["items"]
+    for rows in (probes, items):
+        require(len({row["id"] for row in rows}) == len(rows), "Duplicate receipt identifiers.")
+    require(value["created_at"] <= value["started_at"] <= value["observed_at"],
+            "Receipt timestamps contradict the request and job order.")
+    require(all((row["verdict"] == "PASS") == (not row["reasons"]) for row in probes),
+            "Receipt probe verdict disagrees with its reasons.")
+    verdict = technical_verdict(probes)
+    require(value["technical_verdict"] == verdict and value["review_status"] == review_status(verdict, items),
+            "Receipt summary disagrees with its probes or exhibits.")
 
 
 def _matches(value, rule, definitions):

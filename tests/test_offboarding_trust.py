@@ -174,6 +174,28 @@ class TrustTests(unittest.TestCase):
             runner.assert_not_called()
             self.assertFalse(bundle.exists())
 
+    def test_signature_operations_require_an_internally_consistent_receipt(self):
+        original = json.loads(RECEIPT.read_bytes())
+        changes = (
+            {"review_status": "READY_FOR_REVIEW"},
+            {"technical_verdict": "INCONCLUSIVE"},
+            {"probes": [dict(original["probes"][0], verdict="FAIL", reasons=["after_subject_present"])]},
+            {"probes": [dict(original["probes"][0], reasons=["after_subject_present"])]},
+            {"probes": original["probes"] * 2},
+            {"items": original["items"] * 2},
+            {"started_at": "2020-01-01T00:00:00Z"},
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch("subprocess.run") as runner:
+            path, bundle, root = (Path(tmp, name) for name in ("receipt", "bundle", "root"))
+            flags = ["--receipt", str(path), "--bundle", str(bundle)]
+            for change in changes:
+                path.write_text(json.dumps(original | change))
+                with self.subTest(change=change), redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["sign-receipt", *flags]), 2)
+                    self.assertEqual(main(["verify-signature", *flags, "--trusted-root", str(root),
+                                           "--identity", "agent@example.com", "--issuer", "issuer"]), 2)
+            runner.assert_not_called()
+
     def test_archived_receipt_has_frozen_schema_fields(self):
         schema = json.loads((ROOT / "setrya/offboarding/receipt-v1.schema.json").read_bytes())
         legacy = json.loads(RECEIPT.read_bytes())

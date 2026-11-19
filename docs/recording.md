@@ -7,7 +7,7 @@ Use the opt-in `setrya_record` fixture when your test can pause a worker, publis
 From your application’s test environment, install the release and enable the pytest plugin for your test.
 
 ```sh
-python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.12.0/setrya-0.12.0.tar.gz'
+python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.12.1/setrya-0.12.1.tar.gz'
 python -m pytest -p setrya.pytest_plugin tests/test_refund.py
 ```
 
@@ -27,10 +27,15 @@ def test_refund_update(app, setrya_record):
 
         attempt = app.start_old()
         recorder.started(attempt)
-        recorder.held(app.wait_for_checkpoint(attempt))
+        held = app.wait_for_checkpoint(attempt)
+        recorder.held(held)
+        if app.receipt(attempt) is not None:
+            return
         recorder.published(app.publish_revision())
         recorder.search("refund-window", app.search)
 
+        if app.checkpoint(attempt) != held or app.receipt(attempt) is not None:
+            return
         app.release(attempt)
         recorder.released(attempt)
         recorder.receipt(app.wait_for_terminal_receipt(attempt))

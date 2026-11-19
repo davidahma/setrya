@@ -188,6 +188,14 @@ def assess_items(items, records, request_hash):
     return [supplied.get(item["id"], {**item, "status": "MISSING"}) for item in items]
 
 
+def review_status(verdict, items):
+    if verdict == "FAIL":
+        return "RESIDUAL_FOUND"
+    if verdict == "INCONCLUSIVE" or any(item["status"] != "PROVIDER_REPORTED" for item in items):
+        return "OPEN_ITEMS"
+    return "READY_FOR_REVIEW"
+
+
 def assess(
     request,
     request_hash,
@@ -235,14 +243,6 @@ def assess(
     )
     items = assess_items(request["items"], records, request_hash)
     verdict = decision["verdict"]
-    if verdict == "FAIL":
-        review_status = "RESIDUAL_FOUND"
-    elif verdict == "INCONCLUSIVE" or any(
-        item["status"] != "PROVIDER_REPORTED" for item in items
-    ):
-        review_status = "OPEN_ITEMS"
-    else:
-        review_status = "READY_FOR_REVIEW"
     return {
         "version": 1,
         "request_id": request["request_id"],
@@ -260,5 +260,5 @@ def assess(
         "technical_verdict": verdict,
         "probes": decision["probes"],
         "items": items,
-        "review_status": review_status,
+        "review_status": review_status(verdict, items),
     }

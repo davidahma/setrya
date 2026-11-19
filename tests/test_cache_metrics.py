@@ -85,7 +85,8 @@ class CacheMetricsTests(unittest.TestCase):
 
     def test_coordinate_visibility_and_preserve_decisive_endpoint_leaks(self):
         with TemporaryDirectory() as folder:
-            for fault, unverified, stale in (("unseen", 3, 0), ("wrong-user", 2, 0), ("body-leak", 0, 2)):
+            for fault, unverified, stale in (("unseen", 3, 0), ("wrong-user", 2, 0), ("body-leak", 0, 2),
+                                              ("other-question", 2, 0), ("extra-private-source", 0, 2)):
                 with self.subTest(fault=fault):
                     directory = Path(folder) / fault
                     run(directory, "guarded", application=type("Probe", (InstrumentedAnswers,), {"fault": fault}),
@@ -108,6 +109,8 @@ class CacheMetricsTests(unittest.TestCase):
             probes = [e for e in journal["events"] if e["kind"] == "probe"]
             for row, event in zip(trace["observations"], probes, strict=True):
                 del row["generation_skipped"]
+                del row["query_sha256"]
+                del row["overflow_private_rank"]
                 event["origins"] = list(observation(row).origins)
             (out / JOURNAL).write_text(json.dumps(journal))
             trace["report_sha256"] = sha256((out / JOURNAL).read_bytes()).hexdigest()

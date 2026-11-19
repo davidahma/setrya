@@ -330,8 +330,6 @@ def _measure(mode, *, request_dir=None):
                 finally:
                     resume.set()
                 terminal = worker.result(timeout=WAIT_SECONDS)
-        # Reopen the caller's route after the same worker finishes its write attempt.
-        with _support_service(path, credential) as port:
             observations.extend(_observe(path, port, credential, "worker_finished"))
         job = _read_deletion_job(path, job_id) if request_id is not None else None
 

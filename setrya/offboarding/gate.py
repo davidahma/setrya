@@ -119,6 +119,15 @@ def assess_probe(expected, observed, completed):
     return result
 
 
+def technical_verdict(probes):
+    verdicts = {probe["verdict"] for probe in probes}
+    if "FAIL" in verdicts:
+        return "FAIL"
+    if "INCONCLUSIVE" in verdicts:
+        return "INCONCLUSIVE"
+    return "PASS"
+
+
 def evaluate(policy, observations, *, expect_run=None, expect_revision=None):
     required = validate_document(policy, observations=False)
     observed = validate_document(observations, observations=True)
@@ -134,19 +143,12 @@ def evaluate(policy, observations, *, expect_run=None, expect_revision=None):
         assess_probe(probe, observed.get(identifier), completed)
         for identifier, probe in required.items()
     ]
-    verdicts = {probe["verdict"] for probe in probes}
-    if "FAIL" in verdicts:
-        verdict = "FAIL"
-    elif "INCONCLUSIVE" in verdicts:
-        verdict = "INCONCLUSIVE"
-    else:
-        verdict = "PASS"
     return {
         "version": 1,
         "target": policy["target"],
         "revision": observations["revision"],
         "run_id": observations["run_id"],
-        "verdict": verdict,
+        "verdict": technical_verdict(probes),
         "probes": probes,
     }
 

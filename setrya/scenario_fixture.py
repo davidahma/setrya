@@ -96,7 +96,8 @@ class _Delivery:
     def checkpoint(self):
         if self.future.done():
             self.future.result()
-        if self.captured.is_set():
+            return None
+        if self.captured.is_set() and not self.resume.is_set():
             return Checkpoint(self.app.context.run_id, self.attempt, self.document, self.revision, "before-write")
 
     def message_id(self):

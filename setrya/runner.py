@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 from time import sleep
 from uuid import uuid4
 
-from .adapter import RunContext
+from .adapter import Checkpoint, RunContext
 from .checker import NS_PER_MS, Status
 from .drill import Drill, InputError, Probe
 from .evidence import establishes_baseline, matches_search, observed_change
@@ -28,11 +28,11 @@ def run(drill: Drill | str | Path, *, revision: str | None = None) -> RunResult:
         module = "setrya." + module
     try:
         factory = getattr(import_module(module), factory_name)
-    except KeyboardInterrupt as error:
-        execution.add_error("factory", error)
-        return execution.result()
     except (ImportError, AttributeError):
         raise InputError("could not import adapter factory from the checkout or Python path") from None
+    except (Exception, KeyboardInterrupt) as error:
+        execution.add_error("factory", error)
+        return execution.result()
 
     with TemporaryDirectory(prefix="setrya-") as directory:
         try:
@@ -84,9 +84,9 @@ class _Execution(_Journal):
 
     def run(self) -> None:
         self.call("seed")
-        if not self.baseline() or not self.hold():
+        if not self.baseline() or not self.hold() or not self.pending():
             return
-        if self.changed(self.published(self.call("publish"))):
+        if self.changed(self.published(self.call("publish"))) and self.pending():
             self.finish()
 
     def baseline(self):
@@ -122,6 +122,11 @@ class _Execution(_Journal):
             return False
 
         return True
+
+    def pending(self):
+        expected = Checkpoint(self.run_id, self.attempt, self.rules.document,
+                              self.rules.old_revision, self.rules.checkpoint)
+        return self.call("checkpoint") == expected and self.call("receipt") is None
 
     def published(self, publication):
         return self.add("published", publication=asdict(publication) if publication is not None else None)

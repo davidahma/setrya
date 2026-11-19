@@ -38,7 +38,7 @@ class EvidenceFixture:
         return "attempt"
 
     def checkpoint(self):
-        if self.mode == "missing-checkpoint":
+        if self.mode == "missing-checkpoint" or (self.mode == "expired-hold" and self.published):
             return None
         return Checkpoint(self.run_id, "attempt", "refund", "A", "after_source_read")
 
@@ -75,6 +75,9 @@ class EvidenceFixture:
         self.released = True
 
     def receipt(self):
+        if not self.released and self.mode != "already-finished" and not (
+                self.mode == "completed-while-held" and self.published):
+            return None
         if self.mode == "ranked":
             return Receipt(self.run_id, "attempt", "refund", "A", "committed", "generation", 3)
         return Receipt(self.run_id, "attempt", "refund", "A", "rejected")
@@ -131,6 +134,26 @@ class TrustTests(unittest.TestCase):
         if data is not None:
             self.report.write_text(json.dumps(data))
         return self.cli("replay", self.report.name)
+
+    def test_expired_hold_or_preexisting_receipt_cannot_release_the_old_worker(self):
+        for mode in ("already-finished", "completed-while-held", "expired-hold"):
+            with self.subTest(mode=mode):
+                self.config(mode)
+                self.assert_exit(self.check(), 3, "NOT TESTED")
+                report = self.bundle()
+                kinds = [event["kind"] for event in report["events"]]
+                self.assertNotIn("released", kinds)
+                self.assertEqual("published" in kinds, mode != "already-finished")
+                self.assert_exit(self.replay(report), 3, "NOT TESTED")
+
+    def test_import_initialization_error_is_recorded_without_its_private_message(self):
+        self.config()
+        with patch("setrya.runner.import_module", side_effect=RuntimeError(PRIVATE)):
+            result = run(self.drill)
+        self.assertEqual(result.verdict.status, Status.ERROR)
+        self.assertEqual(result.report.events[-1]["operation"], "factory")
+        self.assertEqual(result.report.events[-1]["error"], "RuntimeError")
+        self.assertNotIn(PRIVATE, repr(result.report.events))
 
     def test_wrong_and_unconfirmed_callers_cannot_trigger_release(self):
         for mode in ("preview", "unconfirmed-caller"):

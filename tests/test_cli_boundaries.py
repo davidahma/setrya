@@ -61,6 +61,19 @@ class CliBoundaryTests(unittest.TestCase):
                     self.assertIn("ERROR", summary.read_text())
                     self.assertNotIn("FIX VERIFIED", summary.read_text())
 
+    def test_reviewers_reject_a_directory_containing_two_verdicts(self):
+        from setrya.scenarios import inspect_scenario
+
+        with TemporaryDirectory() as directory:
+            for name in ("answer-cache.json", "scenario.json"):
+                Path(directory, name).write_text("{}")
+            for command in ("replay", "diagnose"):
+                with self.subTest(command=command), redirect_stderr(StringIO()) as errors:
+                    self.assertEqual(main([command, directory]), 2)
+                    self.assertIn("ambiguous evidence directory", errors.getvalue())
+            with self.assertRaisesRegex(InputError, "ambiguous evidence directory"):
+                inspect_scenario(directory)
+
     def test_summary_destination_must_be_a_regular_file(self):
         with TemporaryDirectory() as directory:
             summary = Path(directory, "summary.md")

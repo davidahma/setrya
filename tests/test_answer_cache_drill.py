@@ -1,4 +1,5 @@
 """Recompute the answer decision, including incomplete and inconsistent endpoint traces."""
+from hashlib import sha256
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -71,6 +72,7 @@ class SyntheticAnswers:
             "cache_writer": ("task-1" if late else "seed") if hit else None,
             "generation": self.run_id, "commit": 6 if self.fault == "unseen" else 7,
             "route": "answer", "caller": caller, "http_status": 200,
+            "query_sha256": sha256(question.encode()).hexdigest(),
         }
         if self.released and caller == "revoked":
             self.revoked_reads += 1
@@ -79,6 +81,12 @@ class SyntheticAnswers:
                            cache_writer="task-1")
             if self.fault == "wrong-user":
                 row["caller"] = "retained"
+            if self.fault == "other-question":
+                row["query_sha256"] = sha256(b"unrelated question").hexdigest()
+            if self.fault == "no-query":
+                del row["query_sha256"]
+            if self.fault == "extra-private-source":
+                row["sources"] = [PUBLIC, PUBLIC, PRIVATE]
             if self.fault == "opaque":
                 row["answer"] = "another response"
             if self.fault == "bad-http":
@@ -113,7 +121,8 @@ class AnswerCacheDrillTests(unittest.TestCase):
         self.assertNotIn(PRIVATE_TEXT, (fixed / MANIFEST).read_text())
 
     def test_missing_observations_do_not_pass(self):
-        for fault in ("no-capture", "public-only", "no-checkpoint", "escaped", "missing-write", "unseen", "wrong-user", "opaque", "bad-http"):
+        for fault in ("no-capture", "public-only", "no-checkpoint", "escaped", "missing-write", "unseen", "wrong-user",
+                      "opaque", "bad-http", "other-question", "no-query"):
             with self.subTest(fault=fault):
                 _, (verdict, _) = self.exercise("guarded", fault)
                 self.assertIs(verdict.status, Status.NOT_TESTED)
@@ -134,6 +143,9 @@ class AnswerCacheDrillTests(unittest.TestCase):
     def test_body_leak_wins_over_filtered_sources_or_later_cleanup_error(self):
         _, (verdict, _) = self.exercise("guarded", "body-leak")
         self.assertIs(verdict.status, Status.FAIL)
+        _, (verdict, _) = self.exercise("guarded", "extra-private-source")
+        self.assertIs(verdict.status, Status.FAIL)
+        self.assertIn("forbidden source at position 3", verdict.detail)
         _, (verdict, _) = self.exercise("guarded", "second-leak")
         self.assertIs(verdict.status, Status.FAIL)
         self.assertEqual(verdict.probe, "public-answer")

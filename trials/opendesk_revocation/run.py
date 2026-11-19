@@ -12,7 +12,7 @@ from uuid import UUID
 from setrya.adapter import Checkpoint, Publication, ReadView, Receipt, SearchResult
 from setrya.checker import Status
 from setrya.drill import Drill
-from setrya.examples.opendesk.run import API, HERE as ASSETS, Stack, account, start_verified, verified_owner
+from setrya.examples.opendesk.run import API, HERE as ASSETS, READ_ERRORS, Stack, account, start_verified, verified_owner
 from setrya.recorder import Recorder
 from setrya.review import review
 from setrya.store_signals import postgres_wal
@@ -73,27 +73,36 @@ def setup(stack, api, private):
     return owner, workspace, team_id, actors, members, tickets
 
 
-def classify(status, body, team, public, witness):
+def classify(status, body, team, public, witness, *, retained=False):
     """Only a complete native ticket result with recognized fixture identities can prove absence."""
     if status != 200 or not isinstance(body, dict) or not isinstance(body.get("tickets"), list):
         return (None,), "unknown", False
-    items = body["tickets"]
-    if len(items) > 5 or any(not isinstance(row, dict) for row in items):
-        return (None,), "unknown", False
-    rows = [row.get("id") for row in items]
-    if any(row not in (team, public) for row in rows) or len(rows) != len(set(rows)):
-        return (None,), "unknown", False
-    markers, summary, seen = [], "absent", False
-    for row in items:
-        if row["id"] == public:
-            markers.append("public-control")
-            seen = witness is not None and row.get("subject") == witness
-        else:
+    markers, summaries = [], []
+    seen = False
+    # The native search and drill both have a depth of five. Preserve the rank
+    # of known hits even when another row has an unexpected shape or identity.
+    for row in body["tickets"][:5]:
+        identity = row.get("id") if isinstance(row, dict) else None
+        marker = None
+        if identity == public:
+            marker = "public-control"
+            seen |= witness is not None and row.get("subject") == witness
+        elif identity == team:
             custom = row.get("custom")
             field = custom.get("ai_summary") if isinstance(custom, dict) else None
             text = field.get("text") if isinstance(field, dict) else None
-            summary = {SEED: "seeded", UPDATED: "recomputed"}.get(text, "unknown") if isinstance(text, str) else "unknown"
-            markers.append("team-summary" if summary != "unknown" else None)
+            summary = {SEED: "seeded", UPDATED: "recomputed"}.get(text) if isinstance(text, str) else None
+            if summary is not None:
+                summaries.append(summary)
+                marker = "team-summary"
+                if retained:
+                    expected = "recomputed" if witness is not None else "seeded"
+                    marker = "retained-expected-summary" if summary == expected else f"unexpected-{summary}-summary"
+        markers.append(marker if marker not in markers else None)
+    if summaries:
+        summary = summaries[0] if all(item == summaries[0] for item in summaries) else "unknown"
+    else:
+        summary = "unknown" if None in markers else "absent"
     return tuple(markers), summary, seen
 
 
@@ -121,7 +130,7 @@ def exercise(stack, rec, drill, manifest, log):
         scope = probe.rules.scope
         status, value = api.request("GET", "/search?" + urlencode({"q": probe.question}),
                                     token=actors[scope], workspace=ws, allowed=None)
-        markers, summary, seen = classify(status, value, target, public, witness)
+        markers, summary, seen = classify(status, value, target, public, witness, retained=scope == "colleague")
         log["searches"].append({"phase": phase, "caller": scope, "http": status, "summary": summary,
                                 "public_control": "public-control" in markers, "write_witness": seen})
         view = ReadView(rec.run_id, position, probe.rules.route, scope) if seen else None
@@ -212,11 +221,20 @@ def run_lane(out, name, manifest, rev):
         stack = Stack(root)
         try:
             with Recorder(drill, test_id="opendesk-team-revocation", revision=rev, report=out / f"{name}.json") as rec:
-                log["target"] = start_verified(stack)
-                exercise(stack, rec, drill, manifest, log)
+                try:
+                    log["target"] = start_verified(stack)
+                    exercise(stack, rec, drill, manifest, log)
+                finally:
+                    try:
+                        stack.compose("down", "--volumes", "--remove-orphans", "--rmi", "local")
+                    except READ_ERRORS:
+                        log["cleanup_project"] = stack.project
+                        raise
+        except READ_ERRORS as error:
+            # The recorder saved the partial journal; the other deployment runs independently.
+            log["trial_error"] = type(error).__name__
         finally:
             (out / f"{name}-observations.json").write_text(json.dumps(log, indent=2) + "\n")
-            stack.compose("down", "--volumes", "--remove-orphans", "--rmi", "local")
     return rec.result, log
 
 
@@ -262,11 +280,15 @@ def native_result(log):
 def decision(base, base_log, candidate, candidate_log, revisions):
     before_exit, before_detail = native_result(base_log)
     after_exit, after_detail = native_result(candidate_log)
-    if after_exit == 1 and (candidate.verdict.status is not Status.FAIL or before_exit == 3):
+    errors = [f"{name} ({log['trial_error']})" for name, log in (("base", base_log), ("candidate", candidate_log))
+              if "trial_error" in log]
+    if after_exit == 1 and (candidate.verdict.status is not Status.FAIL or before_exit == 3 or errors):
         return 1, f"FAILURE OBSERVED  Candidate: {after_detail}"
-    if 3 in (before_exit, after_exit):
+    if errors or 3 in (before_exit, after_exit):
         if candidate.verdict.status is Status.FAIL:
             return 1, f"FAILURE OBSERVED  Candidate event {candidate.verdict.event}: {candidate.verdict.detail}"
+        if errors:
+            return 2, f"ERROR  Trial operation failed in {', '.join(errors)}. Inspect the saved lane observations."
         detail = before_detail if before_exit == 3 else after_detail
         return 3, f"NOT TESTED  {detail}"
     code, result = review(base.report, candidate.report, base_commit=revisions["base"][0],

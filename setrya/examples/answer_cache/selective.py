@@ -48,6 +48,28 @@ def _capture_fact(captured):
     }
 
 
+def _checkpoint(run_id, task):
+    return {"run_id": run_id, "attempt": task, "document": "policy", "revision": "granted", "name": CHECKPOINT}
+
+
+def _located(row, run_id, scope):
+    return (row.get("http_status") == 200 and row.get("caller") == "retained" and row.get("route") == "answer"
+            and row.get("query_sha256") == _digest(QUERIES[scope]) and row.get("generation") == run_id)
+
+
+def _saw_change(trace):
+    # Release only after the intended caller observed the replacement while
+    # the worker was held. The delivery control can legitimately be a miss.
+    if len(trace["reads"]) < 4:
+        return False
+    refund, delivery = trace["reads"][2:4]
+    return (isinstance(refund, dict) and isinstance(delivery, dict)
+            and (refund.get("stage"), refund.get("scope")) == ("published", "refund")
+            and (delivery.get("stage"), delivery.get("scope")) == ("published", "delivery")
+            and _located(refund, trace["run_id"], "refund") and _located(delivery, trace["run_id"], "delivery")
+            and refund.get("body") == "new-refund" and refund.get("sources") == [NEXT])
+
+
 def _exercise(app, trace, wait_seconds):
     from .drill import _wait
 
@@ -71,14 +93,16 @@ def _exercise(app, trace, wait_seconds):
     if held is None:
         return
     trace["held"] = asdict(held)
+    if trace["held"] != _checkpoint(trace["run_id"], trace["task"]):
+        return
     trace["capture"] = _capture_fact(app.captured())
-    if trace["capture"] is None:
+    if _worker_input(trace["capture"], trace["run_id"], trace["task"], "old-refund") is None:
         return
     trace["published"] = app.store.supersede_refund()
     if not pending("published"):
         return
     observe("published")
-    if app.checkpoint() != held:
+    if not _saw_change(trace) or app.checkpoint() != held:
         return
     trace["still_held"] = asdict(held)
     if not pending("before_release"):
@@ -189,7 +213,7 @@ def _assess(trace):
     published = (isinstance(versions, dict) and set(versions) == set(QUERIES)
                  and all(isinstance(v, str) and v.isascii() and v.isdigit() and len(v) <= 19
                          for v in versions.values()))
-    checkpoint = {"run_id": run_id, "attempt": task, "document": "policy", "revision": "granted", "name": CHECKPOINT}
+    checkpoint = _checkpoint(run_id, task)
     absent = {"run_id": run_id, "attempt": task, "receipt": None}
     held = bool(task and trace["held"] == checkpoint and trace["still_held"] == checkpoint
                 and trace["receipt_checks"] == {"published": absent, "before_release": absent})
@@ -202,7 +226,7 @@ def _assess(trace):
     stats = CacheMetrics()
     def matched_late_capture():
         warm = baseline.get("refund", (None, None))[0]
-        return (held and published and old is not None and warm is not None
+        return (held and published and _saw_change(trace) and old is not None and warm is not None
                 and old.access_version == warm.access_version and old.retrieval_version == warm.retrieval_version
                 and _advanced(versions["refund"], old.retrieval_version))
 
@@ -216,8 +240,7 @@ def _assess(trace):
             raise InputError("invalid selective answer classification")
         expected = "delivery" if scope == "delivery" else ("old-refund" if stage == "baseline" else "new-refund")
         record = AnswerDependencies.from_dict(row["dependencies"]) if row.get("dependencies") is not None else None
-        located = (row.get("http_status") == 200 and row.get("caller") == "retained" and row.get("route") == "answer"
-                   and row.get("query_sha256") == _digest(QUERIES[scope]) and row.get("generation") == run_id)
+        located = _located(row, run_id, scope)
         writer = row.get("cache_writer")
         if writer is not None:
             label(writer, "cache writer")

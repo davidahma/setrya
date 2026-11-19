@@ -15,7 +15,7 @@ from setrya.offboarding.inputs import InvalidReport, save
 from setrya.recorder import Recorder
 
 from .contract import CHECKPOINT
-from .evidence import FORMAT, JOURNAL, MANIFEST, TEST_ID, drill, observation, replay, sample, verified_capture, worker_capture
+from .evidence import FORMAT, JOURNAL, MANIFEST, TEST_ID, VERSION, drill, observation, replay, sample, verified_capture, worker_capture
 
 
 def _wait(read, seconds):
@@ -97,7 +97,7 @@ def run(directory, mode, *, application=None, wait_seconds=30):
     out.mkdir(parents=True, exist_ok=False)
     spec = drill()
     recorder = Recorder(spec, test_id=TEST_ID, report=out / JOURNAL)
-    manifest = {"format": FORMAT, "version": 2, "run_id": recorder.run_id, "mode": mode,
+    manifest = {"format": FORMAT, "version": VERSION, "run_id": recorder.run_id, "mode": mode,
                 "worker_capture": None, "held_after_reads": None, "receipt_before_release": None, "observations": []}
     try:
         with recorder, TemporaryDirectory(prefix="setrya-answer-cache-") as work:

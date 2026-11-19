@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from setrya.checker import Status
 from setrya.drill import InputError
@@ -105,7 +106,7 @@ class SelectiveReplayTests(unittest.TestCase):
         self.trace["reads"][2].update(body=None, cache_hit=True, cache_writer=None)
         verdict, counts = self.assess()
         self.assertEqual((verdict, counts.unverified, counts.hits + counts.misses),
-                         (Status.NOT_TESTED, 1, 7))
+                         (Status.NOT_TESTED, 6, 7))
 
     def test_rejection_needs_both_pre_release_lookups_of_the_selected_task(self):
         for stage in ("published", "before_release"):
@@ -123,7 +124,6 @@ class SelectiveReplayTests(unittest.TestCase):
                     self.assertEqual((verdict, counts.rejected_fills), (Status.NOT_TESTED, 0))
 
     def test_native_receipt_before_release_stops_the_held_worker(self):
-        from unittest.mock import patch
         from setrya.examples.answer_cache.app import Application
         from setrya.examples.answer_cache.contract import DELIVERY_QUERY, REFUND_QUERY
 
@@ -155,6 +155,25 @@ class SelectiveReplayTests(unittest.TestCase):
         verdict, _, metrics = selective._assess(trace)
         self.assertEqual((verdict.status, metrics.snapshot().rejected_fills), (Status.NOT_TESTED, 0))
 
+    def test_wrong_caller_before_release_does_not_resume_the_selected_worker(self):
+        from setrya.examples.answer_cache.app import Application
+
+        trace = selective._new_trace()
+        with Application(trace["run_id"], "guarded", self.path) as app:
+            answer = app.answer
+
+            def preview(caller, question):
+                row = answer(caller, question)
+                if trace["published"]:
+                    row["caller"] = "preview"
+                return row
+            with patch.object(app, "answer", preview), patch.object(app, "release") as release:
+                selective._exercise(app, trace, 30)
+                release.assert_not_called()
+                self.assertIsNotNone(app.checkpoint())
+        verdict, _, metrics = selective._assess(trace)
+        self.assertEqual((verdict.status, metrics.snapshot().rejected_fills), (Status.NOT_TESTED, 0))
+
     def test_real_stale_cache_returns_the_obsolete_answer_after_supersession(self):
         from setrya.examples.answer_cache.app import Application
 
@@ -164,8 +183,31 @@ class SelectiveReplayTests(unittest.TestCase):
         verdict, _, metrics = selective._assess(trace)
         self.assertEqual(verdict.status, Status.FAIL)
         self.assertEqual(trace["reads"][2]["body"], "old-refund")
+        self.assertIsNone(trace["old_receipt"])
+        self.assertIsNone(trace["refill"])
+        self.assertEqual(metrics.snapshot().stale_serves, 1)
+
+    def test_resumed_unguarded_worker_can_undo_a_verified_clean_refund_read(self):
+        from setrya.examples.answer_cache.app import Application
+        from setrya.examples.answer_cache.contract import REFUND_QUERY
+        from setrya.examples.pgvector_search.app import connection
+
+        trace = selective._new_trace()
+        with Application(trace["run_id"], "broken", self.path) as app:
+            publish = app.store.supersede_refund
+
+            def evict_current_refund():
+                versions = publish()
+                with connection(app.store.schema) as db:
+                    db.execute("DELETE FROM answers WHERE question = %s", (REFUND_QUERY,))
+                return versions
+
+            with patch.object(app.store, "supersede_refund", evict_current_refund):
+                selective._exercise(app, trace, 30)
+        verdict, _, metrics = selective._assess(trace)
+        self.assertEqual((trace["reads"][2]["body"], trace["reads"][4]["body"]), ("new-refund", "old-refund"))
         self.assertEqual(trace["old_receipt"]["outcome"], "committed")
-        self.assertGreaterEqual(metrics.snapshot().stale_serves, 2)
+        self.assertEqual((verdict.status, metrics.snapshot().stale_serves), (Status.FAIL, 1))
 
     def test_digest_and_observation_order_are_checked(self):
         self.assess()

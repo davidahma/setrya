@@ -18,7 +18,7 @@ from uuid import uuid4
 from .adapter import Checkpoint, Publication, Receipt, RunContext, SearchResult
 from .checker import Status, Verdict, evaluate
 from .drill import Drill, InputError, Probe, ProbeRules, Rules, label, mapping
-from .evidence import Report, git_revision
+from .evidence import bundle_manifest, Report, git_revision
 from .offboarding.inputs import read_json, save
 from .runner import _Execution
 from .scenario_order import (OrderedRead, ordered_reads, shared_transition_failure, terminal_receipt,
@@ -129,7 +129,7 @@ def _drive(app, lanes, manifest):
                            test_id=_test_id(manifest["kind"], schedule, "initial", manifest["config"]))
         prior.started_ns = lanes[0].started_ns
         prior.adapter = first
-        if not prior.baseline() or not prior.hold():
+        if not prior.baseline() or not prior.hold() or not prior.pending():
             return
         receipt = first.retryable_failure()
         if receipt is None:
@@ -147,6 +147,8 @@ def _drive(app, lanes, manifest):
         if observed != message or lane.attempt != _attempt(run_id, i):
             return
         manifest["bindings"].append(observed)
+    if not all(lane.pending() for lane in lanes):
+        return
     publication = app.publish()
     publications = [lane.published(publication) for lane in lanes]
     expected_publication = {"run_id": run_id, "document": lanes[0].rules.document, "revision": lanes[0].rules.new_revision}
@@ -164,6 +166,8 @@ def _drive(app, lanes, manifest):
             # hook. A later read can miss a transient restoration by the first.
             for probe in lanes[i].drill.probes:
                 lanes[i].probe(probe)
+        if not all(lanes[j].pending() for j in order[turn:]):
+            return
         manifest["release_starts"].append(lanes[i].time())
         lanes[i].finish()
         if turn + 1 < len(order) and not terminal_receipt(lanes[i].result().report):
@@ -190,7 +194,7 @@ def _load_factory(name):
     module, attr = name.split(":")
     try:
         factory = getattr(import_module(module), attr)
-    except (ImportError, AttributeError):
+    except Exception:
         raise InputError("could not load the scenario application factory") from None
     if not callable(factory):
         raise InputError("scenario application factory must be callable")
@@ -311,6 +315,7 @@ def _manifest(meta, keys):
 def inspect_scenario(directory: str | Path) -> ScenarioEvidence:
     """Check every bound report once and retain the observations used for review."""
     directory = Path(directory)
+    bundle_manifest(directory)
     meta, _ = read_json(directory / "scenario.json", "schedule")
     if not isinstance(meta, dict) or meta.get("schedule") != "all":
         member = _replay_lane_group(directory, meta)

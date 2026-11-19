@@ -3,7 +3,7 @@
 Setrya uses a single runner-relative monotonic clock. Reports record the order and timing of lifecycle events, plus the start and end of each query. The runner issues serial probes so a query that started before the first verified new result cannot be mistaken for a subsequent read.
 
 1. The adapter seeds the original revision and an unaffected control. The primary baseline proves that the original marker is present and the revision-specific replacement marker is absent.
-2. The old attempt reads A and acknowledges that it is waiting at the checkpoint. An independent path returns a publication receipt for the exact run, document, and replacement revision. The runner timestamps the receipt and begins freshness sampling.
+2. The old attempt reads A and acknowledges that it is waiting at the checkpoint. The live runner rechecks that the same task is held and still lacks a terminal receipt immediately before publication and release. An early terminal outcome or a lost hold leaves the race incomplete. An independent path returns a publication receipt for the exact run, document, and replacement revision. The runner timestamps the receipt and begins freshness sampling.
 3. The designated freshness probe observes B on the declared route and caller scope before release and within the freshness window. A result containing B and a forbidden passage violates the assertion on that same probe. After this point, any verified forbidden passage in an applicable observation is a failure, including while the worker is still held.
 4. The runner releases the old attempt. Under the default strict policy, for each final probe it needs either a matching terminal rejection observed before the query or a response from the declared route and caller scope with a watermark at or beyond the matching commit in the same index generation. Each final probe must find its required passages, be fully identifiable, and finish within the settle window.
 
@@ -44,3 +44,5 @@ Schema 6 also requires the matching terminal receipt to arrive inside the settle
 Where legacy schemas differ from newer contracts, retain the original verifier to reproduce the original release decision.
 
 A release review requires reports for the expected base and candidate commits and consistent native test exit codes. It can pass when both comparable tests pass or when the candidate verifies a fix. `compare` continues to require a failing baseline to claim a fix. Questions stay in the trusted drill. Reports name the probe and its fingerprint. [Recording and CI](recording.md)
+
+Keep each scenario or answer-cache run in its own directory. Replay and diagnosis return exit 2 if an artifact directory contains manifests from both formats.

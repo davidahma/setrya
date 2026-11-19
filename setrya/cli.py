@@ -13,7 +13,7 @@ from tempfile import NamedTemporaryFile
 from . import __version__
 from .checker import Status, Verdict, evaluate
 from .drill import Drill, InputError
-from .evidence import Report, matches_search
+from .evidence import Report, bundle_manifest, matches_search
 from .runner import RunResult, run
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -239,11 +239,13 @@ def main(argv=None) -> int:
 
     try:
         if args.command in {"replay", "diagnose"}:
-            if Path(args.report).is_dir() and (Path(args.report) / "answer-cache.json").exists():
+            directory = Path(args.report)
+            manifest = bundle_manifest(directory) if directory.is_dir() else None
+            if manifest == "answer-cache.json":
                 from .examples.answer_cache.drill import main as answer_cache_main
 
                 return answer_cache_main(["--replay", args.report])
-            if args.command == "replay" and Path(args.report).is_dir():
+            if manifest == "scenario.json" or (directory.is_dir() and args.command == "replay"):
                 from .scenarios import main as scenario_main
 
                 return scenario_main(["replay", args.report])

@@ -38,7 +38,7 @@ docker compose -f setrya/examples/pgvector-search/compose.yml down
 
 ## Review the evidence after teardown
 
-With core Setrya installed, replay the complete directory. You can also unpack the [release evidence](https://github.com/davidahma/setrya/releases/download/v0.12.0/late-cache-fill.zip) and run the same commands.
+With core Setrya installed, replay the complete directory. You can also unpack the [release evidence](https://github.com/davidahma/setrya/releases/download/v0.12.1/late-cache-fill.zip) and run the same commands.
 
 ```sh
 setrya replay broken
@@ -47,7 +47,7 @@ setrya replay guarded
 
 Look for the revoked caller's answer while the task is held and after it finishes. A private answer after a previously clean read exposes the regression. The colleague's private **cache hit** verifies that the retained path continued to serve cached answers. A cache flush that makes every request miss cannot establish this result.
 
-Current drills check the selected task’s receipt while it is held and again before release. A terminal outcome that already exists cannot establish what the resumed task did. Archived v1 revocation bundles replay under the contract recorded by that release.
+Current drills check the selected task’s receipt while it is held and again before release. A terminal outcome that already exists cannot establish what the resumed task did. Current revocation bundles also check the question fingerprint returned by the endpoint. A response for another question leaves that read unverified. Archived v1 and v2 revocation bundles replay under their original contracts.
 
 The worker records its actual input before pausing. Replay matches its task ID, caller, query fingerprint and captured sources to the evidence. In the broken run, the cache entry identifies that same task as its writer, and the endpoint observes its write in the same PostgreSQL snapshot used to serve the answer. A missing capture or write witness leaves the corresponding claim unverified.
 
@@ -112,4 +112,6 @@ setrya replay scoped
 setrya cache-metrics broad scoped
 ```
 
-Both configurations can return the correct delivery text. The broken case evicts the delivery answer too, forcing another generation. The guarded case must retain its original cached answer and writer, reject the old refund fill, and serve the replacement from the fresh worker. The eight HTTP observations and the two task outcomes can be replayed after teardown. The metrics show observed freshness and generation decisions separately. [Download both runs](https://github.com/davidahma/setrya/releases/download/v0.12.0/selective-cache.zip) · [Read the counters](cache-metrics.md)
+Before release, the retained caller must receive the new refund policy and the delivery route must return a response for that caller’s delivery question. An old refund answer at this point fails the drill while the worker is still held.
+
+Both configurations can return the correct delivery text. The broken case evicts the delivery answer too, forcing another generation. The guarded case must retain its original cached answer and writer, reject the old refund fill, and serve the replacement from the fresh worker. The eight HTTP observations and the two task outcomes can be replayed after teardown. The metrics show observed freshness and generation decisions separately. [Download both runs](https://github.com/davidahma/setrya/releases/download/v0.12.1/selective-cache.zip) · [Read the counters](cache-metrics.md)

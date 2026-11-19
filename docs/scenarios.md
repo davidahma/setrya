@@ -60,7 +60,7 @@ A suite publishes its manifest before the first schedule. It adds a digest for e
 
 ### Compare the base and candidate in CI
 
-To try the handoff first, unpack the [two-commit review bundle](https://github.com/davidahma/setrya/releases/download/v0.12.0/scenario-review.zip) and run the command printed in `review-command.txt` from that directory. The base and candidate contain the saved observations from two revisions of the SQLite worker.
+To try the handoff first, unpack the [two-commit review bundle](https://github.com/davidahma/setrya/releases/download/v0.12.1/scenario-review.zip) and run the command printed in `review-command.txt` from that directory. The base and candidate contain the saved observations from two revisions of the SQLite worker.
 
 In each checkout, use the same Setrya release, adapter entry point, options, drill, and schedule. Capture the scenario’s exit even when it fails. Supply the full commit ID for the checkout that actually runs the worker.
 

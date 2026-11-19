@@ -25,6 +25,8 @@ The [public types](../setrya/adapter.py) and the [reference adapter](../setrya/e
 
 Use the IDs of returned revisions or map distinct markers in synthetic passages to stable, opaque IDs. A document ID shared across revisions can accompany a revision-specific marker. The primary probe needs a required marker unique to the replacement, and a forbidden marker observed at baseline. Keep those markers out of questions. Only count text from the search response that the named caller actually receives. For write attribution, a result can also carry the attempt that produced each passage. A rejection receipt binds to the run, attempt, document, and old revision. A commit receipt also carries an index generation and commit number. A read watermark describes the snapshot that produced the response, including its route and caller scope. A result without a watermark can still identify the actual route and caller using `SearchResult.route` and `SearchResult.scope`. Use the identity of the retrieval path the adapter exercised. Copying the expected identity from the drill can conceal a routing mistake.
 
+The runner polls the selected attempt’s checkpoint and receipt again before publication and release. Return the same checkpoint while the attempt is held. Return `None` from `receipt()` while it is pending. The release hook should atomically require the attempt to still be held. A recorded release belongs only to a successful hook call.
+
 ## Drill fields
 
 The file uses `version = 1`, an `[adapter]` table, a `[rules]` table, and two or more `[[probe]]` tables.

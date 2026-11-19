@@ -47,6 +47,8 @@ class Fixture:
         return "index-job"
 
     def checkpoint(self):
+        if self.write is not None:
+            return None
         return Checkpoint(self.run_id, "index-job", self.captured["document"], self.captured["revision"], "after_source_read")
 
     def publish(self):
@@ -66,6 +68,8 @@ class Fixture:
         return "es-index-" + self.uuid
 
     def receipt(self):
+        if self.write is None:
+            return None
         position = elasticsearch_position(self.write, index_uuid=self.uuid, shard=0)
         return Receipt(self.run_id, "index-job", "refund", self.captured["revision"], "committed",
                        self.refresh_generation if self.weak else position.generation, None if self.weak else position.commit)

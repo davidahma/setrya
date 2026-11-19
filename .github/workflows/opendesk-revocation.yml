@@ -43,13 +43,18 @@ jobs:
         run: |
           set -euo pipefail
           bash .github/scripts/install-gitleaks.sh
-          shopt -s nullglob
-          for report in "$RUNNER_TEMP/opendesk-revocation/"*.{json,txt}; do
-            "$RUNNER_TEMP/setrya-tools/gitleaks" stdin --no-banner --redact --ignore-gitleaks-allow < "$report"
+          src="$RUNNER_TEMP/opendesk-revocation"
+          dest="$RUNNER_TEMP/scanned-revocation"
+          mkdir "$dest"
+          for name in base.json candidate.json base-observations.json candidate-observations.json decision.txt; do
+            if [[ -f "$src/$name" ]]; then
+              cp "$src/$name" "$dest/$name"
+              "$RUNNER_TEMP/setrya-tools/gitleaks" stdin --no-banner --redact --ignore-gitleaks-allow < "$dest/$name"
+            fi
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: ${{ !cancelled() && steps.scan.outcome == 'success' }}
         with:
           name: opendesk-revocation
-          path: ${{ runner.temp }}/opendesk-revocation/
+          path: ${{ runner.temp }}/scanned-revocation/
           if-no-files-found: error

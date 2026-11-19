@@ -19,6 +19,32 @@ from setrya.scenarios import KINDS, SCHEDULES, main, preset, replay, run_scenari
 
 
 class ScenarioTests(unittest.TestCase):
+    def test_a_second_terminal_worker_cannot_qualify_as_still_held_at_the_first_release(self):
+        class EarlyCompletion(Application):
+            def publish(self):
+                result = super().publish()
+                self.workers[1].retryable_failure()
+                return result
+
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "forward"
+            verdict = run_scenario("update", "forward", output, factory=EarlyCompletion)
+            self.assertIs(verdict.status, Status.NOT_TESTED)
+            self.assertIs(replay(output).status, Status.NOT_TESTED)
+            manifest = json.loads((output / "scenario.json").read_bytes())
+            self.assertEqual(manifest["release_starts"], [])
+            for i in (0, 1):
+                events = Report.load(output / f"delivery-{i}.json").events
+                self.assertNotIn("released", [event["kind"] for event in events])
+
+    def test_scenario_adapter_import_failure_is_redacted(self):
+        with TemporaryDirectory() as tmp, redirect_stderr(StringIO()) as errors:
+            with patch("setrya.scenarios.import_module", side_effect=RuntimeError("private fixture setting")):
+                code = main(["update", "--output", str(Path(tmp) / "scenario")])
+            self.assertEqual(code, 2)
+            self.assertIn("ERROR", errors.getvalue())
+            self.assertNotIn("private fixture setting", errors.getvalue())
+
     def test_mode_overrides_only_the_bundled_worker_and_preserves_drill_defaults(self):
         with TemporaryDirectory() as tmp, redirect_stdout(StringIO()), redirect_stderr(StringIO()) as errors:
             root = Path(tmp)
