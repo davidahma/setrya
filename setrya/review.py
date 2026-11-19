@@ -10,10 +10,15 @@ from .drill import InputError
 from .scenarios import ScenarioEvidence, inspect_scenario
 
 
+EXIT_CONTRACTS = ("pytest", "setrya")
+
+
 def review(before: Report, after: Report, *, base_commit: str, candidate_commit: str,
-           base_exit: int, candidate_exit: int) -> tuple[int, str]:
+           base_exit: int, candidate_exit: int, exit_contract: str = "pytest") -> tuple[int, str]:
     base = git_revision(base_commit)
     candidate = git_revision(candidate_commit)
+    if exit_contract not in EXIT_CONTRACTS:
+        raise InputError("unknown native exit contract")
     if base == candidate:
         raise InputError("review requires two different Git commits")
     header = f"Base commit {base} · test exit {base_exit}\nCandidate commit {candidate} · test exit {candidate_exit}"
@@ -23,9 +28,13 @@ def review(before: Report, after: Report, *, base_commit: str, candidate_commit:
         verdict = evaluate(report)
         if (report.inputs or {}).get("revision") != revision:
             return 3, f"INCOMPARABLE  The {lane} report does not identify its expected commit.\n{header}"
-        if (test_exit not in {0, 1} or verdict.status is Status.ERROR
-                or (verdict.status is Status.PASS and test_exit != 0)
-                or (verdict.status is Status.FAIL and test_exit != 1)):
+        if exit_contract == "setrya":
+            agrees = test_exit == verdict.status.exit_code
+        else:
+            agrees = test_exit in {0, 1} and (
+                verdict.status is Status.NOT_TESTED or test_exit == verdict.status.exit_code
+            )
+        if not agrees or verdict.status is Status.ERROR:
             return 2, (f"ERROR  The {lane} test exit and evidence do not establish a completed result.\n"
                        f"{header}\n{lane.capitalize()} evidence {verdict.status.label} · {verdict.detail}")
     result, comparison = compare(before, after, allow_passing_pair=True)
@@ -83,7 +92,7 @@ class ReviewInput:
 
 
 def review_inputs(base: ReviewInput, candidate: ReviewInput, *,
-                  named_directories: frozenset[str] = frozenset()) -> tuple[int, str]:
+                  named_directories: frozenset[str] = frozenset(), exit_contract: str | None = None) -> tuple[int, str]:
     """Produce a reviewer-facing outcome even if one lane has no valid report."""
     if base.report is None or candidate.report is None:
         problem = "Both lanes need a readable, valid report."
@@ -95,8 +104,10 @@ def review_inputs(base: ReviewInput, candidate: ReviewInput, *,
         problem = "Both lanes need a numeric test exit."
     elif isinstance(base.report, Report) and isinstance(candidate.report, Report):
         return review(base.report, candidate.report, base_commit=base.commit, candidate_commit=candidate.commit,
-                      base_exit=base.test_exit, candidate_exit=candidate.test_exit)
+                      base_exit=base.test_exit, candidate_exit=candidate.test_exit, exit_contract=exit_contract or "pytest")
     elif isinstance(base.report, ScenarioEvidence) and isinstance(candidate.report, ScenarioEvidence):
+        if exit_contract not in (None, "setrya"):
+            return 2, "ERROR  Scenario directories require the Setrya exit contract."
         from .review_scenarios import compare_scenarios
 
         code, text = compare_scenarios(base.report, candidate.report, base.commit, candidate.commit,

@@ -1,0 +1,44 @@
+version = 1
+[rules]
+id = "opendesk-team"
+document = "team-membership"
+old_revision = "member"
+new_revision = "removed"
+checkpoint = "summary-input-captured"
+freshness_probe = "departing-summary"
+freshness_ms = 4000
+checkpoint_ms = 60000
+settle_ms = 60000
+sample_ms = 100
+max_gap_ms = 3000
+
+[[probe]]
+id = "departing-summary"
+route = "ticket-search"
+scope = "departing"
+question = "setryahandoff"
+top_k = 5
+before = ["team-summary"]
+forbid = ["team-summary"]
+require = []
+absence = true
+
+[[probe]]
+id = "public-ticket"
+route = "ticket-search"
+scope = "departing"
+question = "setryahandoff"
+top_k = 5
+before = ["public-control"]
+require = ["public-control"]
+forbid = []
+
+[[probe]]
+id = "colleague-summary"
+route = "ticket-search"
+scope = "colleague"
+question = "setryahandoff"
+top_k = 5
+before = ["team-summary"]
+require = ["team-summary"]
+forbid = []

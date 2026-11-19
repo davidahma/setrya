@@ -7,7 +7,7 @@ Use the opt-in `setrya_record` fixture when your test can pause a worker, publis
 From your application’s test environment, install the release and enable the pytest plugin for your test.
 
 ```sh
-python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.9.1/setrya-0.9.1.tar.gz'
+python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.10.0/setrya-0.10.0.tar.gz'
 python -m pytest -p setrya.pytest_plugin tests/test_refund.py
 ```
 
@@ -57,7 +57,23 @@ The example creates a disposable Git repository with a real change to the worker
 
 ## Use it in a pull request
 
-Check out the base and candidate into separate directories using their full commit IDs. Run the same test files and configuration from a shared harness, pointing the app loader at each checkout. Derive `application_commit` inside the test from `git rev-parse HEAD` in the checkout the app actually loads. Run the selected test once per checkout in a fresh artifact directory so a skipped test cannot inherit a report from an earlier run. Capture the native test command’s exit code even when the base fails. Run the comparison after both app processes close.
+From an application checkout, install its test dependencies and Setrya into a test environment outside the checkout. Keep both Git refs available locally. Select one existing test that uses `setrya_record` or `setrya_check`, then pass its native command after `--`.
+
+```sh
+setrya run-pr --repo . --base origin/main --candidate HEAD \
+  --drill tests/refund-search.toml --output refund-review -- \
+  python -m pytest -p setrya.pytest_plugin -q tests/test_refund.py::test_refund_update
+```
+
+Setrya resolves each ref to a full commit and runs the same command once in each of two disposable local clones. The caller's uncommitted files stay in the original checkout. Write the selected test so it imports the application from its current clone, including any worker subprocess. Use equivalent dependencies and disposable data in both lanes. If the integration test is new on the PR, a trusted test file at an absolute path can drive both checkouts. The bundled example does this. A passing verdict refers to the app exercised by that harness.
+
+Inside the selected pytest test, `with setrya_record(test_id="refund-worker") as recorder:` uses the pinned drill, report destination and commit. A test that already passes the same drill can keep that argument. The `setrya_check()` fixture also accepts the lane defaults. Keep a stable test or pytest node ID between revisions. Multiple fixture recordings in one command make the handoff ambiguous and produce an error. For a non-pytest harness, read `SETRYA_REVIEW_DRILL`, `SETRYA_REVIEW_REPORT`, and `SETRYA_REVIEW_REVISION` from the environment and pass them to the recorder; produce one report at the supplied path. The live SDK binds the run to the complete selected drill, including adapter options. For a harness that exits with `result.verdict.status.exit_code`, pass `--exit-contract setrya` before `--`. This interprets exit 3 with matching evidence as NOT TESTED. The default `pytest` contract treats exit 3 as an internal pytest error. The saved review command preserves the selected contract.
+
+`refund-review/review.md` names the decisive probe, phase and observation. From the directory containing that file, use the commands in the summary to replay either lane or recompute the decision without the app. The directory includes `base.json` and `candidate.json` for the lanes that produced valid reports. `run-pr.json` records the commit and native exit for each lane, the digest of each published report, and the SHA-256 of the selected drill. A command that failed to start or hit its time limit has a null exit code. Test output goes to the job console; the handoff omits command arguments, raw logs and the drill text. Treat your CI log as application data.
+
+The command returns **0** for a verified fix or a passing comparable pair, **1** for an observed candidate failure, **2** for input or execution errors, and **3** for inconclusive or incompatible evidence. A failing base still runs the candidate. On a timeout, missing report, or mismatched test input, the summary identifies the affected lane and keeps usable evidence from the other. Upload the output directory even when the command fails. Start each invocation with a new output path. Use `--timeout SECONDS` to change the per-test limit from 900 seconds.
+
+Run reviewed test commands in a disposable CI job with read-only repository permissions and the credentials needed for its test fixtures. Both checkouts execute application code with the job's privileges. If your CI already produces the two reports and captures the native exits, keep that setup and run the reviewer directly.
 
 ```sh
 setrya review base.json candidate.json \
@@ -65,10 +81,6 @@ setrya review base.json candidate.json \
   --base-exit "$BASE_TEST_EXIT" --candidate-exit "$CANDIDATE_TEST_EXIT" \
   --summary review.md
 ```
-
-Use exit **0** for a verified fix or a passing comparable pair, **1** when the candidate records a failure, **2** for input or test execution errors, and **3** for inconclusive or incompatible evidence. A recorded PASS requires a successful native test. A recorded FAIL requires the test command to report failure. A missing observation or commit mismatch stays unresolved. If a report is missing or unreadable, the command writes an ERROR summary identifying the affected side and the evidence available from the other side. Upload the available JSON reports and the Markdown summary after success or failure. Each report can be replayed independently.
-
-Setrya checks that reported commit IDs match the workflow's expected IDs, and that the reports use the same test identity and inputs. The workflow supplies checkout provenance. Run the harness in a disposable environment with a lightweight, read-only pull-request job on GitHub Actions. Keep the repositories, fixture inputs, corpus, and test command equivalent across the pair.
 
 The [Dify case study](dify-regression.md) shows how the handoff differs for a native regression that observes the index directly.
 

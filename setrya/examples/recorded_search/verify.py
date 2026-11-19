@@ -1,6 +1,7 @@
 """Run the same pytest test against two checked-out fixture revisions."""
 
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
@@ -65,24 +66,22 @@ def main(argv=None):
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
     output = args.output.resolve()
-    output.mkdir(parents=True)
-    before, after = output / "base.json", output / "candidate.json"
     opaque = output / "opaque.json"
     with TemporaryDirectory(prefix="setrya-review-") as temporary:
         root = Path(temporary)
         subject, base, candidate = make_history(root)
-        base_exit = run_test(root, subject, "base", base, before)
-        candidate_exit = run_test(root, subject, "candidate", candidate, after)
+        result = subprocess.run([
+            sys.executable, "-m", "setrya", "run-pr", "--repo", str(subject), "--base", base,
+            "--candidate", candidate, "--drill", str(DRILL), "--output", str(output), "--",
+            sys.executable, "-m", "pytest", "-p", "setrya.pytest_plugin", "-q", "--tb=line", str(TEST),
+        ], env={**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", "SETRYA_REVIEW_MODE": "fixed"}, timeout=90)
+        if result.returncode:
+            return result.returncode
+        metadata = json.loads((output / "run-pr.json").read_bytes())
+        if ([metadata[name]["test_exit"] for name in ("base", "candidate")] != [1, 0]
+                or "FIX VERIFIED" not in (output / "review.md").read_text()):
+            raise RuntimeError("the regression example requires a verified fix on two tested commits")
         opaque_exit = run_test(root, subject, "opaque", candidate, opaque, mode="opaque")
-    completed = subprocess.run(
-        [sys.executable, "-m", "setrya", "review", str(before), str(after),
-         "--base-commit", base, "--candidate-commit", candidate, "--base-exit", str(base_exit),
-         "--candidate-exit", str(candidate_exit), "--summary", str(output / "review.md")], timeout=10,
-    )
-    if completed.returncode:
-        return completed.returncode
-    if (base_exit, candidate_exit) != (1, 0):
-        raise RuntimeError("the regression example requires failing base and passing candidate tests")
     opaque_verdict = evaluate(Report.load(opaque))
     print(f"Opaque search: pytest exit {opaque_exit} · {opaque_verdict.status.label} · {opaque_verdict.detail}")
     if opaque_exit != 1 or opaque_verdict.status is not Status.NOT_TESTED or "visibility" not in opaque_verdict.detail:

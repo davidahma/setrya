@@ -157,6 +157,10 @@ class Drill:
                 document = tomllib.load(stream)
         except (OSError, UnicodeError, tomllib.TOMLDecodeError):
             raise InputError("could not read drill as TOML") from None
+        return cls.from_mapping(document)
+
+    @classmethod
+    def from_mapping(cls, document: dict) -> "Drill":
         obj = mapping(document, "drill", {"version", "rules", "probe"}, {"adapter"})
         integer(obj["version"], "drill version", DRILL_VERSION, DRILL_VERSION)
         adapter = mapping(obj["adapter"], "adapter", {"factory"}, {"options"}) if "adapter" in obj else {}

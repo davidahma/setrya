@@ -313,7 +313,8 @@ def checkpoint(stack, api, agent, ids, report, phase):
     return rows
 
 
-def run(stack, report):
+def start_verified(stack):
+    """Start the disposable stack and identify its pinned application executable."""
     config = stack.compose(
         "config", "--no-interpolate", "--format", "json", capture=True
     )
@@ -333,7 +334,11 @@ def run(stack, report):
     platform = next((name for name, expected in TRIAL_BINARIES.items() if expected == digest), None)
     if platform is None:
         raise ValueError("Unexpected OpenDesk trial executable")
-    report["target"] = {**TRIAL_BUILD, "platform": platform, "binary_sha256": digest}
+    return {**TRIAL_BUILD, "platform": platform, "binary_sha256": digest}
+
+
+def run(stack, report):
+    report["target"] = start_verified(stack)
     api = API(stack)
     stack.sql(
         "opendesk",

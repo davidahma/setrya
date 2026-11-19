@@ -63,3 +63,20 @@ def test_stale_incomplete_and_native_failures_keep_their_reports(tmp_path):
 def test_check_rejects_output_that_would_replace_the_drill(tmp_path):
     result = run_pytest(["test_check_protects_drill_before_running"], tmp_path / "pytest")
     assert result.returncode == 0, result.stdout
+
+
+def test_run_pr_fixture_defaults_bind_one_recording_and_reject_a_second(tmp_path, monkeypatch):
+    from setrya.drill import InputError
+    from setrya.pytest_plugin import _pr_context
+    import pytest
+
+    source = Path(__file__).resolve().parents[2] / "setrya/examples/recorded-search/drill.toml"
+    target = tmp_path / "run.json"
+    monkeypatch.setenv("SETRYA_RUN_PR", "1")
+    monkeypatch.setenv("SETRYA_REVIEW_DRILL", str(source))
+    monkeypatch.setenv("SETRYA_REVIEW_REPORT", str(target))
+    monkeypatch.setenv("SETRYA_REVIEW_REVISION", "a" * 40)
+    assert _pr_context(None, None, None) == (source, target, "a" * 40)
+    with pytest.raises(InputError, match="exactly one"):
+        _pr_context(None, None, None)
+    assert target.with_suffix(".ambiguous").is_file()

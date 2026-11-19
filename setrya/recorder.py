@@ -1,6 +1,7 @@
 """Capture and evaluate search evidence inside an existing test."""
 
 from dataclasses import asdict, dataclass
+import os
 from pathlib import Path
 from time import monotonic_ns
 from typing import Callable
@@ -18,12 +19,30 @@ class RunResult:
     report: Report
 
 
+def _bind_pr_execution(drill, run_id, adapter_identity):
+    """Tell the parent which live SDK journal used its selected drill."""
+    if os.environ.get("SETRYA_RUN_PR") != "1":
+        return
+    source = os.environ.get("SETRYA_REVIEW_DRILL")
+    destination = os.environ.get("SETRYA_REVIEW_REPORT")
+    if not source or not destination or drill != Drill.load(source):
+        raise InputError("the executed drill differs from the selected run-pr drill")
+    receipt = Path(destination).with_suffix(".executed")
+    try:
+        with receipt.open("x", encoding="ascii") as stream:
+            stream.write(f"{run_id} {adapter_identity}")
+    except FileExistsError:
+        receipt.with_suffix(".ambiguous").touch()
+        raise InputError("run-pr needs exactly one Setrya recording per command") from None
+
+
 class _Journal:
     def __init__(self, drill: Drill, run_id: str, *, test_id: str | None = None, revision: str | None = None):
         self.drill = drill
         self.run_id = run_id
         self.rules = drill.rules
         self.inputs = bind_inputs(drill, test_id=test_id, revision=revision)
+        _bind_pr_execution(drill, run_id, self.inputs["adapter"])
         self.probes = {probe.rules.id: probe for probe in drill.probes}
         self.started_ns = monotonic_ns()
         self.events = []

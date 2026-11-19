@@ -9,7 +9,7 @@ Setrya answers two questions. An engineer can run a **CI gate** against a build 
 Install the core SDK in a Python 3.11+ virtual environment. The example uses SQLite, a local HTTP endpoint, and fictional records.
 
 ```sh
-python -m pip install 'setrya @ https://github.com/davidahma/setrya/releases/download/v0.9.1/setrya-0.9.1.tar.gz'
+python -m pip install 'setrya @ https://github.com/davidahma/setrya/releases/download/v0.10.0/setrya-0.10.0.tar.gz'
 setrya offboarding demo --output offboarding-run
 ```
 
@@ -96,7 +96,7 @@ The example prints `Receipt verified.`, `Technical verdict PASS`, and `Review st
 
 ## Review evidence without installing a package
 
-Download `setrya-offboarding.pyz` from the Setrya release. Verify its build provenance, then run it with Python 3.11 or newer. The arguments after the filename are the same ones you would pass after `setrya offboarding`. For example, validate an archived reference report offline with `python3 -I setrya-offboarding.pyz validate demo-report.json`. [Release files](https://github.com/davidahma/setrya/releases/tag/v0.9.1) · [Verify the build](../SECURITY.md#verify-a-downloaded-offboarding-tool)
+Download `setrya-offboarding.pyz` from the Setrya release. Verify its build provenance, then run it with Python 3.11 or newer. The arguments after the filename are the same ones you would pass after `setrya offboarding`. For example, validate an archived reference report offline with `python3 -I setrya-offboarding.pyz validate demo-report.json`. [Release files](https://github.com/davidahma/setrya/releases/tag/v0.10.0) · [Verify the build](../SECURITY.md#verify-a-downloaded-offboarding-tool)
 
 A reviewer can also sign the exact bytes of a deletion receipt with an authorized OpenSSH key. The signature namespace stays `axiom-receipt-v1` so existing signatures and allowed-signers policies continue to work. Obtain the allowed-signers file independently. The signature identifies the signing key. The receipt and original evidence supply the findings.
 
@@ -119,7 +119,7 @@ Use the Setrya repository, SDK, CLI, releases and issue tracker for tenant offbo
 | SQLite source and answer-cache observer | `setrya offboarding sqlite-policy` and `setrya offboarding observe-sqlite` |
 | Run the pinned OpenDesk application | `setrya offboarding opendesk --output trial` with Docker Compose |
 | Validate or replay raw OpenDesk evidence | `setrya offboarding opendesk --verify-report opendesk.json` or `--from-report opendesk.json --output replay` |
-| Single-file CLI, verified builds, and downloadable reports | [Setrya release assets](https://github.com/davidahma/setrya/releases/tag/v0.9.1) |
+| Single-file CLI, verified builds, and downloadable reports | [Setrya release assets](https://github.com/davidahma/setrya/releases/tag/v0.10.0) |
 
 The reference demo records the worker and 18 observations per case across two tenants, three checkpoints and three read paths. Validation checks that recorded times follow the three checkpoints and recomputes the verdicts. A valid report can describe a failing application. Use the SQLite observer to exercise source and cache checks or produce observations bound to an issued staging request. [SQLite observer](../setrya/examples/offboarding/sqlite/README.md)
 

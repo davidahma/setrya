@@ -173,6 +173,14 @@ def _write_summary(path: str | Path, title: str, text: str) -> None:
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["coverage"]:
+        from .coverage import main as coverage_main
+
+        return coverage_main(argv[1:])
+    if argv[:1] == ["run-pr"]:
+        from .run_pr import main as run_pr
+
+        return run_pr(argv[1:])
     if argv[:1] == ["scenario"]:
         from .scenarios import main as scenario_main
 
@@ -186,6 +194,8 @@ def main(argv=None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("scenario", help="drive update, deletion or access-revocation races and replay a schedule")
     commands.add_parser("offboarding", help="check tenant offboarding in CI or review one deletion request")
+    commands.add_parser("coverage", help="find changed routes and jobs without matching candidate evidence")
+    commands.add_parser("run-pr", help="run an existing test on two Git revisions and review its evidence")
     demo_parser = commands.add_parser("demo", help="run three synthetic outcomes")
     demo_parser.add_argument("--case", choices=DEMO_CASES)
     check = commands.add_parser("check", help="run a drill")
@@ -208,6 +218,8 @@ def main(argv=None) -> int:
     review_parser.add_argument("--candidate-commit", help="expected full candidate Git commit ID (required)")
     review_parser.add_argument("--base-exit", help="native base test exit (required)")
     review_parser.add_argument("--candidate-exit", help="native candidate test exit (required)")
+    review_parser.add_argument("--exit-contract", choices=("pytest", "setrya"),
+                               help="native exits (default: pytest for files, setrya for scenario directories)")
     review_parser.add_argument("--summary", help="write a Markdown summary")
     qualify = commands.add_parser("qualify", help="run the shipped qualification cases")
     qualify.add_argument("--case")
@@ -247,7 +259,8 @@ def main(argv=None) -> int:
                 candidate = ReviewInput.load(args.after, args.candidate_commit, args.candidate_exit)
                 lanes = (("base", base, args.before), ("candidate", candidate, args.after))
                 named_directories = frozenset(name for name, _, path in lanes if Path(path) == Path(name))
-                code, summary = review_inputs(base, candidate, named_directories=named_directories)
+                code, summary = review_inputs(base, candidate, named_directories=named_directories,
+                                              exit_contract=args.exit_contract)
                 for name, lane, path in lanes:
                     if lane.report is not None:
                         variable = f"{name.upper()}_REPORT"

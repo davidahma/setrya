@@ -184,6 +184,24 @@ jobs:
           name: scenario-review
           path: ${{ runner.temp }}/scenario-review/
           if-no-files-found: warn
+      - name: Review the interval between two worker writes
+        working-directory: ${{ runner.temp }}
+        run: python3 "$GITHUB_WORKSPACE/scripts/verify-scenario-review.py" --worker-order --output "$RUNNER_TEMP/worker-order-review"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ !cancelled() }}
+        with:
+          name: worker-order-review
+          path: ${{ runner.temp }}/worker-order-review/
+          if-no-files-found: error
+      - name: Detect a new route missed by the existing test
+        working-directory: ${{ runner.temp }}
+        run: python3 "$GITHUB_WORKSPACE/scripts/verify-coverage.py" --output "$RUNNER_TEMP/route-coverage-review"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ !cancelled() }}
+        with:
+          name: route-coverage-review
+          path: ${{ runner.temp }}/route-coverage-review/
+          if-no-files-found: error
       - name: Run the full test suite with pytest
         run: python3 -m pytest -q
       - name: Run the installed example on two fixture revisions

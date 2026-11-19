@@ -1,0 +1,55 @@
+name: OpenDesk team revocation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opendesk-revocation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  trial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.11'
+      - name: Run both pinned team policies against the real worker and two signed-in agents
+        run: python3 -m trials.opendesk_revocation.run --output "$RUNNER_TEMP/opendesk-revocation"
+      - name: Replay the release decision
+        env:
+          EVIDENCE: ${{ runner.temp }}/opendesk-revocation
+        run: |
+          python3 -m setrya review "$EVIDENCE/base.json" "$EVIDENCE/candidate.json" \
+            --base-commit eb71707cbb47915bf35c93dbd360cee7390339ac --base-exit 1 \
+            --candidate-commit 3da56d7b53089eb18144bfd9a305c0c4dae6fd40 --candidate-exit 0 > "$RUNNER_TEMP/replay.txt"
+          grep -q '^FIX VERIFIED ' "$EVIDENCE/decision.txt"
+          sed '/^Replay /d' "$RUNNER_TEMP/replay.txt" > "$RUNNER_TEMP/decision.txt"
+          cmp "$EVIDENCE/decision.txt" "$RUNNER_TEMP/decision.txt"
+          cat "$EVIDENCE/decision.txt" >> "$GITHUB_STEP_SUMMARY"
+      - name: Scan synthetic evidence
+        id: scan
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          bash .github/scripts/install-gitleaks.sh
+          shopt -s nullglob
+          for report in "$RUNNER_TEMP/opendesk-revocation/"*.{json,txt}; do
+            "$RUNNER_TEMP/setrya-tools/gitleaks" stdin --no-banner --redact --ignore-gitleaks-allow < "$report"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ !cancelled() && steps.scan.outcome == 'success' }}
+        with:
+          name: opendesk-revocation
+          path: ${{ runner.temp }}/opendesk-revocation/
+          if-no-files-found: error

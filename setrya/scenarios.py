@@ -21,7 +21,8 @@ from .drill import Drill, InputError, Probe, ProbeRules, Rules, label, mapping
 from .evidence import Report, git_revision
 from .offboarding.inputs import read_json, save
 from .runner import _Execution
-from .scenario_order import shared_transition_failure
+from .scenario_order import (OrderedRead, ordered_reads, shared_transition_failure, terminal_receipt,
+                             validate_publication_write, validate_windows)
 
 KINDS = ("update", "delete", "revoke")
 # (message per delivery, release order). Retry also fails and requeues the
@@ -148,10 +149,25 @@ def _drive(app, lanes, manifest):
         manifest["bindings"].append(observed)
     publication = app.publish()
     publications = [lane.published(publication) for lane in lanes]
+    expected_publication = {"run_id": run_id, "document": lanes[0].rules.document, "revision": lanes[0].rules.new_revision}
+    if publications[0]["publication"] == expected_publication and hasattr(app, "publication_position"):
+        position = app.publication_position(publication)
+        if position is not None:
+            write = {**asdict(publication), **asdict(position)}
+            validate_publication_write(write, run_id, lanes[0].rules)
+            manifest["publication_write"] = write
     if not all(lane.changed(event) for lane, event in zip(lanes, publications)):
         return
-    for i in order:
+    for turn, i in enumerate(order):
+        if turn:
+            # Read through the *still-held* delivery before calling its release
+            # hook. A later read can miss a transient restoration by the first.
+            for probe in lanes[i].drill.probes:
+                lanes[i].probe(probe)
+        manifest["release_starts"].append(lanes[i].time())
         lanes[i].finish()
+        if turn + 1 < len(order) and not terminal_receipt(lanes[i].result().report):
+            return
 
 
 def _valid_retry(manifest, rules):
@@ -226,8 +242,9 @@ def run_scenario(kind: str, schedule: str, output: str | Path, *,
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     manifest = {
-        "format": FORMAT, "version": 2, "kind": kind, "schedule": schedule, "config": config,
-        "revision": revision, "run_id": run_id, "bindings": [], "retry": None, "error": None, "deliveries": [],
+        "format": FORMAT, "version": 3, "kind": kind, "schedule": schedule, "config": config,
+        "revision": revision, "run_id": run_id, "release_starts": [], "publication_write": None,
+        "bindings": [], "retry": None, "error": None, "deliveries": [],
     }
     lanes = [_Execution(drill, run_id, test_id=_test_id(kind, schedule, i, config), revision=revision)
              for i in range(len(SCHEDULES[schedule][0]))]
@@ -264,6 +281,7 @@ class ScenarioMember:
     comparison_id: str | None = None
     complete: bool = False
     shared_failure: Verdict | None = None
+    ordered: tuple[OrderedRead, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -275,17 +293,17 @@ class ScenarioEvidence:
 
 
 def _manifest(meta, keys):
-    if not isinstance(meta, dict) or type(meta.get("version")) is not int or meta["version"] not in (1, 2):
+    if not isinstance(meta, dict) or type(meta.get("version")) is not int or meta["version"] not in (1, 2, 3):
         raise InputError("unsupported scenario manifest version")
     version = meta["version"]
     mapping(meta, "scenario", keys | {"format", "version", "kind", "schedule", "config"}
-            | ({"revision"} if version == 2 else set()))
+            | ({"revision"} if version >= 2 else set()))
     if meta["format"] != FORMAT or meta["kind"] not in KINDS:
         raise InputError("unsupported scenario manifest")
-    if version == 2 and meta["revision"] is not None:
+    if version >= 2 and meta["revision"] is not None:
         git_revision(meta["revision"])
     if not isinstance(meta["config"], str) or not re.fullmatch(
-        r"(?:local-)?[0-9a-f]{64}" if version == 2 else r"[0-9a-f]{64}", meta["config"]
+        r"(?:local-)?[0-9a-f]{64}" if version >= 2 else r"[0-9a-f]{64}", meta["config"]
     ):
         raise InputError("invalid scenario configuration fingerprint")
 
@@ -304,7 +322,7 @@ def inspect_scenario(directory: str | Path) -> ScenarioEvidence:
     members = {}
     for schedule in SCHEDULES:
         expected = meta["members"][schedule]
-        if meta["version"] == 2 and expected is None:
+        if meta["version"] >= 2 and expected is None:
             members[schedule] = ScenarioMember(Verdict(Status.NOT_TESTED, f"Unfinished schedule: {schedule}"), {})
             continue
         try:
@@ -317,7 +335,7 @@ def inspect_scenario(directory: str | Path) -> ScenarioEvidence:
         except (ValueError, OSError, TypeError):
             members[schedule] = ScenarioMember(Verdict(Status.ERROR, f"Missing or invalid {schedule} evidence"), {})
     verdict = _combine([m.verdict for m in members.values()])
-    if meta["version"] == 2 and verdict.status == Status.FAIL:
+    if meta["version"] >= 2 and verdict.status == Status.FAIL:
         schedule = next(name for name, m in members.items() if m.verdict == verdict)
         verdict = replace(verdict, detail=f"{schedule} · {verdict.detail}")
     return ScenarioEvidence(meta["kind"], "all", verdict, members)
@@ -328,11 +346,13 @@ def replay(directory: str | Path) -> Verdict:
 
 
 def _replay_lane_group(directory, meta):
-    _manifest(meta, {"run_id", "bindings", "retry", "error", "deliveries"})
+    interval_format = isinstance(meta, dict) and meta.get("version") == 3
+    _manifest(meta, {"run_id", "bindings", "retry", "error", "deliveries"}
+              | ({"release_starts", "publication_write"} if interval_format else set()))
     schedule = meta["schedule"]
     if not isinstance(schedule, str) or schedule not in SCHEDULES:
         raise InputError("unsupported schedule report")
-    current = meta["version"] == 2
+    current = meta["version"] >= 2
     comparison_id = meta["config"] if current and not meta["config"].startswith("local-") else None
     messages, order = SCHEDULES[schedule]
     run_id = label(meta["run_id"], "run ID")
@@ -397,20 +417,27 @@ def _replay_lane_group(directory, meta):
                 terminal.append((e["ns"], i))
             elif e.get("stage") == "freshness":
                 fresh.append(e["ns"])
-    if (held and published and max(held) > min(published)) or (released and fresh and min(released)[0] < max(fresh)):
+    if (held and published and max(held) > min(published)) or (not interval_format and released and fresh and min(released)[0] < max(fresh)):
         raise InputError("delivery events cross the declared publication boundary")
     if [i for _, i in sorted(released)] != list(order[:len(released)]):
         raise InputError("delivery release order does not match schedule")
     if not all(any(j == order[i] and ns <= release for ns, j in terminal)
                for i, (release, _) in enumerate(sorted(released)[1:])):
         verdicts.append(Verdict(Status.NOT_TESTED, "Missing terminal receipt before the next release"))
-    shared = shared_transition_failure(reports) if current else None
-    if shared is not None:
+    starts = meta.get("release_starts")
+    if interval_format:
+        problem = validate_windows(reports, order, starts, meta["publication_write"])
+        if problem:
+            verdicts.append(problem)
+    reads = ordered_reads(reports, order, starts, meta.get("publication_write")) if current else ()
+    shared = (next((read.failure for read in reads if read.failure is not None), None) if interval_format
+              else shared_transition_failure(reports) if current else None)
+    if shared:
         verdicts.append(shared)
     complete = (all(v.status in (Status.PASS, Status.FAIL) for v in verdicts)
                 and not any(e["kind"] == "adapter_error" for r in reports.values() for e in r.events)
                 and len(terminal) == len(messages) and len(released) == len(messages))
-    return ScenarioMember(_combine(verdicts), reports, comparison_id, complete, shared)
+    return ScenarioMember(_combine(verdicts), reports, comparison_id, complete, shared, reads)
 
 
 def _run_suite(kind, output, drill, revision):
@@ -422,7 +449,7 @@ def _run_suite(kind, output, drill, revision):
     config = _config_digest(drill, drill.factory, None)
     output.mkdir(parents=True, exist_ok=False)
     manifest = {
-        "format": FORMAT, "version": 2, "kind": kind, "schedule": "all",
+        "format": FORMAT, "version": 3, "kind": kind, "schedule": "all",
         "revision": revision, "config": config, "members": dict.fromkeys(SCHEDULES),
     }
     path = output / "scenario.json"

@@ -111,7 +111,7 @@ class ScenarioReviewTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(text.startswith("PASS"), text)
 
-    def test_weak_sibling_downgrades_suite_even_when_the_first_fix_is_write_confirmed(self):
+    def test_unconfirmed_sibling_commit_cannot_verify_the_cross_worker_fix(self):
         drill = preset("revoke")
         drill = replace(drill, rules=replace(drill.rules, visibility="observed-after-refresh"))
         before, after = self.work / "before", self.work / "after"
@@ -138,8 +138,8 @@ class ScenarioReviewTests(unittest.TestCase):
                 self.assertEqual(main(["scenario", "revoke", "--schedule", "all", "--output", str(after),
                                        "--revision", CANDIDATE]), 0)
         code, text = self.review(before, after)
-        self.assertEqual(code, 0, text)
-        self.assertTrue(text.startswith("PASS"), text)
+        self.assertEqual(code, 3, text)
+        self.assertTrue(text.startswith("INCONCLUSIVE"), text)
         self.assertIn("observed-after-refresh", text)
         self.assertNotIn("FIX VERIFIED", text)
 
@@ -175,7 +175,8 @@ class ScenarioReviewTests(unittest.TestCase):
         manifest = old / "scenario.json"
         data = json.loads(manifest.read_text())
         data["version"] = 1
-        del data["revision"]
+        for key in ("revision", "release_starts", "publication_write"):
+            del data[key]
         manifest.write_text(json.dumps(data))
         with redirect_stdout(StringIO()):
             self.assertEqual(main(["replay", str(old)]), 1)
