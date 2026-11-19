@@ -7,6 +7,7 @@ import pytest
 
 from setrya import __file__ as package_file
 from setrya.adapter import Checkpoint, Publication, Receipt, SearchResult
+from setrya.drill import InputError
 
 
 DRILL = Path(package_file).resolve().parents[1] / "examples" / "recorded-search" / "drill.toml"
@@ -54,3 +55,20 @@ def test_native_failure(setrya_record):
     with setrya_record(DRILL) as recorder:
         run_update(recorder, final="refund@A")
         raise AssertionError("original native assertion")
+
+
+
+def test_check_protects_drill_before_running(setrya_check, tmp_path, monkeypatch):
+    def unexpected_run(*args):
+        pytest.fail("adapter must not run when the output aliases the drill")
+
+    monkeypatch.setattr("setrya.pytest_plugin.run", unexpected_run)
+    drill = tmp_path / "drill.toml"
+    original = DRILL.read_bytes()
+    drill.write_bytes(original)
+    alias = tmp_path / "alias"
+    alias.symlink_to(drill)
+    for output in (drill, alias):
+        with pytest.raises(InputError, match="distinct files"):
+            setrya_check(drill, report=output)
+    assert drill.read_bytes() == original

@@ -62,3 +62,5 @@ If your existing pytest test owns worker timing and calls the search endpoint, u
 ## PostgreSQL reference integration
 
 The [pgvector walkthrough](pgvector.md) uses an independent queued worker, current-upload filtering, and the normal HTTP search response. Run `setrya diagnose REPORT` for the first missing evidence when a check is inconclusive. For example, a terminal write receipt and a search snapshot watermark are separate observations. Use [offline comparison](evidence.md#compare-two-saved-runs) to hand off results from a broken run and its patch.
+
+The SQLite demo and its bundled adapters need FTS5. Other adapters use their own backend prerequisites. If an adapter changes the working directory during a check, relative report and summary destinations still refer to the directory where the check began. Use separate paths for the drill and each output.

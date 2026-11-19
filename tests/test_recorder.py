@@ -1,4 +1,4 @@
-from contextlib import redirect_stdout
+from contextlib import chdir, redirect_stdout
 from dataclasses import replace
 from io import StringIO
 from pathlib import Path
@@ -110,6 +110,17 @@ class RecorderTests(unittest.TestCase):
                 report_path = self.directory / f"{BASE}.json"
                 self.assertNotIn("private payload", report_path.read_text())
                 self.assertIs(evaluate(Report.load(report_path)).status, expected)
+
+    def test_relative_report_stays_anchored_when_the_test_changes_directory(self):
+        original = self.drill.read_bytes()
+        output = self.directory / "results"
+        output.mkdir()
+        with chdir(output):
+            recorder = Recorder(self.drill, test_id="test", report=self.drill.name)
+            with chdir(self.directory), recorder:
+                self.sequence(recorder)
+        self.assertEqual(self.drill.read_bytes(), original)
+        self.assertIs(evaluate(Report.load(output / self.drill.name)).status, Status.PASS)
 
     def test_report_cannot_overwrite_the_drill(self):
         original = self.drill.read_text()

@@ -58,3 +58,8 @@ def test_stale_incomplete_and_native_failures_keep_their_reports(tmp_path):
         statuses.add(evaluate(report).status)
         assert "original native assertion" not in path.read_text()
     assert statuses == {Status.FAIL, Status.NOT_TESTED}
+
+
+def test_check_rejects_output_that_would_replace_the_drill(tmp_path):
+    result = run_pytest(["test_check_protects_drill_before_running"], tmp_path / "pytest")
+    assert result.returncode == 0, result.stdout

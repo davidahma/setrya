@@ -72,14 +72,14 @@ class Recorder:
 
     def __init__(self, drill: Drill | str | Path, *, test_id: str, report: str | Path,
                  run_id: str | None = None, revision: str | None = None):
+        self._path = Path(report).absolute()
         if not isinstance(drill, Drill):
-            if Path(drill).resolve() == Path(report).resolve():
+            if Path(drill).resolve() == self._path.resolve():
                 raise InputError("drill and recording report must use distinct files")
             drill = Drill.load(drill)
         drill.validate()
         self.run_id = uuid4().hex if run_id is None else label(run_id, "run ID")
         self._journal = _Journal(drill, self.run_id, test_id=label(test_id, "test ID"), revision=revision)
-        self._path = Path(report)
         self._active = False
         self._result = None
 

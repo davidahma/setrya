@@ -90,7 +90,7 @@ def _evaluate(report: Report) -> Verdict:
     held = events.get("held")
     if not _matches(held, {**identity, "name": rules.checkpoint}):
         return Verdict(Status.NOT_TESTED, f"Missing checkpoint acknowledgment for {rules.checkpoint} and the old revision")
-    if report.schema >= 4 and held["ns"] - events["started"]["ns"] > rules.checkpoint_ms * NS_PER_MS:
+    if held["ns"] - events["started"]["ns"] > rules.checkpoint_ms * NS_PER_MS:
         return Verdict(Status.NOT_TESTED, "The checkpoint acknowledgment arrived after the declared deadline", held["seq"])
     release = events.get("released")
     release_valid = release is not None and release["attempt"] == attempt
@@ -111,6 +111,8 @@ def _evaluate(report: Report) -> Verdict:
     latest_final = {}
     cutoff = publication["ns"] + rules.freshness_ms * NS_PER_MS
     final_cutoff = release["ns"] + rules.settle_ms * NS_PER_MS if release else None
+
+    timely_receipt = receipt if release_valid and receipt and receipt["ns"] <= final_cutoff else None
 
     for event in report.events:
         if event["kind"] != "probe":
@@ -154,7 +156,7 @@ def _evaluate(report: Report) -> Verdict:
                 return Verdict(Status.FAIL, f"Expected {', '.join(probe.require)}. Observed forbidden {marker} at rank {rank}.",
                                event["seq"], probe.id, _attribution(event, rank, release, receipt, probe))
 
-        if first_fresh and in_final_window and has_identity and not required and _write_resolved(event, receipt, probe):
+        if first_fresh and in_final_window and has_identity and not required and _write_resolved(event, timely_receipt, probe):
             missing = ", ".join(marker for marker in probe.require if marker not in passages)
             return Verdict(Status.FAIL, f"Required passage {missing} was absent after the write was resolved",
                            event["seq"], probe.id)
@@ -172,6 +174,9 @@ def _evaluate(report: Report) -> Verdict:
         return Verdict(Status.NOT_TESTED, "Missing matching release of the held worker")
     if receipt is None:
         return Verdict(Status.NOT_TESTED, "Missing terminal receipt for the exact old write", probe=primary.id)
+    if timely_receipt is None:
+        return Verdict(Status.NOT_TESTED, "The terminal write receipt arrived after the settle deadline",
+                       receipt["seq"], primary.id)
     for probe in (primary, *(probe for probe in rules.probes if probe.id != primary.id)):
         latest = latest_final.get(probe.id)
         if latest is None:

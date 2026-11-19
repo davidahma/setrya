@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from .checker import Status
+from .drill import Drill, InputError
 from .recorder import Recorder
 from .runner import run
 
@@ -15,9 +16,12 @@ from .runner import run
 @pytest.fixture
 def setrya_check():
     def check(path, report=None):
+        destination = Path(report).absolute() if report is not None else None
+        if destination is not None and not isinstance(path, Drill) and Path(path).resolve() == destination.resolve():
+            raise InputError("drill and check report must use distinct files")
         result = run(path)
-        if report is not None:
-            result.report.save(report)
+        if destination is not None:
+            result.report.save(destination)
         if result.verdict.status is not Status.PASS:
             pytest.fail(f"{result.verdict.status.label} · {result.verdict.detail}", pytrace=False)
         return result

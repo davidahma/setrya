@@ -11,7 +11,7 @@ scripts/qualify-offline.sh
 
 The Linux CI report step also runs a known-broken check, uploads its saved report, and verifies that replay exits with FAIL. The unit suite exercises wrong-caller and post-release observations, mismatched Python search depth, false publication claims, and adapter errors after a proven regression.
 
-The offline harness uses a loopback-only network namespace on Linux and a loopback-only sandbox profile on macOS. It checks loopback and attempts a connection to a reserved off-host address to verify the isolation. On Linux, the harness needs permission for `unshare --net` and `ip link`. CI uses non-interactive sudo to configure the namespace. Set `SETRYA_PYTHON` to an absolute Python executable to override interpreter discovery.
+The offline harness uses a loopback-only network namespace on Linux and a loopback-only sandbox profile on macOS. It checks loopback and attempts a connection to a reserved off-host address to verify the isolation. On Linux, run the harness as your normal user with `unshare`, `setpriv` (util-linux), and `ip` installed. CI uses non-interactive sudo to create the namespace and enable loopback. The launcher restores the invoking UID, GID and group memberships before it starts Python. The verification step checks that identity. An invocation that starts as root, including a root container, retains that identity and still needs permission to create a network namespace. Set `SETRYA_PYTHON` to an absolute Python executable to override interpreter discovery.
 
 | Case | Expected evidence |
 | --- | --- |

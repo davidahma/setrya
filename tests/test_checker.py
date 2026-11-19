@@ -140,7 +140,7 @@ class VerdictTests(unittest.TestCase):
     def test_fts5_preflight_names_missing_capability(self):
         import sqlite3
 
-        with patch("setrya.cli.sqlite3.connect", side_effect=sqlite3.Error):
+        with patch("sqlite3.connect", side_effect=sqlite3.Error):
             with self.assertRaisesRegex(InputError, "FTS5 is unavailable"):
                 preflight()
 

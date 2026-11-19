@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "setrya"
-version = "0.5.0"
+version = "0.5.1"
 description = "Regression tests for search results after indexing changes"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,3 +23,6 @@ include = ["setrya*", "examples*"]
 
 [tool.setuptools.package-data]
 examples = ["recorded-search/*.toml", "support-search/*.toml", "pgvector-search/*.toml", "pgvector-search/compose.yml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

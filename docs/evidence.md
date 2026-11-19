@@ -15,7 +15,7 @@ The report attributes a stale passage to the old write only when its recorded or
 
 A JSON report saves schema and checker versions, an opaque run ID, text-free effective rules, ordered event times, actual query route and caller, passage markers, and publication, receipt, or read evidence. Replay uses those saved rules and events. It never invokes the adapter. Schema 1 reports still show their event history and replay as NOT TESTED because they lack the current publication and caller evidence. A corrupt or unsupported bundle exits with code 2.
 
-Keep report artifacts with the exact commit and CI run. Share only synthetic or approved identifiers in public GitHub issues. Default output has no query or passage strings. The bundled fixtures use synthetic data and their independent search endpoint returns the full synthetic snippets to its local caller.
+Read portable reports with the installed `setrya replay` command or `python -I -m setrya replay`. Keep report artifacts with the exact commit and CI run. Share only synthetic or approved identifiers in public GitHub issues. Default output has no query or passage strings. The bundled fixtures use synthetic data and their independent search endpoint returns the full synthetic snippets to its local caller.
 
 ## Compare two saved runs
 
@@ -30,5 +30,7 @@ The question fingerprint is an unkeyed digest for equality checks. It can reveal
 Schema 4 can carry a full application commit ID. It records a test failure by exception type and checks the recorded checkpoint deadline. Existing schema 2 and 3 reports remain replayable, and schema 3 reports retain the input fingerprints for offline comparison.
 
 Schema 5 marks the stronger final-read rule. The current checker applies this rule when replaying readable schema 2–4 reports, so an older PASS can become NOT TESTED if a later recorded read lost the evidence needed to confirm it. Use Setrya 0.5 or later to replay a schema 5 report.
+
+Schema 6 also requires the matching terminal receipt to arrive inside the settle window. A search watermark can confirm a commit retrospectively when both observations met that deadline. Replay checks the checkpoint and settle deadlines wherever older reports recorded the required times. Older results can become NOT TESTED under these rules. Use Setrya 0.5.1 or later to read schema 6.
 
 A release review requires reports for the expected base and candidate commits and consistent native test exit codes. It can pass when both comparable tests pass or when the candidate verifies a fix. `compare` continues to require a failing baseline to claim a fix. Questions stay in the trusted drill. Reports name the probe and its fingerprint. [Recording and CI](recording.md)

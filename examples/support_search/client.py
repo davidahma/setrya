@@ -32,8 +32,11 @@ class Client:
                     return
                 time.sleep(0.01)
             raise FixtureError("search fixture did not start")
-        except BaseException:
-            self.close()
+        except BaseException as error:
+            try:
+                self.close()
+            except Exception:
+                error.add_note("Search fixture cleanup also failed after startup.")
             raise
 
     def request(self, endpoint, **payload):
@@ -63,7 +66,10 @@ class Client:
         if self.process.poll() is None:
             self.process.terminate()
         try:
-            self.process.wait(timeout=3)
+            code = self.process.wait(timeout=3)
         except subprocess.TimeoutExpired:
             self.process.kill()
             self.process.wait(timeout=1)
+            raise FixtureError("search fixture needed a forced shutdown. Cleanup may be incomplete") from None
+        if code:
+            raise FixtureError(f"search fixture cleanup failed (server exit {code})")

@@ -6,7 +6,6 @@ from dataclasses import replace
 from pathlib import Path
 import re
 import shlex
-import sqlite3
 import sys
 from tempfile import NamedTemporaryFile
 
@@ -23,6 +22,10 @@ DEMO_CASES = {"broken": Status.FAIL, "fixed": Status.PASS, "opaque": Status.NOT_
 DEMO_PASSAGES = {"refund@A": "30 days", "refund@B": "14 days"}
 
 def preflight() -> None:
+    try:
+        import sqlite3
+    except ImportError:
+        raise InputError("The SQLite fixture needs a Python build with SQLite FTS5 enabled.") from None
     try:
         with closing(sqlite3.connect(":memory:")) as connection:
             connection.execute("CREATE VIRTUAL TABLE preflight USING fts5(body)")
@@ -137,16 +140,22 @@ def replay_command(report_path: str | None, *, artifact: str = "run.json", varia
 
 
 def console_main() -> int:
-    # Match python -m when the installed entry point is invoked from a checkout.
-    sys.path.insert(0, str(Path.cwd()))
-    return main()
+    if sys.argv[1:2] != ["check"]:
+        return main()
+    # Only live checks import adapters from the working checkout.
+    original_path = sys.path
+    try:
+        sys.path = [str(Path.cwd()), *original_path]
+        return main()
+    finally:
+        sys.path = original_path
 
 
-def _write_summary(path: str, title: str, text: str) -> None:
-    target = Path(path).resolve()
+def _write_summary(path: str | Path, title: str, text: str) -> None:
+    target = Path(path).absolute()
     temporary = None
     try:
-        if target.exists() and not target.is_file():
+        if target.is_symlink() or (target.exists() and not target.is_file()):
             raise InputError("summary destination must be a regular file")
         with NamedTemporaryFile("w", dir=target.parent, prefix=".setrya-", encoding="utf-8", delete=False) as stream:
             temporary = Path(stream.name)
@@ -190,6 +199,7 @@ def main(argv=None) -> int:
     qualify.add_argument("--case")
     qualify.add_argument("--quick", action="store_true", help="skip the 90-run repeatability case")
     args = parser.parse_args(argv)
+    error_summary = None
 
     try:
         if args.command in {"replay", "diagnose"}:
@@ -204,6 +214,7 @@ def main(argv=None) -> int:
 
             if args.summary and Path(args.summary).resolve() in {Path(args.before).resolve(), Path(args.after).resolve()}:
                 raise InputError("comparison summary must use a distinct file")
+            error_summary = args.summary
             if args.command == "review":
                 from .review import ReviewInput, review_inputs
 
@@ -220,6 +231,7 @@ def main(argv=None) -> int:
                 code, summary = compare(before, after)
                 title = f"{before.rules.id} comparison"
             print(summary)
+            error_summary = None
             if args.summary:
                 _write_summary(args.summary, title, summary)
             return code
@@ -227,31 +239,42 @@ def main(argv=None) -> int:
             paths = [Path(path).resolve() for path in (args.drill, args.report, args.summary) if path is not None]
             if len(set(paths)) != len(paths):
                 raise InputError("drill, report and summary must use distinct files")
+            report_path = Path(args.report).absolute() if args.report else None
+            summary_path = Path(args.summary).absolute() if args.summary else None
+            error_summary = summary_path
             drill = Drill.load(args.drill)
-            preflight()
+            if drill.factory in {"examples.support_search.adapter:http_fixture",
+                                 "examples.support_search.adapter:python_fixture"}:
+                preflight()
             result = run(drill, revision=args.revision)
-            if args.report:
-                result.report.save(args.report)
+            if report_path:
+                result.report.save(report_path)
             summary = format_verdict(result.verdict, result.report, rerun_command(args.drill),
                                      replay_command(args.report))
             print(summary)
-            if args.summary:
-                _write_summary(args.summary, result.report.rules.id, summary)
+            error_summary = None
+            if summary_path:
+                _write_summary(summary_path, result.report.rules.id, summary)
             return result.verdict.status.exit_code
-        preflight()
         if args.command == "demo":
+            preflight()
             return demo(args.case)
+        if args.case != "pgvector":
+            preflight()
         from .qualification import qualify as run_qualification
 
         return run_qualification(args.case, args.quick)
     except InputError as error:
-        print(f"ERROR  {error}", file=sys.stderr)
-        return 2
+        diagnostic = f"ERROR  {error}"
     except KeyboardInterrupt:
-        print("ERROR  Interrupted. Fixture teardown requested.", file=sys.stderr)
-        return 2
+        diagnostic = "ERROR  Interrupted. Fixture teardown requested."
     except Exception as error:
         # Third-party errors may contain queries, snippets and local URLs.
-        print(f"ERROR  {type(error).__name__} during {args.command}. Check adapter health and local permissions.",
-              file=sys.stderr)
-        return 2
+        diagnostic = f"ERROR  {type(error).__name__} during {args.command}. Check adapter health and local permissions."
+    print(diagnostic, file=sys.stderr)
+    if error_summary:
+        try:
+            _write_summary(error_summary, f"{args.command} error", diagnostic)
+        except InputError as error:
+            print(f"ERROR  {error}", file=sys.stderr)
+    return 2

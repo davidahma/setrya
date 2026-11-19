@@ -1,7 +1,17 @@
 """Assert loopback works and an off-host connection is blocked."""
 
 import errno
+import os
 import socket
+import sys
+
+if len(sys.argv) > 1:
+    uid, gid, groups = sys.argv[1:]
+    expected_groups = {int(group) for group in groups.split(",")}
+    effective_groups = set(os.getgroups()) | {os.getegid()}
+    if (os.geteuid(), os.getegid(), effective_groups) != (int(uid), int(gid), expected_groups):
+        raise SystemExit("offline qualification did not retain the calling user's identity")
+    print(f"Qualification identity verified: uid={uid} gid={gid}", flush=True)
 
 with socket.socket() as listener:
     listener.bind(("127.0.0.1", 0))

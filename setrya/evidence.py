@@ -6,14 +6,15 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import tempfile
 
 from .drill import DRILL_VERSION, Drill, InputError, ProbeRules, Rules, integer, label, mapping
 
-SCHEMA = 5
-CHECKER = 5
+SCHEMA = 6
+CHECKER = 6
 _INPUT_SCHEMA = 3
-_CHECKERS = {1: 1, 2: 2, 3: 3, 4: 4, SCHEMA: CHECKER}
+_CHECKERS = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, SCHEMA: CHECKER}
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
 _COMMIT = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 MAX_REPORT_BYTES = 16 * 1024 * 1024
@@ -95,13 +96,24 @@ class Report:
 
     @classmethod
     def load(cls, path: str | Path) -> "Report":
+        def open_nonblocking(filename, flags):
+            return os.open(filename, flags | getattr(os, "O_NONBLOCK", 0))
+
         try:
-            with Path(path).open("rb") as stream:
+            with open(path, "rb", opener=open_nonblocking) as stream:
+                info = os.fstat(stream.fileno())
+                if not stat.S_ISREG(info.st_mode):
+                    raise InputError("report must be a regular file")
+                if info.st_size > MAX_REPORT_BYTES:
+                    raise InputError("report exceeds size limit")
                 data = stream.read(MAX_REPORT_BYTES + 1)
-            if len(data) > MAX_REPORT_BYTES:
-                raise InputError("report exceeds size limit")
+        except OSError:
+            raise InputError("could not read report as JSON") from None
+        if len(data) > MAX_REPORT_BYTES:
+            raise InputError("report exceeds size limit")
+        try:
             obj = json.loads(data)
-        except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
+        except (ValueError, RecursionError):
             raise InputError("could not read report as JSON") from None
         schema = obj.get("schema") if isinstance(obj, dict) else None
         if type(schema) is not int or schema not in _CHECKERS:
@@ -121,6 +133,13 @@ class Report:
         """Validate event types, contents and order for live and replayed reports."""
         if type(self.schema) is not int or self.schema not in _CHECKERS:
             raise InputError("unsupported report schema")
+        label(self.run_id, "run ID")
+        if not isinstance(self.rules, Rules) or Rules.parse(asdict(self.rules), legacy=self.schema == 1) != self.rules:
+            raise InputError("invalid report rules")
+        if not isinstance(self.events, (tuple, list)):
+            raise InputError("report events must be a sequence")
+        if self.schema < _INPUT_SCHEMA and self.inputs is not None:
+            raise InputError("report schema does not support input fingerprints")
         probes = {probe.id: probe for probe in self.rules.probes}
         if self.schema >= _INPUT_SCHEMA:
             optional = {"revision"} if self.schema >= 4 else set()
