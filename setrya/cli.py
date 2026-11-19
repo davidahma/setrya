@@ -173,6 +173,10 @@ def _write_summary(path: str | Path, title: str, text: str) -> None:
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["answer-cache"]:
+        from .examples.answer_cache.drill import main as answer_cache_main
+
+        return answer_cache_main(argv[1:])
     if argv[:1] == ["coverage"]:
         from .coverage import main as coverage_main
 
@@ -194,6 +198,7 @@ def main(argv=None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("scenario", help="drive update, deletion or access-revocation races and replay a schedule")
     commands.add_parser("offboarding", help="check tenant offboarding in CI or review one deletion request")
+    commands.add_parser("answer-cache", help="test a late Celery cache fill against a real answer endpoint")
     commands.add_parser("coverage", help="find changed routes and jobs without matching candidate evidence")
     commands.add_parser("run-pr", help="run an existing test on two Git revisions and review its evidence")
     demo_parser = commands.add_parser("demo", help="run three synthetic outcomes")
@@ -229,6 +234,10 @@ def main(argv=None) -> int:
 
     try:
         if args.command in {"replay", "diagnose"}:
+            if Path(args.report).is_dir() and (Path(args.report) / "answer-cache.json").exists():
+                from .examples.answer_cache.drill import main as answer_cache_main
+
+                return answer_cache_main(["--replay", args.report])
             if args.command == "replay" and Path(args.report).is_dir():
                 from .scenarios import main as scenario_main
 
