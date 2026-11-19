@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+from examples.opendesk import run
 from setrya.cli import main
 
 
@@ -43,6 +44,39 @@ class OpenDeskWorkflowTests(unittest.TestCase):
             self.assertFalse(destination.exists())
             self.assertEqual(self.invoke("--verify-report", source, "--output", destination), 3)
             self.assertEqual(self.invoke("--from-report", source), 3)
+
+    def test_ctrl_c_keeps_observed_residual_and_reports_startup_or_cleanup_gaps(self):
+        for phase, residual, expected in (("observation", True, 1), ("startup", False, 3),
+                                          ("cleanup", True, 1), ("cleanup", False, 3)):
+            with self.subTest(phase=phase, residual=residual), TemporaryDirectory() as folder:
+                destination = Path(folder, "trial")
+
+                def interrupt_at_checkpoint(stack, report):
+                    if phase == "startup":
+                        raise KeyboardInterrupt
+                    before = {label: run.HEALTHY_V2.copy() for label in run.CASES}
+                    after = {label: run.UNTESTED.copy() for label in run.CASES}
+                    if residual:
+                        after["Acme"]["source_message_row"] = "FOUND"
+                    report.update(interrupted_at="observation", offboarding_http_status=204)
+                    for checkpoint, rows in (("before_offboarding", before), ("after_offboarding", after)):
+                        report["observations"].append({
+                            "phase": checkpoint, "observed_at": run.now(), "workspaces": rows,
+                        })
+                    if phase == "observation":
+                        raise KeyboardInterrupt
+                    report["interrupted_at"] = None
+
+                with (patch.object(run, "run", side_effect=interrupt_at_checkpoint),
+                      patch.object(run.Stack, "compose", side_effect=KeyboardInterrupt if phase == "cleanup" else None) as cleanup):
+                    self.assertEqual(self.invoke("--output", destination), expected)
+                cleanup.assert_called_once_with("down", "--volumes", "--remove-orphans")
+                report = destination / "opendesk.json"
+                self.assertEqual(self.invoke("--verify-report", report), 0)
+                self.assertEqual(json.loads(report.read_bytes())["interrupted_at"], phase)
+                decision = json.loads((destination / "opendesk-decision.json").read_bytes())
+                self.assertEqual(decision["verdict"], "FAIL" if residual else "INCONCLUSIVE")
+                self.assertEqual(self.invoke("--from-report", report, "--output", Path(folder, "review")), expected)
 
     def test_interrupted_startup_cannot_pass_even_when_report_replays(self):
         report = json.loads(files("examples.opendesk").joinpath("observed.json").read_bytes())

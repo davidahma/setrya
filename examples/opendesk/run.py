@@ -297,7 +297,8 @@ def observe(stack, api, agent, label, ids, row):
         result = agent_read(status, value, ticket, marker)
     except READ_ERRORS:
         result = "INCONCLUSIVE", None, "read_error"
-    row["agent_summary"], row["agent_http_status"], row["agent_read_reason"] = result
+    result_state, status, reason = result
+    row.update(agent_summary=result_state, agent_http_status=status, agent_read_reason=reason)
 
 
 def checkpoint(stack, api, agent, ids, report, phase):
@@ -347,8 +348,7 @@ def run(stack, report):
         ids["Acme"][0],
         allowed=(204,),
     )
-    report["offboarding_http_status"] = status
-    report["interrupted_at"] = "observation"
+    report.update(offboarding_http_status=status, interrupted_at="observation")
     checkpoint(stack, api, agent, ids, report, "after_offboarding")
     report["interrupted_at"] = None
 
@@ -365,6 +365,7 @@ def capture(report_path, stack):
     try:
         run(stack, evidence)
     except (
+        KeyboardInterrupt,
         RuntimeError,
         ValueError,
         OSError,
@@ -381,7 +382,7 @@ def capture(report_path, stack):
     finally:
         try:
             stack.compose("down", "--volumes", "--remove-orphans")
-        except (OSError, subprocess.SubprocessError):
+        except (KeyboardInterrupt, OSError, subprocess.SubprocessError):
             print(
                 f"Cleanup failed for disposable project {stack.project}",
                 file=sys.stderr,
