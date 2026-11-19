@@ -2,10 +2,12 @@
 
 import argparse
 from collections.abc import Callable
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from hashlib import sha256
 from importlib import import_module
+from inspect import isclass, isfunction
 import json
+import re
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -16,9 +18,10 @@ from uuid import uuid4
 from .adapter import Checkpoint, Publication, Receipt, RunContext, SearchResult
 from .checker import Status, Verdict, evaluate
 from .drill import Drill, InputError, Probe, ProbeRules, Rules, label, mapping
-from .evidence import Report
+from .evidence import Report, git_revision
 from .offboarding.inputs import read_json, save
 from .runner import _Execution
+from .scenario_order import shared_transition_failure
 
 KINDS = ("update", "delete", "revoke")
 # (message per delivery, release order). Retry also fails and requeues the
@@ -158,6 +161,41 @@ def _valid_retry(manifest, rules):
             and retry["receipt"] == {**identity, "outcome": "rejected", "generation": None, "commit": None})
 
 
+def _load_factory(name):
+    if not name or name.startswith("__main__:"):
+        raise InputError("a configured scenario needs an importable module:factory")
+    module, attr = name.split(":")
+    try:
+        factory = getattr(import_module(module), attr)
+    except (ImportError, AttributeError):
+        raise InputError("could not load the scenario application factory") from None
+    if not callable(factory):
+        raise InputError("scenario application factory must be callable")
+    return factory
+
+
+def _config_digest(drill, name, run_id):
+    # A local callback can close over state or wrap a different application each
+    # run. Bind the deliveries to this run alone when the name cannot identify it.
+    try:
+        return (_digest([name, asdict(drill)]) if name
+                else "local-" + _digest([run_id, asdict(drill)]))
+    except (TypeError, ValueError):
+        raise InputError("scenario options must contain finite JSON-compatible values") from None
+
+
+def _injected_entrypoint(factory):
+    """Only a named, importable definition identifies an SDK adapter across runs."""
+    if not (isfunction(factory) or isclass(factory)) or factory.__module__ == "__main__":
+        return None
+    module = sys.modules.get(factory.__module__)
+    if module is None or getattr(module, factory.__name__, None) is not factory:
+        return None
+    if factory.__qualname__ != factory.__name__:
+        return None
+    return f"{factory.__module__}:{factory.__name__}"
+
+
 def run_scenario(kind: str, schedule: str, output: str | Path, *,
                  drill: Drill | None = None, factory: Callable[[RunContext], ScenarioApplication] | None = None,
                  revision: str | None = None) -> Verdict:
@@ -167,22 +205,23 @@ def run_scenario(kind: str, schedule: str, output: str | Path, *,
     _check_kind(kind, drill.rules)
     if schedule not in SCHEDULES:
         raise InputError("unknown delivery schedule")
+    if revision is not None:
+        git_revision(revision)
     if factory is None:
         name = drill.factory
-        if not name:
-            raise InputError("a driven scenario requires an application factory")
-        module, attr = name.split(":")
-        try:
-            factory = getattr(import_module(module), attr)
-        except (ImportError, AttributeError):
-            raise InputError("could not load the scenario application factory") from None
+        factory = _load_factory(name)
+    else:
+        if not callable(factory):
+            raise InputError("scenario application factory must be callable")
+        name = _injected_entrypoint(factory)
+    run_id = uuid4().hex
+    config = _config_digest(drill, name, run_id)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
-    run_id = uuid4().hex
-    identity = getattr(factory, "__qualname__", type(factory).__qualname__)
-    config = _digest([factory.__module__, identity, asdict(drill), revision])
-    manifest = {"config": config, "deliveries": [], "format": FORMAT, "version": 1, "kind": kind, "schedule": schedule,
-                "run_id": run_id, "bindings": [], "retry": None, "error": None}
+    manifest = {
+        "format": FORMAT, "version": 2, "kind": kind, "schedule": schedule, "config": config,
+        "revision": revision, "run_id": run_id, "bindings": [], "retry": None, "error": None, "deliveries": [],
+    }
     lanes = [_Execution(drill, run_id, test_id=_test_id(kind, schedule, i, config), revision=revision)
              for i in range(len(SCHEDULES[schedule][0]))]
     origin = monotonic_ns()
@@ -200,7 +239,8 @@ def run_scenario(kind: str, schedule: str, output: str | Path, *,
                 try:
                     app.close()
                 except (Exception, KeyboardInterrupt) as error:
-                    manifest["error"] = type(error).__name__
+                    if manifest["error"] is None or isinstance(error, KeyboardInterrupt):
+                        manifest["error"] = type(error).__name__
             for i, lane in enumerate(lanes):
                 report = lane.result().report
                 path = output / f"delivery-{i}.json"
@@ -210,36 +250,83 @@ def run_scenario(kind: str, schedule: str, output: str | Path, *,
     return replay(output)
 
 
-def replay(directory: str | Path) -> Verdict:
+@dataclass(frozen=True)
+class ScenarioMember:
+    verdict: Verdict
+    reports: dict[int, Report]
+    comparison_id: str | None = None
+    complete: bool = False
+    shared_failure: Verdict | None = None
+
+
+@dataclass(frozen=True)
+class ScenarioEvidence:
+    kind: str
+    schedule: str
+    verdict: Verdict
+    members: dict[str, ScenarioMember]
+
+
+def _manifest(meta, keys):
+    if not isinstance(meta, dict) or type(meta.get("version")) is not int or meta["version"] not in (1, 2):
+        raise InputError("unsupported scenario manifest version")
+    version = meta["version"]
+    mapping(meta, "scenario", keys | {"format", "version", "kind", "schedule", "config"}
+            | ({"revision"} if version == 2 else set()))
+    if meta["format"] != FORMAT or meta["kind"] not in KINDS:
+        raise InputError("unsupported scenario manifest")
+    if version == 2 and meta["revision"] is not None:
+        git_revision(meta["revision"])
+    if not isinstance(meta["config"], str) or not re.fullmatch(
+        r"(?:local-)?[0-9a-f]{64}" if version == 2 else r"[0-9a-f]{64}", meta["config"]
+    ):
+        raise InputError("invalid scenario configuration fingerprint")
+
+
+def inspect_scenario(directory: str | Path) -> ScenarioEvidence:
+    """Check every bound report once and retain the observations used for review."""
     directory = Path(directory)
     meta, _ = read_json(directory / "scenario.json", "schedule")
-    if isinstance(meta, dict) and meta.get("schedule") == "all":
-        mapping(meta, "suite", {"format", "version", "kind", "schedule", "members", "config"})
-        if (meta["format"] != FORMAT or type(meta["version"]) is not int or meta["version"] != 1
-                or meta["kind"] not in KINDS or not isinstance(meta["members"], dict)
-                or set(meta["members"]) != set(SCHEDULES)):
-            raise InputError("unknown or incomplete scenario suite")
-        results = []
-        for schedule in SCHEDULES:
-            try:
-                child, _ = read_json(directory / schedule / "scenario.json", "schedule")
-                if (not isinstance(child, dict) or child.get("config") != meta["config"]
-                        or (child.get("kind"), child.get("schedule")) != (meta["kind"], schedule)
-                        or _digest(child) != meta["members"][schedule]):
-                    raise InputError("wrong member of the schedule suite")
-                results.append(_replay_lane_group(directory / schedule, child))
-            except (ValueError, OSError, TypeError):
-                results.append(Verdict(Status.ERROR, f"Missing or invalid {schedule} evidence"))
-        return _combine(results)
-    return _replay_lane_group(directory, meta)
+    if not isinstance(meta, dict) or meta.get("schedule") != "all":
+        member = _replay_lane_group(directory, meta)
+        return ScenarioEvidence(meta["kind"], meta["schedule"], member.verdict, {meta["schedule"]: member})
+
+    _manifest(meta, {"members"})
+    if not isinstance(meta["members"], dict) or set(meta["members"]) != set(SCHEDULES):
+        raise InputError("unknown or incomplete scenario suite")
+    members = {}
+    for schedule in SCHEDULES:
+        expected = meta["members"][schedule]
+        if meta["version"] == 2 and expected is None:
+            members[schedule] = ScenarioMember(Verdict(Status.NOT_TESTED, f"Unfinished schedule: {schedule}"), {})
+            continue
+        try:
+            child, _ = read_json(directory / schedule / "scenario.json", "schedule")
+            if (not isinstance(child, dict) or _digest(child) != expected
+                    or child.get("schedule") != schedule
+                    or any(child.get(k) != meta.get(k) for k in ("kind", "version", "config", "revision"))):
+                raise InputError("wrong member of the schedule suite")
+            members[schedule] = _replay_lane_group(directory / schedule, child)
+        except (ValueError, OSError, TypeError):
+            members[schedule] = ScenarioMember(Verdict(Status.ERROR, f"Missing or invalid {schedule} evidence"), {})
+    verdict = _combine([m.verdict for m in members.values()])
+    if meta["version"] == 2 and verdict.status == Status.FAIL:
+        schedule = next(name for name, m in members.items() if m.verdict == verdict)
+        verdict = replace(verdict, detail=f"{schedule} · {verdict.detail}")
+    return ScenarioEvidence(meta["kind"], "all", verdict, members)
+
+
+def replay(directory: str | Path) -> Verdict:
+    return inspect_scenario(directory).verdict
 
 
 def _replay_lane_group(directory, meta):
-    mapping(meta, "schedule", {"format", "version", "kind", "schedule", "run_id", "bindings", "retry",
-                               "error", "deliveries", "config"})
-    if meta["format"] != FORMAT or type(meta["version"]) is not int or meta["version"] != 1 or meta["schedule"] not in SCHEDULES:
-        raise InputError("unsupported schedule report")
+    _manifest(meta, {"run_id", "bindings", "retry", "error", "deliveries"})
     schedule = meta["schedule"]
+    if not isinstance(schedule, str) or schedule not in SCHEDULES:
+        raise InputError("unsupported schedule report")
+    current = meta["version"] == 2
+    comparison_id = meta["config"] if current and not meta["config"].startswith("local-") else None
     messages, order = SCHEDULES[schedule]
     run_id = label(meta["run_id"], "run ID")
     if not isinstance(meta["deliveries"], list) or len(meta["deliveries"]) != len(messages):
@@ -255,15 +342,19 @@ def _replay_lane_group(directory, meta):
             identity = _test_id(meta["kind"], schedule, i, meta["config"])
             expected = sha256(f"recorded-test:{identity}".encode()).hexdigest()
             if (report.run_id != run_id or not report.inputs
-                    or report.inputs["adapter"] != expected):
+                    or report.inputs["adapter"] != expected
+                    or (current and report.inputs.get("revision") != meta["revision"])):
                 raise InputError("delivery report does not belong to this scenario")
             _check_kind(meta["kind"], report.rules)
             reports[i] = report
-            verdicts.append(evaluate(report))
+            verdict = evaluate(report)
+            if current and verdict.status == Status.FAIL:
+                verdict = replace(verdict, detail=f"delivery-{i} · {verdict.detail}")
+            verdicts.append(verdict)
         except (ValueError, OSError, TypeError):
             verdicts.append(Verdict(Status.ERROR, f"Missing or invalid delivery-{i} evidence"))
     if len(reports) != len(messages):
-        return _combine(verdicts)
+        return ScenarioMember(_combine(verdicts), reports, comparison_id)
     if any(r.rules != reports[0].rules or r.inputs.get("revision") != reports[0].inputs.get("revision")
            or r.inputs["questions"] != reports[0].inputs["questions"] for r in reports.values()):
         raise InputError("delivery rules or input revisions differ")
@@ -303,7 +394,40 @@ def _replay_lane_group(directory, meta):
     if not all(any(j == order[i] and ns <= release for ns, j in terminal)
                for i, (release, _) in enumerate(sorted(released)[1:])):
         verdicts.append(Verdict(Status.NOT_TESTED, "Missing terminal receipt before the next release"))
-    return _combine(verdicts)
+    shared = shared_transition_failure(reports) if current else None
+    if shared is not None:
+        verdicts.append(shared)
+    complete = (all(v.status in (Status.PASS, Status.FAIL) for v in verdicts)
+                and not any(e["kind"] == "adapter_error" for r in reports.values() for e in r.events)
+                and len(terminal) == len(messages) and len(released) == len(messages))
+    return ScenarioMember(_combine(verdicts), reports, comparison_id, complete, shared)
+
+
+def _run_suite(kind, output, drill, revision):
+    if revision is not None:
+        git_revision(revision)
+    drill.validate()
+    _check_kind(kind, drill.rules)
+    _load_factory(drill.factory)
+    config = _config_digest(drill, drill.factory, None)
+    output.mkdir(parents=True, exist_ok=False)
+    manifest = {
+        "format": FORMAT, "version": 2, "kind": kind, "schedule": "all",
+        "revision": revision, "config": config, "members": dict.fromkeys(SCHEDULES),
+    }
+    path = output / "scenario.json"
+    save(manifest, path)
+    for schedule in SCHEDULES:
+        result = run_scenario(kind, schedule, output / schedule, drill=drill, revision=revision)
+        child, _ = read_json(output / schedule / "scenario.json", "schedule")
+        if child["revision"] != revision or child["config"] != config:
+            raise InputError("suite member has a different revision or configuration")
+        manifest["members"][schedule] = _digest(child)
+        save(manifest, path)
+        print(f"{schedule}  {result.status.label}  {result.detail}", flush=True)
+        if child["error"] == "KeyboardInterrupt":
+            break
+    return replay(output)
 
 
 def main(argv=None):
@@ -327,18 +451,7 @@ def main(argv=None):
             if args.adapter:
                 drill = replace(drill, factory=args.adapter)
             if args.schedule == "all":
-                args.output.mkdir(parents=True)
-                members = {}
-                config = None
-                for schedule in SCHEDULES:
-                    result = run_scenario(args.kind, schedule, args.output / schedule, drill=drill, revision=args.revision)
-                    child, _ = read_json(args.output / schedule / "scenario.json", "schedule")
-                    members[schedule] = _digest(child)
-                    config = child["config"]
-                    print(f"{schedule}  {result.status.label}  {result.detail}")
-                save({"format": FORMAT, "version": 1, "kind": args.kind, "schedule": "all",
-                      "members": members, "config": config}, args.output / "scenario.json")
-                verdict = replay(args.output)
+                verdict = _run_suite(args.kind, args.output, drill, args.revision)
             else:
                 verdict = run_scenario(args.kind, args.schedule, args.output, drill=drill, revision=args.revision)
         print(f"{verdict.status.label}  {verdict.detail}")

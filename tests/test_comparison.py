@@ -6,7 +6,9 @@ from setrya.cli import EXAMPLE
 from setrya.comparison import compare
 from setrya.drill import Drill
 from setrya.evidence import SCHEMA, Report, bind_inputs
+from setrya.review import review
 from test_checker import History
+from test_runtime_evidence import make_report
 
 
 class ComparisonTests(unittest.TestCase):
@@ -45,6 +47,49 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("After PASS · event", text)
         self.assertIn("freshness · delivery@1", text)
+
+    def test_absence_requires_a_control_observed_after_the_deletion(self):
+        def lane(name, control_after_deletion):
+            history = History()
+            primary, control = history.rules.probes
+            history.rules = replace(history.rules, probes=(replace(primary, require=(), absence=True),
+                                                           replace(control, forbid=("delivery@old",))))
+            history.probe(20, "freshness", ["refund@A"])
+            history.probe(22, "freshness", ["delivery@1"], "delivery")
+            history.probe(30, "freshness", [])
+            history.probe(32, "freshness", control_after_deletion, "delivery")
+            witness = len(history.events)
+            history.add("released", 50, attempt="attempt")
+            history.receipt("rejected")
+            history.probe(70, "final", [])
+            history.probe(72, "final", ["delivery@1"], "delivery")
+            return make_report(history, name=name), witness
+
+        before, _ = lane("before", ["delivery@old"])
+        after, witness = lane("after", ["delivery@1"])
+        code, summary = compare(before, after)
+        self.assertEqual(code, 0)
+        self.assertIn(f"After PASS · event {witness} · delivery · freshness", summary)
+        code, summary = compare(after, before)
+        self.assertEqual(code, 1)
+        self.assertIn(f"Before PASS · event {witness} · delivery · freshness", summary)
+
+    def test_regression_claim_requires_write_visibility_on_the_matching_base_probe(self):
+        from test_store_signals import VisibilityTests
+
+        history = VisibilityTests().history
+        before = make_report(history(), name="base", revision="a" * 40)
+        candidate = history()
+        candidate.probe(75, "final", ["refund@A"])
+        after = make_report(candidate, name="candidate", revision="b" * 40)
+        for code, summary in (compare(before, after),
+                              review(before, after, base_commit="a" * 40, candidate_commit="b" * 40,
+                                     base_exit=0, candidate_exit=1)):
+            self.assertEqual(code, 1)
+            headline = summary.splitlines()[0]
+            self.assertTrue(headline.startswith("FAILURE OBSERVED"), headline)
+            self.assertIn("after refresh", headline)
+            self.assertIn("unverified", headline)
 
     def test_fingerprints_bind_each_exact_question_without_recording_text(self):
         drill = Drill.load(EXAMPLE / "drill.toml")

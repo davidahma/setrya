@@ -7,6 +7,7 @@ from .checker import Status, evaluate
 from .comparison import compare
 from .evidence import Report, git_revision
 from .drill import InputError
+from .scenarios import ScenarioEvidence, inspect_scenario
 
 
 def review(before: Report, after: Report, *, base_commit: str, candidate_commit: str,
@@ -36,7 +37,7 @@ def review(before: Report, after: Report, *, base_commit: str, candidate_commit:
 class ReviewInput:
     """One CI lane, including the evidence available when setup or pytest failed."""
 
-    report: Report | None
+    report: Report | ScenarioEvidence | None
     commit: str | None
     test_exit: int | None
     report_error: str | None
@@ -52,8 +53,9 @@ class ReviewInput:
         except (TypeError, ValueError):
             exit_code = None
         try:
-            return cls(Report.load(path), revision, exit_code, None)
-        except ValueError:
+            artifact = inspect_scenario(path) if Path(path).is_dir() else Report.load(path)
+            return cls(artifact, revision, exit_code, None)
+        except (OSError, TypeError, ValueError):
             # Report.load also rejects malformed JSON integers. Error strings and
             # paths can contain private input, so keep the artifact diagnostic fixed.
             problem = "is unreadable or invalid"
@@ -70,13 +72,18 @@ class ReviewInput:
         context += str(self.test_exit) if self.test_exit is not None else "(invalid)"
         if self.report is None:
             return f"{context}\n{name} report {self.report_error}."
+        if isinstance(self.report, ScenarioEvidence):
+            verdict = self.report.verdict
+            return (f"{context}\n{name} recorded {verdict.status.label} · {self.report.kind} / "
+                    f"{self.report.schedule} · {verdict.detail}")
         verdict = evaluate(self.report)
         revision = (self.report.inputs or {}).get("revision", "(unrecorded)")
         return (f"{context}\n{name} recorded {verdict.status.label} · {verdict.detail}\n"
                 f"  Run {self.report.run_id} · recorded commit {revision}")
 
 
-def review_inputs(base: ReviewInput, candidate: ReviewInput) -> tuple[int, str]:
+def review_inputs(base: ReviewInput, candidate: ReviewInput, *,
+                  named_directories: frozenset[str] = frozenset()) -> tuple[int, str]:
     """Produce a reviewer-facing outcome even if one lane has no valid report."""
     if base.report is None or candidate.report is None:
         problem = "Both lanes need a readable, valid report."
@@ -86,7 +93,16 @@ def review_inputs(base: ReviewInput, candidate: ReviewInput) -> tuple[int, str]:
         problem = "Review requires two different Git commits."
     elif base.test_exit is None or candidate.test_exit is None:
         problem = "Both lanes need a numeric test exit."
-    else:
+    elif isinstance(base.report, Report) and isinstance(candidate.report, Report):
         return review(base.report, candidate.report, base_commit=base.commit, candidate_commit=candidate.commit,
                       base_exit=base.test_exit, candidate_exit=candidate.test_exit)
+    elif isinstance(base.report, ScenarioEvidence) and isinstance(candidate.report, ScenarioEvidence):
+        from .review_scenarios import compare_scenarios
+
+        code, text = compare_scenarios(base.report, candidate.report, base.commit, candidate.commit,
+                                       base.test_exit, candidate.test_exit, named_directories=named_directories)
+        return code, f"{text}\n{base.describe('Base')}\n{candidate.describe('Candidate')}"
+    else:
+        return 3, (f"INCOMPARABLE  Review needs two report files or two scenario directories.\n"
+                   f"{base.describe('Base')}\n{candidate.describe('Candidate')}")
     return 2, f"ERROR  {problem}\n{base.describe('Base')}\n{candidate.describe('Candidate')}"

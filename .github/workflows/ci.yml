@@ -175,6 +175,15 @@ jobs:
         with:
           python-version: '3.11'
       - run: python3 -m pip install '.[pytest]'
+      - name: Review access revocation on two SQLite worker commits
+        working-directory: ${{ runner.temp }}
+        run: python3 "$GITHUB_WORKSPACE/scripts/verify-scenario-review.py" --output "$RUNNER_TEMP/scenario-review"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ !cancelled() }}
+        with:
+          name: scenario-review
+          path: ${{ runner.temp }}/scenario-review/
+          if-no-files-found: warn
       - name: Run the full test suite with pytest
         run: python3 -m pytest -q
       - name: Run the installed example on two fixture revisions

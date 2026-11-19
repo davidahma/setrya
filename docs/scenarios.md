@@ -46,10 +46,38 @@ setrya scenario revoke --drill permission.toml --adapter myapp.drills:factory \
 setrya scenario replay permissions-ci
 ```
 
-In Python, call `run_scenario("revoke", "reverse", output, drill=drill, factory=factory, revision=commit)` from `setrya.scenarios` and inspect `verdict.status`. The function creates a fresh output directory and returns after cleanup and replay. The bundled adapter is a complete runnable implementation. [SQLite application and worker](../setrya/scenario_fixture.py)
+In Python, call `run_scenario("revoke", "reverse", output, drill=drill, factory=factory, revision=commit)` from `setrya.scenarios` and inspect `verdict.status`. The function creates a fresh output directory and returns after cleanup and replay. For cross-commit review, configure an importable adapter entry point in the drill or pass a module-level factory function or class. Injected closures, partials and callable instances can run and replay with a run-specific identity. The bundled adapter is a complete runnable implementation. [SQLite application and worker](../setrya/scenario_fixture.py)
 
 ## Hand the evidence to a reviewer
 
-Keep the whole output directory together. Each delivery has an ordinary Setrya search report. The v1 `scenario.json` manifest binds its message IDs, physical attempts, configuration fingerprint and SHA-256 of each delivery report’s exact published bytes. Suite manifests also bind the exact child manifests. These local hashes detect accidental file substitution. Use your CI artifact provenance to authenticate the producer.
+Keep the whole output directory together. Each delivery has a search report. The schedule manifest binds the reports’ SHA-256 digests, message IDs and physical attempts. Replay checks the workers against the same publication and release order. In v2, if one delivery sees the change and another delivery starts a search that returns a forbidden passage, the failure names both observations. A search already in flight when the first response arrived cannot establish that ordering.
 
-Replay recomputes each delivery verdict, checks message identity and worker ordering, then combines them. An intact delivery showing a forbidden passage establishes FAIL even if another delivery or suite member is missing. Without a confirmed failure, damaged inputs and execution errors yield ERROR, missing runtime evidence yields NOT TESTED, and only a fully verified schedule passes. A passing suite keeps the weakest visibility tier used by any delivery. If a probe relied on a refresh acknowledgment, live output and offline replay both say that write visibility is unverified.
+A suite publishes its manifest before the first schedule. It adds a digest for each completed member before printing that member’s result. If CI stops the process, replay the suite directory. A bound failure still exits 1. An unfinished suite with only passing completed members exits 3. A missing or damaged *published* member produces an error unless another intact member establishes failure. A worker killed before its evidence was saved can leave its schedule unfinished.
+
+### Compare the base and candidate in CI
+
+To try the handoff first, unpack the [two-commit review bundle](https://github.com/davidahma/setrya/releases/download/v0.9.0/scenario-review.zip) and run the command printed in `review-command.txt` from that directory. The base and candidate contain the saved observations from two revisions of the SQLite worker.
+
+In each checkout, use the same Setrya release, adapter entry point, options, drill, and schedule. Capture the scenario’s exit even when it fails. Supply the full commit ID for the checkout that actually runs the worker.
+
+```sh
+# Run in each application checkout. Give each lane a fresh evidence directory.
+lane_exit=0
+setrya scenario revoke --drill permission.toml --adapter myapp.drills:factory \
+  --schedule all --revision "$(git rev-parse HEAD)" --output "$LANE_DIR" || lane_exit=$?
+printf '%s\n' "$lane_exit" > "$LANE_DIR.exit"
+```
+
+Upload each entire directory and its exit file, including on failure. In the review job, obtain the expected base and candidate commits from CI. Set the paths to the two downloaded directories and run the installed verifier.
+
+```sh
+export BASE_REPORT=base CANDIDATE_REPORT=candidate
+setrya review "$BASE_REPORT" "$CANDIDATE_REPORT" \
+  --base-commit "$BASE_COMMIT" --candidate-commit "$CANDIDATE_COMMIT" \
+  --base-exit "$(cat base.exit)" --candidate-exit "$(cat candidate.exit)" \
+  --summary review.md
+```
+
+The Markdown shows the verdict for each schedule, the decisive delivery or cross-worker observation, and the weakest passing evidence tier across paired deliveries. An intact candidate FAIL can still be reported alongside incomplete coverage. A verified fix requires complete matching schedules and candidate proof for the affected delivery, probe and phase. A base failure that depends on an ordering across workers needs more evidence than two independently passing delivery reports can supply. In this case the review is inconclusive. A passing result that relies on a refresh acknowledgment says write visibility is unverified.
+
+New scenario manifests use v2. The configuration fingerprint covers the factory, its options and the drill. Each delivery separately records the tested Git revision, which the manifest binds. Manifest digests protect against accidental substitution. Your CI checkout, artifact permissions and provenance establish who produced the evidence. Existing v1 scenario directories replay under their original rules. To compare their runs across commits, collect v2 evidence in both checkouts. Individual delivery reports continue to use the [frozen search v1 format](evidence.md#frozen-search-report-v1).

@@ -2,7 +2,7 @@
 
 from .checker import Status, Verdict, evaluate
 from .drill import ProbeRules
-from .evidence import Report, matches_search
+from .evidence import Report, matches_search, observed_change
 
 
 def _difference(before: Report, after: Report) -> str | None:
@@ -49,7 +49,7 @@ def _matching_proof(report: Report, verdict: Verdict, probe: ProbeRules, failed:
     primary = next(item for item in report.rules.probes if item.id == report.rules.freshness_probe)
     fresh = next(event for event in report.events if event.get("stage") == "freshness"
                  and event["probe_id"] == primary.id and matches_search(event, primary)
-                 and set(primary.require) <= set(event["passages"]))
+                 and observed_change(event, primary))
     return next((event for event in report.events
                  if event.get("stage") == "freshness" and event["probe_id"] == probe.id
                  and event["seq"] >= fresh["seq"] and matches_search(event, probe)
@@ -87,6 +87,10 @@ def compare(before: Report, after: Report, *, allow_passing_pair: bool = False) 
             old_event = _matching_proof(before, old, probe, new_event)
             if old_event is None:
                 state = 1, "FAILURE OBSERVED  The before report lacks a confirmed observation at the affected phase."
+            elif (old.evidence_tier == "observed-after-refresh" and old_event["stage"] == "final"
+                  and old_event["view"] is None):
+                state = 1, ("FAILURE OBSERVED  The before probe passed after refresh. "
+                            "Its visibility of the completed write is unverified.")
             else:
                 state = 1, "REGRESSION  The affected probe passed before and failed after at the matching phase."
     elif new.status is Status.ERROR or old.status is Status.ERROR:

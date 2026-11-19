@@ -7,7 +7,7 @@ Use the opt-in `setrya_record` fixture when your test can pause a worker, publis
 From your application’s test environment, install the release and enable the pytest plugin for your test.
 
 ```sh
-python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.8.0/setrya-0.8.0.tar.gz'
+python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.9.0/setrya-0.9.0.tar.gz'
 python -m pytest -p setrya.pytest_plugin tests/test_refund.py
 ```
 
@@ -71,3 +71,5 @@ Use exit **0** for a verified fix or a passing comparable pair, **1** when the c
 Setrya checks that reported commit IDs match the workflow's expected IDs, and that the reports use the same test identity and inputs. The workflow supplies checkout provenance. Run the harness in a disposable environment with a lightweight, read-only pull-request job on GitHub Actions. Keep the repositories, fixture inputs, corpus, and test command equivalent across the pair.
 
 The [Dify case study](dify-regression.md) shows how the handoff differs for a native regression that observes the index directly.
+
+The same review command accepts two scenario directories for runs with retries, duplicate messages or multiple workers. [Compare scheduled runs in CI](scenarios.md#compare-the-base-and-candidate-in-ci)

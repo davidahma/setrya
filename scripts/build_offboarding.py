@@ -28,6 +28,7 @@ PACKAGE_FILES = (
     "setrya/runner.py",
     "setrya/scenario_fixture.py",
     "setrya/scenarios.py",
+    "setrya/scenario_order.py",
     "setrya/status.py",
     "setrya/store_signals.py",
     "setrya/offboarding/__init__.py",

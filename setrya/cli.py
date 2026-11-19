@@ -3,6 +3,7 @@
 import argparse
 from contextlib import closing
 from dataclasses import replace
+import os
 from pathlib import Path
 import re
 import shlex
@@ -200,7 +201,7 @@ def main(argv=None) -> int:
     comparison.add_argument("before")
     comparison.add_argument("after")
     comparison.add_argument("--summary", help="write a Markdown summary")
-    review_parser = commands.add_parser("review", help="decide a base-versus-candidate CI check from two reports")
+    review_parser = commands.add_parser("review", help="review two CI reports or two scenario directories")
     review_parser.add_argument("before")
     review_parser.add_argument("after")
     review_parser.add_argument("--base-commit", help="expected full base Git commit ID (required)")
@@ -229,20 +230,37 @@ def main(argv=None) -> int:
         if args.command in {"compare", "review"}:
             from .comparison import compare
 
-            if args.summary and Path(args.summary).resolve() in {Path(args.before).resolve(), Path(args.after).resolve()}:
-                raise InputError("comparison summary must use a distinct file")
+            if args.summary:
+                destination = Path(args.summary).resolve()
+                lexical = Path(os.path.abspath(args.summary))
+                for path in (Path(args.before), Path(args.after)):
+                    source = path.resolve()
+                    if destination == source or (path.is_dir() and (
+                        destination.is_relative_to(source) or lexical.is_relative_to(os.path.abspath(path))
+                    )):
+                        raise InputError("comparison summary must use a distinct file outside the evidence directories")
             error_summary = args.summary
             if args.command == "review":
                 from .review import ReviewInput, review_inputs
 
                 base = ReviewInput.load(args.before, args.base_commit, args.base_exit)
                 candidate = ReviewInput.load(args.after, args.candidate_commit, args.candidate_exit)
-                code, summary = review_inputs(base, candidate)
-                for name, lane, path in (("base", base, args.before), ("candidate", candidate, args.after)):
+                lanes = (("base", base, args.before), ("candidate", candidate, args.after))
+                named_directories = frozenset(name for name, _, path in lanes if Path(path) == Path(name))
+                code, summary = review_inputs(base, candidate, named_directories=named_directories)
+                for name, lane, path in lanes:
                     if lane.report is not None:
-                        command = replay_command(path, artifact=f"{name}.json", variable=f"{name.upper()}_REPORT")
+                        variable = f"{name.upper()}_REPORT"
+                        if isinstance(lane.report, Report):
+                            command = replay_command(path, artifact=f"{name}.json", variable=variable)
+                        else:
+                            from .review_scenarios import replay_scenario_command
+
+                            command = replay_scenario_command(name, named_directories)
+                            if name not in named_directories:
+                                summary += f"\nSet {variable} to the path of the downloaded {name} scenario directory."
                         summary += f"\nReplay {name}  {command}"
-                title = f"{base.report.rules.id} release review" if base.report else "release review"
+                title = f"{base.report.rules.id} release review" if isinstance(base.report, Report) else "release review"
             else:
                 before, after = Report.load(args.before), Report.load(args.after)
                 code, summary = compare(before, after)
