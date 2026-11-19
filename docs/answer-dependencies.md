@@ -46,3 +46,5 @@ Version 1 uses the format identifier `setrya.answer-dependencies`. The top-level
 The writer selects only those identity fields from source metadata. The reader recomputes every passage marker and rejects unsupported versions, unknown fields, duplicate JSON keys, and invalid input. Scope IDs and versions use Setrya's short ASCII identifiers. Choose opaque, shareable values for all IDs. Records omit answer text, prompts, chunk text, credentials and arbitrary metadata. A v1 reader accepts up to 1,024 chunks in a record and a local file of up to 1 MiB.
 
 The answer dependency record and the worker drill report can be stored separately. The drill supplies the caller-visible observations needed for a release verdict. [Answer-cache drill](answer-cache.md) · [Passage metadata at ingestion](store-signals.md)
+
+Run the standard-library cache example to see the record checked at publication and reuse. [In-memory cache](local-cache.md)

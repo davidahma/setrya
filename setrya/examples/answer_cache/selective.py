@@ -106,6 +106,8 @@ def _new_trace():
 
 
 def run(directory, mode):
+    if mode not in ("guarded", "broken"):
+        raise InputError("unknown selective cache mode")
     try:
         from .app import Application
     except ModuleNotFoundError:

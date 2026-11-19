@@ -2,6 +2,8 @@
 
 An adapter is ready to try on a release when a reviewer can distinguish a stale response, a verified fix, and a clean response that lacks evidence. Setrya ships the same Python assertions its own pgvector, Elasticsearch and Celery fixtures run in CI. They use the core install. Install the dependencies for whichever adapter you exercise.
 
+The maintained store examples are SQLite FTS5, pgvector and Elasticsearch. The answer application shows LangChain retrieval and a Celery worker. Pinecone, Qdrant, Turbopuffer, Redis, LlamaIndex, RQ and Temporal are candidates for future adapters. A new integration can use these assertions to demonstrate its own supported behavior.
+
 ## Store adapters
 
 Give the suite three configurations of one disposable adapter. Use identical routes, callers, queries, expected passages and time limits. Vary the application or the visibility signal through adapter options. This example runs from a checkout with the [pgvector fixture](pgvector.md) running and its DSN set.
