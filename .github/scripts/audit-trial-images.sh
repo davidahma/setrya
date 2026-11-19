@@ -12,7 +12,7 @@ docker compose -f examples/opendesk/compose.yaml config --no-interpolate --forma
     (.value.image | test("^[^[:space:]]+@sha256:[0-9a-f]{64}$")) then
     [.key,.value.image] | @tsv else error("every service needs a digest-pinned image") end' > "$out/images.tsv"
 
-known_image='ghcr.io/useopendesk/opendesk:v0.4.13@sha256:e0fca3427eec675426c6c96766267d7980c861b52f630afc906fcf0c7dca0fe1'
+known_image='ghcr.io/useopendesk/opendesk:v0.4.14@sha256:cb60703a043dc2afa9fb3266e93079813be3e171ed70177e2d4ac47cb266f4d8'
 status=0
 while IFS=$'\t' read -r service image; do
   sbom="$out/$service.sbom.json"

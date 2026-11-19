@@ -7,10 +7,15 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-TARGET = {
+TARGET_V0413 = {
     "version": "v0.4.13",
     "commit": "e0012447924c5ac8a13a51d2cd41a6496bc26fb3",
     "image": "sha256:e0fca3427eec675426c6c96766267d7980c861b52f630afc906fcf0c7dca0fe1",
+}
+TARGET = {
+    "version": "v0.4.14",
+    "commit": "779e28e5ff0ac59cda609edabefa1ecb9cc9c4b5",
+    "image": "sha256:cb60703a043dc2afa9fb3266e93079813be3e171ed70177e2d4ac47cb266f4d8",
 }
 METADATA = {
     "report_version": 1,
@@ -124,8 +129,11 @@ def validate(report):
     version = report["report_version"]
     require(type(version) is int and version in (1, LATEST_VERSION))
     healthy = HEALTHY if version == 1 else HEALTHY_V2
-    for key, value in (METADATA | {"report_version": version}).items():
-        require(report[key] == value)
+    supported_targets = (TARGET_V0413,) if version == 1 else (TARGET_V0413, TARGET)
+    require(report["target"] in supported_targets)
+    for key, value in METADATA.items():
+        if key not in ("report_version", "target"):
+            require(report[key] == value)
     observations = report["observations"]
     require(isinstance(observations, list) and len(observations) <= 2)
     for index, item in enumerate(observations):

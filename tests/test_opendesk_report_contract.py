@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from examples.opendesk import run
-from examples.opendesk.verify_report import validate
+from examples.opendesk.verify_report import TARGET, validate
 
 
 class UpstreamReportTests(unittest.TestCase):
@@ -19,6 +19,21 @@ class UpstreamReportTests(unittest.TestCase):
 
     def test_recorded_report(self):
         validate(self.report)
+
+    def test_replay_accepts_only_recorded_target_combinations(self):
+        previous = self.report["target"]
+        self.report["target"] = TARGET
+        with self.assertRaises(ValueError):
+            validate(self.report)  # The new image only ran the v2 observer.
+        self.report.update(report_version=2, observations=[], interrupted_at="startup",
+                           offboarding_http_status=None, outcome="INCONCLUSIVE")
+        for target in (previous, TARGET):
+            self.report["target"] = target
+            validate(self.report)
+        for field in ("image", "commit", "version"):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.report["target"] = {**previous, field: TARGET[field]}
+                validate(self.report)
 
     def test_denied_request_cannot_be_called_absent(self):
         self.after["Acme"]["agent_summary"] = "NOT_RETURNED"
