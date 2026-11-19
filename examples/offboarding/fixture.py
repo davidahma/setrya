@@ -15,9 +15,10 @@ from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http.client import HTTPConnection
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
 from importlib.resources import files
 from pathlib import Path
+from socketserver import TCPServer
 from tempfile import TemporaryDirectory
 from threading import Event, Thread
 from uuid import uuid4
@@ -211,13 +212,15 @@ def _support_service(path: Path, credential: str):
         def log_message(self, format, *args):
             pass
 
-    with HTTPServer(("127.0.0.1", 0), SupportHandler) as server:
+    # The handler only needs the bound port. HTTPServer would resolve the
+    # loopback address through the host's name service on every startup.
+    with TCPServer(("127.0.0.1", 0), SupportHandler) as server:
         thread = Thread(
             target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
         )
         thread.start()
         try:
-            yield server.server_port
+            yield server.server_address[1]
         finally:
             server.shutdown()
             thread.join()

@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from setrya.offboarding.cli import main
 from examples.offboarding.fixture import reference_case
@@ -142,6 +143,7 @@ class ReportTests(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as folder,
             contextlib.redirect_stdout(io.StringIO()),
+            patch("socket.getfqdn", side_effect=AssertionError("loopback demo attempted DNS")),
         ):
             path = Path(folder) / "subdir" / "sample.json"
             self.assertEqual(main(["reference-demo", "--output", str(path)]), 0)
