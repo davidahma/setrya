@@ -36,7 +36,7 @@ python3 -m setrya check examples/support-search/drill.toml --report run.json --s
 python3 -m setrya replay run.json
 ```
 
-Share `summary.md` in the pull request and attach `run.json` to the CI run. After the app shuts down, a reviewer can replay the JSON to recompute the verdict from the recorded rules and observations. Reports include passage IDs, caller, route, rank order, timing, and write evidence. Question text and passage text stay out of the report. Use identifiers you can share.
+The commands above run from a trusted source checkout. For downloaded reports, install Setrya and use the `setrya replay` command printed in the summary. Share `summary.md` in the pull request and attach `run.json` to the CI run. After the app shuts down, a reviewer can replay the JSON to recompute the verdict from the recorded rules and observations. Reports include passage IDs, caller, route, rank order, timing, and write evidence. Question text and passage text stay out of the report. Use identifiers you can share.
 
 For CI, `check` and `replay` exit **0** for PASS, **1** for FAIL, **2** for an input or execution error, and **3** for NOT TESTED. The demo exits successfully when all three examples produce their expected outcomes. The [CI workflow](.github/workflows/ci.yml) shows how to retain and replay a failing report.
 

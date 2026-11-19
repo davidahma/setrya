@@ -212,7 +212,7 @@ class TrustTests(unittest.TestCase):
                 for output in (checked.stdout, checked.stderr, replayed.stdout, self.report.read_text(),
                                self.summary.read_text()):
                     self.assertNotIn(PRIVATE, output)
-                self.assertIn("python3 -m setrya replay run.json", self.summary.read_text())
+                self.assertIn("setrya replay run.json", self.summary.read_text())
 
     def test_adapter_error_without_failure_is_replayable_execution_error(self):
         for mode, detail in (("early-error", "release (ConnectionError)"), ("close-error", "close (ConnectionError)")):

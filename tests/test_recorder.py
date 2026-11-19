@@ -170,8 +170,8 @@ class RecorderTests(unittest.TestCase):
                          "--summary", str(summary)])
         self.assertEqual(code, 0)
         text = summary.read_text()
-        self.assertIn("python3 -m setrya replay base.json", text)
-        self.assertIn('python3 -m setrya replay "$CANDIDATE_REPORT"', text)
+        self.assertIn("setrya replay base.json", text)
+        self.assertIn('setrya replay "$CANDIDATE_REPORT"', text)
         self.assertNotIn(str(self.directory), text)
         self.assertNotIn(candidate.name, text)
 

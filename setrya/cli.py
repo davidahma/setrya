@@ -134,9 +134,9 @@ def rerun_command(path: str) -> str:
 
 def replay_command(report_path: str | None, *, artifact: str = "run.json", variable: str = "REPORT") -> str:
     if report_path is None:
-        return "Save with --report run.json, then run python3 -m setrya replay run.json"
+        return "Save with --report run.json, then run setrya replay run.json"
     target = artifact if Path(report_path).name == artifact else f'"${variable}"'
-    return f"python3 -m setrya replay {target}"
+    return f"setrya replay {target}"
 
 
 def console_main() -> int:

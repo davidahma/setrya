@@ -134,7 +134,7 @@ def report_replay():
                                "--summary", str(summary))
             outcome(original, code, detail)
             summary_text = summary.read_text()
-            require("python3 -m setrya replay" in summary_text, "review summary omitted replay command")
+            require("setrya replay" in summary_text, "review summary omitted replay command")
             if mode == "fixed":
                 require("Probe refund-window" in summary_text and "Published refund revision B" in summary_text,
                         "review summary omitted the primary probe or published revision")
