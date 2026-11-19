@@ -37,6 +37,9 @@ from dataclasses import replace
 import json, os, subprocess, sys, time
 from pathlib import Path
 sys.path[:0] = [str(Path.cwd()), sys.argv[1]]
+# The stdlib CI matrix runs directly from source. Give the real fixture's
+# separate Python worker access to that same SDK and fixture package.
+os.environ["PYTHONPATH"] = sys.argv[1]
 from setrya.drill import Drill
 from setrya.runner import run
 
