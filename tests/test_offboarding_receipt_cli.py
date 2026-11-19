@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import shutil
+import subprocess
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
@@ -96,6 +98,26 @@ class OffboardingReceiptCLITests(unittest.TestCase):
             self.invoke(3, *args, "--output", path)
             self.assertEqual(content, path.read_bytes())
         self.assertNotEqual(*digests)
+
+    @unittest.skipUnless(shutil.which("ssh-keygen"), "OpenSSH signing is optional")
+    def test_detached_signature_preserves_original_receipt_namespace(self):
+        receipt = self.root / "receipt.json"
+        self.invoke(2, "receipt", *self.inputs, "--output", receipt)
+        key = self.root / "reviewer.key"
+        trust = self.root / "allowed_signers"
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key], check=True)
+        trust.write_text("reviewer " + Path(str(key) + ".pub").read_text())
+        subprocess.run(["ssh-keygen", "-Y", "sign", "-f", key, "-n", "axiom-receipt-v1", receipt],
+                       check=True, capture_output=True)
+        raw = receipt.read_bytes()
+        for identity, payload, valid in (("reviewer", raw, True), ("other", raw, False),
+                                         ("reviewer", raw + b" ", False)):
+            verified = subprocess.run(
+                ["ssh-keygen", "-Y", "verify", "-f", trust, "-I", identity,
+                 "-n", "axiom-receipt-v1", "-s", str(receipt) + ".sig"],
+                input=payload, capture_output=True,
+            )
+            self.assertEqual(verified.returncode == 0, valid)
 
     def test_concurrent_publish_does_not_replace_another_receipt(self):
         output = self.root / "raced.json"

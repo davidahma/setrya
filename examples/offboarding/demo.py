@@ -14,9 +14,9 @@ from . import fixture
 
 
 def _command(*args, expected=0):
-    from setrya.cli import main
+    from setrya.offboarding.cli import main
 
-    code = main(["offboarding", *(str(arg) for arg in args)])
+    code = main([str(arg) for arg in args])
     if code != expected:
         raise RuntimeError(f"{args[0]} returned exit {code}, expected {expected}.")
 
@@ -62,7 +62,7 @@ def _request_case(folder):
     return digest
 
 
-def run(output: Path) -> int:
+def run(output: Path, *, invocation=("setrya", "offboarding")) -> int:
     """Publish a complete, synthetic walkthrough into a new directory."""
     output = Path(output)
     try:
@@ -95,7 +95,7 @@ def run(output: Path) -> int:
     print(f"\nEvidence saved to {output}")
     # Only known fixture basenames and a digest enter the review command.
     review_command = [
-        "setrya", "offboarding", "verify-receipt", "--request", "request.json",
+        *invocation, "verify-receipt", "--request", "request.json",
         "--expect-request", digest, "--policy", "policy.json", "--evidence", "evidence.json",
         "--receipt", "receipt.json", "--record", "provider.json", "provider.txt",
         "--record", "backups.json", "backups.txt",

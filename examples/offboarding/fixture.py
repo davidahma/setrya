@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from importlib.resources import files
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event, Thread
@@ -232,9 +233,9 @@ def _support_observation(port: int, ticket: Ticket, credential: str | None) -> s
             return "unavailable"
         answer = json.loads(response.read())["answer"]
     if answer is None:
-        return "absent"
+        return "not_returned"
     if isinstance(answer, str) and ticket.reference in answer:
-        return "present"
+        return "returned"
     raise RuntimeError("The support endpoint returned an unexpected fixture answer")
 
 
@@ -254,26 +255,46 @@ def policy():
 
 
 def revision():
-    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    return hashlib.sha256(files(__package__).joinpath("fixture.py").read_bytes()).hexdigest()
 
 
-def _observe(path, port, credential, *, lose_baseline=False):
-    reads = {surface: {} for surface in SCOPES}
-    for ticket, role in zip(TICKETS, ("subject", "control"), strict=True):
+def _observe(
+    path: Path, port: int, credential: str, phase: str, *, lose_baseline: bool = False
+):
+    observations = []
+    for ticket in TICKETS:
         with _database(path, read_only=True) as db:
-            for surface, query in (
-                ("source", "SELECT 1 FROM ticket WHERE id = ? AND workspace = ?"),
-                ("summary", "SELECT 1 FROM summary WHERE source_id = ? AND workspace = ?"),
-            ):
-                row = db.execute(query, (ticket.source_id, ticket.workspace)).fetchone()
-                reads[surface][role] = "present" if row else "absent"
-        auth = None if lose_baseline and role == "subject" else credential
-        reads["support"][role] = _support_observation(port, ticket, auth)
-    return reads
+            source = db.execute(
+                "SELECT 1 FROM ticket WHERE id = ? AND workspace = ?",
+                (ticket.source_id, ticket.workspace),
+            ).fetchone()
+            summary = db.execute(
+                "SELECT 1 FROM summary WHERE source_id = ? AND workspace = ?",
+                (ticket.source_id, ticket.workspace),
+            ).fetchone()
+        auth = None if lose_baseline and ticket.workspace == "acme" else credential
+        support = _support_observation(port, ticket, auth)
+        for surface, state in (
+            ("source", "present" if source else "absent"),
+            ("summary", "present" if summary else "absent"),
+            ("support", support),
+        ):
+            observations.append(
+                {
+                    "phase": phase,
+                    "subject": ticket.workspace,
+                    "surface": surface,
+                    "state": state,
+                    "observed_at": datetime.now(UTC)
+                    .isoformat(timespec="microseconds")
+                    .replace("+00:00", "Z"),
+                }
+            )
+    return observations
 
 
-def run_case(mode, *, request_dir=None):
-    """Measure one disposable run. A bound run starts with its own issued request."""
+def _measure(mode, *, request_dir=None):
+    """Collect timestamped reads and the actual worker result from one disposable run."""
     if mode not in {"broken", "fixed", "inconclusive"}:
         raise ValueError("Unknown offboarding fixture case.")
     run_id = mode
@@ -295,40 +316,60 @@ def run_case(mode, *, request_dir=None):
         credential = secrets.token_urlsafe(24)
         captured, resume = Event(), Event()
         with _support_service(path, credential) as port:
-            baseline = _observe(path, port, credential, lose_baseline=mode == "inconclusive")
+            observations = _observe(path, port, credential, "baseline", lose_baseline=mode == "inconclusive")
             with ThreadPoolExecutor(max_workers=1) as pool:
                 worker = pool.submit(_held_job, path, captured, resume, guard=mode != "broken")
                 try:
                     if not captured.wait(WAIT_SECONDS):
                         raise TimeoutError("The fixture worker never captured its source")
                     job_id = _offboard(path, "acme", request_id)
-                    immediate = _observe(path, port, credential)
+                    observations.extend(_observe(path, port, credential, "offboarded"))
                 finally:
                     resume.set()
-                worker.result(timeout=WAIT_SECONDS)
+                terminal = worker.result(timeout=WAIT_SECONDS)
         # Reopen the caller's route after the same worker finishes its write attempt.
         with _support_service(path, credential) as port:
-            final = _observe(path, port, credential)
-        if request_id is not None:
-            job = _read_deletion_job(path, job_id)
+            observations.extend(_observe(path, port, credential, "worker_finished"))
+        job = _read_deletion_job(path, job_id) if request_id is not None else None
 
+    case = {
+        "case": mode, "origin": "controlled-fixture", "observations": observations,
+        "worker": {"captured_before_delete": captured.is_set(), "terminal": terminal},
+    }
+    return case, run_id, job
+
+
+def reference_case(mode):
+    """Run a fresh worker and collect the historical, timestamped report format."""
+    case, _, _ = _measure(mode)
+    return case
+
+
+def run_case(mode, *, request_dir=None):
+    """Export the same observed reads in the staging gate or issued request format."""
+    case, run_id, job = _measure(mode, request_dir=request_dir)
+    reads = {}
+    for row in case["observations"]:
+        pair = reads.setdefault((row["phase"], row["surface"]), {})
+        role = "subject" if row["subject"] == TICKETS[0].workspace else "control"
+        pair[role] = {"returned": "present", "not_returned": "absent"}.get(row["state"], row["state"])
     probes = []
-    for checkpoint, reads in zip(CHECKPOINTS, (immediate, final), strict=True):
+    for checkpoint, phase in zip(CHECKPOINTS, ("offboarded", "worker_finished"), strict=True):
         for surface, scope in SCOPES.items():
             probe = {
                 "id": f"{surface}-{checkpoint}", "scope": scope, "checkpoint": checkpoint,
-                "before": baseline[surface], "after": reads[surface],
+                "before": reads["baseline", surface], "after": reads[phase, surface],
             }
             if checkpoint == "after_worker":
                 probe["worker"] = {
-                    "captured_before_offboarding": captured.is_set(),
-                    "finished_after_offboarding": worker.done(),
+                    "captured_before_offboarding": case["worker"]["captured_before_delete"],
+                    "finished_after_offboarding": case["worker"]["terminal"] in ("written", "discarded"),
                 }
             probes.append(probe)
     packet = {
         "version": 1, "target": "sqlite-support", "revision": revision(), "run_id": run_id,
         "offboarding": "completed", "probes": probes,
     }
-    if request_id is None:
+    if job is None:
         return packet
     return {"version": 1, "job": job, "observations": packet}

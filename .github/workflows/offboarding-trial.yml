@@ -1,0 +1,89 @@
+name: OpenDesk offboarding trial
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opendesk-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  opendesk:
+    name: OpenDesk live offboarding
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.11'
+      - name: Build the portable verifier
+        run: python3 scripts/build_offboarding.py --output "$RUNNER_TEMP/setrya-offboarding.pyz"
+      - name: Exercise the pinned application with the portable Setrya CLI
+        working-directory: ${{ runner.temp }}
+        run: |
+          status=0
+          python3 -I setrya-offboarding.pyz opendesk --output opendesk-trial || status=$?
+          test "$status" -eq 2
+      - name: Validate and scan the synthetic evidence before upload
+        id: evidence
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          case_dir="$RUNNER_TEMP/opendesk-trial"
+          python3 -I "$RUNNER_TEMP/setrya-offboarding.pyz" opendesk --verify-report "$case_dir/opendesk.json"
+          bash .github/scripts/install-gitleaks.sh
+          for report in "$case_dir"/opendesk{,-policy,-observations,-decision}.json; do
+            "$RUNNER_TEMP/setrya-tools/gitleaks" stdin --no-banner --redact --ignore-gitleaks-allow < "$report"
+          done
+      - name: Save the trial and gate evidence
+        if: ${{ !cancelled() && steps.evidence.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: opendesk-trial
+          path: ${{ runner.temp }}/opendesk-trial/
+          if-no-files-found: error
+      - name: Check observed outcomes and reproduce the gate decision
+        working-directory: ${{ runner.temp }}/opendesk-trial
+        run: |
+          jq -e '.outcome == "COMPLETED" and .worker_overlap.result == "NOT_TESTED" and
+            .observations[1].workspaces.Acme.agent_http_status == 400 and
+            .observations[1].workspaces.Birch.agent_summary == "RETURNED"' opendesk.json
+          jq -e '.verdict == "INCONCLUSIVE" and
+            ([.probes[] | {key:.id, value:.verdict}] | from_entries) ==
+            {"source":"PASS","summary":"PASS","agent-read":"INCONCLUSIVE","worker-summary":"INCONCLUSIVE"}' opendesk-decision.json
+          status=0
+          python3 -I "$RUNNER_TEMP/setrya-offboarding.pyz" gate --policy opendesk-policy.json \
+            --observations opendesk-observations.json --output "$RUNNER_TEMP/replay.json" || status=$?
+          test "$status" -eq 2
+          cmp opendesk-decision.json "$RUNNER_TEMP/replay.json"
+
+  provenance:
+    name: Attest the OpenDesk trial evidence
+    needs: opendesk
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: opendesk-trial
+          path: evidence
+      - working-directory: evidence
+        run: sha256sum opendesk.json opendesk-policy.json opendesk-observations.json opendesk-decision.json > subjects.sha256
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: evidence/subjects.sha256
+          create-storage-record: false

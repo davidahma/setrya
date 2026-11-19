@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "target": "opendesk",
+  "probes": [
+    {
+      "id": "source",
+      "scope": "sql-observer.message-id.v1",
+      "checkpoint": "after_offboarding"
+    },
+    {
+      "id": "summary",
+      "scope": "sql-observer.ticket-summary-marker.v2",
+      "checkpoint": "after_offboarding"
+    },
+    {
+      "id": "agent-read",
+      "scope": "support-agent.ticket-summary-marker.v2",
+      "checkpoint": "after_offboarding"
+    },
+    {
+      "id": "worker-summary",
+      "scope": "sql-observer.ticket-summary-marker.v2",
+      "checkpoint": "after_worker"
+    }
+  ]
+}

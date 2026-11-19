@@ -327,6 +327,30 @@ def offboarding():
                 "offboarding replay lost the distinction between a technical pass and an open review")
 
 
+def offboarding_compatibility():
+    """Exercise the independently runnable producers and offline report readers."""
+    cli = ("-m", "setrya", "offboarding")
+    with TemporaryDirectory(prefix="setrya-compatibility-") as directory:
+        root = Path(directory)
+        reference = root / "reference.json"
+        outcome(command(*cli, "reference-demo", "--output", reference), 0, "")
+        outcome(command(*cli, "validate", reference), 0, "Report valid")
+        policy = root / "policy.json"
+        exported = command(*cli, "sqlite-policy")
+        outcome(exported, 0, "sqlite-support")
+        policy.write_text(exported.stdout, encoding="utf-8")
+        packet = root / "reads.json"
+        for case, code, expected in (("clean", 0, "PASS"), ("residual", 1, "FAIL"),
+                                     ("unavailable", 2, "INCONCLUSIVE")):
+            outcome(command(*cli, "observe-sqlite", "--case", case, "--run-id", case, "--output", packet), 0, "")
+            outcome(command(*cli, "gate", "--policy", policy, "--observations", packet, "--expect-run", case),
+                    code, f"Gate {expected}")
+        original = EXAMPLE.parent / "opendesk" / "observed.json"
+        outcome(command(*cli, "opendesk", "--verify-report", original), 0, "report matches")
+        outcome(command(*cli, "opendesk", "--from-report", original, "--output", root / "trial"),
+                2, "Gate INCONCLUSIVE")
+
+
 def repeatability():
     with TemporaryDirectory(prefix="setrya-repeat-") as directory:
         for mode, code, verdict in (("broken", 1, "FAIL"), ("fixed", 0, "PASS"), ("opaque", 3, "NOT TESTED")):
@@ -346,6 +370,7 @@ CASES = {
     "demo": demo, "late-write": late_write, "retired-chunks": retired_chunks, "early-stale": early_stale,
     "missing-evidence": missing_evidence, "adapter-handoff": adapter_handoff, "report-replay": report_replay,
     "report-comparison": report_comparison, "isolation": isolation, "offboarding": offboarding,
+    "offboarding-compatibility": offboarding_compatibility,
     "repeatability": repeatability,
 }
 

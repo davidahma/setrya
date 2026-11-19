@@ -266,7 +266,7 @@ def main(argv=None) -> int:
         if args.command == "demo":
             preflight()
             return demo(args.case)
-        if args.case not in {"pgvector", "offboarding"}:
+        if args.case not in {"pgvector", "offboarding", "offboarding-compatibility"}:
             preflight()
         from .qualification import qualify as run_qualification
 

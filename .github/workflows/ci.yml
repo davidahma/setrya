@@ -64,6 +64,35 @@ jobs:
           python3 -m setrya replay run.failed.json || status=$?
           test "$status" -eq 1
 
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan Git history with the default rules
+        shell: bash
+        env:
+          SCANNER_REVISION: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          installer="$RUNNER_TEMP/install-gitleaks.sh"
+          if git cat-file -e "$SCANNER_REVISION:.github/scripts/install-gitleaks.sh"; then
+            git show "$SCANNER_REVISION:.github/scripts/install-gitleaks.sh" > "$installer"
+          else
+            # Pin the first installer when adding the check to an older base.
+            cp .github/scripts/install-gitleaks.sh "$installer"
+            echo "908cf65d7eaeb94bcdcff18889e1bde3c2e32ba07b7cd2cde4ea2225dc39e817  $installer" | sha256sum -c -
+          fi
+          bash "$installer"
+          printf '[extend]\nuseDefault = true\n' > "$RUNNER_TEMP/gitleaks.toml"
+          : > "$RUNNER_TEMP/no-ignored-commits"
+          "$RUNNER_TEMP/setrya-tools/gitleaks" git --no-banner --redact --ignore-gitleaks-allow \
+            --config "$RUNNER_TEMP/gitleaks.toml" --gitleaks-ignore-path "$RUNNER_TEMP/no-ignored-commits" \
+            --log-opts="--all HEAD" .
+
   pgvector:
     name: PostgreSQL and pgvector
     runs-on: ubuntu-latest
@@ -152,11 +181,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
-    needs: [tests, pgvector, recorded-review]
+    needs: [tests, pgvector, recorded-review, secrets]
     steps:
       - name: Require all matrix cells to pass
         env:
           MATRIX_RESULT: ${{ needs.tests.result }}
           PGVECTOR_RESULT: ${{ needs.pgvector.result }}
           RECORDED_RESULT: ${{ needs.recorded-review.result }}
-        run: test "$MATRIX_RESULT" = success && test "$PGVECTOR_RESULT" = success && test "$RECORDED_RESULT" = success
+          SECRET_SCAN_RESULT: ${{ needs.secrets.result }}
+        run: test "$MATRIX_RESULT" = success && test "$PGVECTOR_RESULT" = success && test "$RECORDED_RESULT" = success && test "$SECRET_SCAN_RESULT" = success

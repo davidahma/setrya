@@ -37,14 +37,16 @@ python3 -m setrya offboarding demo --output offboarding-run
 
 The **CI gate** checks whether the support agent can still read Acme’s summary and whether it can still read another tenant’s. The broken worker produces FAIL, the guarded worker produces PASS, and a missing baseline produces INCONCLUSIVE.
 
-The **deletion receipt** belongs to one request issued before the job starts. In a separate run, the app passes its technical checks and a provider reports deletion. The receipt still says `OPEN_ITEMS` because the backup operator supplied an expiry schedule. A reviewer can verify that result offline against the original request and exhibits. [Run the gate, issue a request, and replay a receipt](docs/offboarding.md) · [Download the synthetic example](https://github.com/davidahma/setrya/releases/download/v0.6.0/offboarding-example.zip)
+The **deletion receipt** belongs to one request issued before the job starts. In a separate run, the app passes its technical checks and a provider reports deletion. The receipt still says `OPEN_ITEMS` because the backup operator supplied an expiry schedule. A reviewer can verify that result offline against the original request and exhibits. [Run the gate, issue a request, and replay a receipt](docs/offboarding.md) · [Download the synthetic example](https://github.com/davidahma/setrya/releases/download/v0.7.0/offboarding-example.zip)
+
+Already using Axiom? Setrya can run its SQLite observer and pinned OpenDesk trial, validate historical demo reports, and verify deletion receipts. A reviewer can download the single-file offboarding CLI and replay a case offline. [Axiom command map](docs/offboarding.md#migrate-from-axiom) · [Portable CLI and evidence](https://github.com/davidahma/setrya/releases/tag/v0.7.0)
 
 ## Use the Python SDK in your tests
 
 Install the release in your project’s virtual environment. Omit `[pytest]` for the core SDK, which uses only the Python standard library.
 
 ```sh
-python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.6.0/setrya-0.6.0.tar.gz'
+python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.7.0/setrya-0.7.0.tar.gz'
 ```
 
 A *drill* is a TOML file that names the document revisions, the caller and search route, and the passage IDs each query must return or exclude. The refund drill checks the top three hits for the support agent. A second query checks that the delivery policy stays findable. [Example drill](examples/recorded-search/drill.toml)
@@ -141,7 +143,7 @@ After PASS · event 11 · refund-window · final · refund@B
   Index rejected the old write. All final probes found their required passages.
 ```
 
-The example also saves `opaque.json`, which replays as NOT TESTED even though the test found the 14-day policy. You can download all three reports and the summary from the release. [Sample review bundle](https://github.com/davidahma/setrya/releases/download/v0.6.0/recorded-pytest-review.zip)
+The example also saves `opaque.json`, which replays as NOT TESTED even though the test found the 14-day policy. You can download all three reports and the summary from the release. [Sample review bundle](https://github.com/davidahma/setrya/releases/download/v0.7.0/recorded-pytest-review.zip)
 
 In your CI job, run `setrya review` with both reports, the expected commit IDs, and the test exits. Attach the JSON and Markdown even when the test fails. For a downloaded report, use the installed `setrya replay` command. Replay recomputes the verdict without loading the adapter. The report stores passage IDs and question fingerprints and omits raw queries and passage text. Choose identifiers you can share. [CI recipe and review command](docs/recording.md#use-it-in-a-pull-request) · [GitHub Actions example](.github/workflows/ci.yml)
 

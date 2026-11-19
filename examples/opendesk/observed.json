@@ -1,0 +1,66 @@
+{
+  "report_version": 1,
+  "case": "upstream_opendesk_workspace_offboarding",
+  "target": {
+    "version": "v0.4.13",
+    "commit": "e0012447924c5ac8a13a51d2cd41a6496bc26fb3",
+    "image": "sha256:e0fca3427eec675426c6c96766267d7980c861b52f630afc906fcf0c7dca0fe1"
+  },
+  "roles": {
+    "offboarding": "workspace owner with MFA",
+    "application_read": "agent in both workspaces at baseline",
+    "storage_read": "axiom_observer (column-level SELECT)"
+  },
+  "worker_overlap": {
+    "result": "NOT_TESTED",
+    "reason": "This trial invokes the agent summary endpoint synchronously."
+  },
+  "exclusions": [
+    "physical media",
+    "backups",
+    "other stored copies",
+    "other API paths",
+    "future writes"
+  ],
+  "outcome": "COMPLETED",
+  "interrupted_at": null,
+  "observations": [
+    {
+      "phase": "before_offboarding",
+      "observed_at": "2026-11-19T02:25:07+00:00",
+      "workspaces": {
+        "Acme": {
+          "source_message_row": "FOUND",
+          "stored_ticket_summary": "FOUND",
+          "agent_summary": "RETURNED",
+          "agent_http_status": 200
+        },
+        "Birch": {
+          "source_message_row": "FOUND",
+          "stored_ticket_summary": "FOUND",
+          "agent_summary": "RETURNED",
+          "agent_http_status": 200
+        }
+      }
+    },
+    {
+      "phase": "after_offboarding",
+      "observed_at": "2026-11-19T02:25:08+00:00",
+      "workspaces": {
+        "Acme": {
+          "source_message_row": "ABSENT_BY_ID",
+          "stored_ticket_summary": "ABSENT_BY_ID",
+          "agent_summary": "INCONCLUSIVE",
+          "agent_http_status": 400
+        },
+        "Birch": {
+          "source_message_row": "FOUND",
+          "stored_ticket_summary": "FOUND",
+          "agent_summary": "RETURNED",
+          "agent_http_status": 200
+        }
+      }
+    }
+  ],
+  "offboarding_http_status": 204
+}

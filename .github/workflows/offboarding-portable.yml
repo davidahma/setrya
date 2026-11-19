@@ -1,0 +1,99 @@
+name: Portable offboarding CLI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  portable:
+    name: Build and verify the portable CLI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+      - name: Build twice and compare executable bytes
+        run: |
+          mkdir "$RUNNER_TEMP/portable" "$RUNNER_TEMP/adopter"
+          python3 scripts/build_offboarding.py --output "$RUNNER_TEMP/portable/setrya-offboarding.pyz"
+          python3 scripts/build_offboarding.py --output "$RUNNER_TEMP/rebuilt.pyz"
+          cmp "$RUNNER_TEMP/portable/setrya-offboarding.pyz" "$RUNNER_TEMP/rebuilt.pyz"
+      - name: Exercise the archive outside the checkout with only the standard library
+        working-directory: ${{ runner.temp }}/adopter
+        run: |
+          cli="$RUNNER_TEMP/portable/setrya-offboarding.pyz"
+          report="$RUNNER_TEMP/portable/offboarding-reference.json"
+          python3 -I -S "$cli" reference-demo --output "$report"
+          python3 -I -S "$cli" validate "$report"
+          python3 -I -S "$cli" demo --output example
+          digest=$(sha256sum example/receipt/request.json | cut -d' ' -f1)
+          test "$digest" = "$(cat example/receipt/request.sha256)"
+          echo "Synthetic offboarding request SHA-256: \`$digest\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Scan the synthetic reports and exhibits before packaging
+        run: |
+          bash .github/scripts/install-gitleaks.sh
+          scanner="$RUNNER_TEMP/setrya-tools/gitleaks"
+          "$scanner" dir --no-banner --redact --ignore-gitleaks-allow "$RUNNER_TEMP/adopter/example"
+          "$scanner" stdin --no-banner --redact --ignore-gitleaks-allow < "$RUNNER_TEMP/portable/offboarding-reference.json"
+      - name: Bundle the sample and replay the exact files for release
+        working-directory: ${{ runner.temp }}
+        run: |
+          archive="$RUNNER_TEMP/portable/offboarding-example.zip"
+          (cd adopter/example && zip -Xqr "$archive" .)
+          unzip -q "$archive" -d replay
+          cd replay/receipt
+          status=0
+          python3 -I -S "$RUNNER_TEMP/portable/setrya-offboarding.pyz" verify-receipt \
+            --request request.json --expect-request "$(cat "$RUNNER_TEMP/adopter/example/receipt/request.sha256")" \
+            --policy policy.json --evidence evidence.json --receipt receipt.json \
+            --record provider.json provider.txt --record backups.json backups.txt > "$RUNNER_TEMP/receipt-replay.txt" || status=$?
+          test "$status" -eq 2
+          grep -Fx 'Receipt verified. Replay matches the supplied receipt.' "$RUNNER_TEMP/receipt-replay.txt"
+          grep -Fx 'Technical verdict PASS' "$RUNNER_TEMP/receipt-replay.txt"
+          grep -Fx 'Review status OPEN_ITEMS' "$RUNNER_TEMP/receipt-replay.txt"
+          cd "$RUNNER_TEMP/portable"
+          sha256sum setrya-offboarding.pyz > setrya-offboarding.pyz.sha256
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: portable-offboarding
+          path: ${{ runner.temp }}/portable/
+          if-no-files-found: error
+
+  provenance:
+    name: Attest the tested offboarding artifacts
+    needs: portable
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: portable-offboarding
+          path: checked
+      - name: Digest the release files produced by this run
+        working-directory: checked
+        run: |
+          sha256sum -c setrya-offboarding.pyz.sha256
+          sha256sum setrya-offboarding.pyz setrya-offboarding.pyz.sha256 \
+            offboarding-reference.json offboarding-example.zip > subjects.sha256
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: checked/subjects.sha256
+          create-storage-record: false

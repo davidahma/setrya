@@ -9,7 +9,7 @@ Setrya answers two questions. An engineer can run a **CI gate** against a build 
 Install the core SDK in a Python 3.11+ virtual environment. The example uses SQLite, a local HTTP endpoint, and fictional records.
 
 ```sh
-python -m pip install 'setrya @ https://github.com/davidahma/setrya/releases/download/v0.6.0/setrya-0.6.0.tar.gz'
+python -m pip install 'setrya @ https://github.com/davidahma/setrya/releases/download/v0.7.0/setrya-0.7.0.tar.gz'
 setrya offboarding demo --output offboarding-run
 ```
 
@@ -83,8 +83,33 @@ The example prints `Receipt verified.`, `Technical verdict PASS`, and `Review st
 | 2 | INCONCLUSIVE | OPEN_ITEMS |
 | 3 | Invalid arguments, evidence, or output | Invalid arguments, evidence, output, or receipt mismatch |
 
+## Review evidence without installing a package
+
+Download `setrya-offboarding.pyz` from the Setrya release. Verify its build provenance, then run it with Python 3.11 or newer. The arguments after the filename are the same ones you would pass after `setrya offboarding`. For example, validate an archived reference report offline with `python3 -I setrya-offboarding.pyz validate demo-report.json`. [Release files](https://github.com/davidahma/setrya/releases/tag/v0.7.0) · [Verify the build](../SECURITY.md#verify-a-downloaded-offboarding-tool)
+
+A reviewer can also sign the exact bytes of a deletion receipt with an authorized OpenSSH key. The signature namespace stays `axiom-receipt-v1` so existing signatures and allowed-signers policies continue to work. Obtain the allowed-signers file independently. The signature identifies the signing key. The receipt and original evidence supply the findings.
+
+```sh
+ssh-keygen -Y sign -f "$SIGNING_KEY" -n axiom-receipt-v1 receipt.json
+ssh-keygen -Y verify -f "$TRUSTED_ALLOWED_SIGNERS" -I "$AUTHORIZED_SIGNER" \
+  -n axiom-receipt-v1 -s receipt.json.sig < receipt.json
+```
+
 ## Migrate from Axiom
 
-Setrya 0.6 includes the offboarding gate and receipt formats from Axiom v0.3.2. Replace `python3 axiom.pyz gate`, `request`, `receipt`, or `verify-receipt` with `setrya offboarding` followed by the same command and arguments. Keep your policy, observation files, original exhibits, independent request digest, and the offboarding exit codes. Setrya’s search `replay` and `review` commands continue to read indexing reports.
+Use the Setrya repository, SDK, CLI, releases and issue tracker for tenant offboarding. Axiom v0.3.2’s files retain their original formats, exit codes, and digest bindings. Keep the original policy, request digest, job evidence and exhibits when replaying a case.
 
-Axiom’s published OpenDesk example found no tenant records in the storage reads. The deleted workspace’s agent route could no longer answer, and the trial did not observe a worker overlapping deletion. Replaying that gate in Setrya yields INCONCLUSIVE. For an archived Axiom reference-demo report created by `axiom.pyz demo`, use that release’s `validate` command. [Axiom v0.3.2 and original evidence](https://github.com/davidahma/axiom/releases/tag/v0.3.2)
+| Axiom workflow | Setrya command |
+| --- | --- |
+| Staging CI gate | `setrya offboarding gate` with the original arguments |
+| Request issuance and deletion receipts | `setrya offboarding request`, `receipt`, and `verify-receipt` with the original arguments |
+| Original three-case worker demo | `setrya offboarding reference-demo --output demo-report.json` |
+| Validate a saved worker demo | `setrya offboarding validate demo-report.json` |
+| SQLite source and answer-cache observer | `setrya offboarding sqlite-policy` and `setrya offboarding observe-sqlite` |
+| Run the pinned OpenDesk application | `setrya offboarding opendesk --output trial` with Docker Compose |
+| Validate or replay raw OpenDesk evidence | `setrya offboarding opendesk --verify-report opendesk.json` or `--from-report opendesk.json --output replay` |
+| Single-file CLI, verified builds, and downloadable reports | [Setrya release assets](https://github.com/davidahma/setrya/releases/tag/v0.7.0) |
+
+The reference demo records the worker and 18 observations per case across two tenants, three checkpoints and three read paths. Validation recomputes its recorded verdicts. A valid report can describe a failing application. Use the SQLite observer to exercise source and cache checks or produce observations bound to an issued staging request. [SQLite observer](../examples/offboarding/sqlite/README.md)
+
+In the pinned OpenDesk trial, the source and summary storage reads passed after deletion. The support agent’s route could no longer answer for the departing workspace, and both summary jobs had finished before deletion. The resulting gate is INCONCLUSIVE. You can replay that evidence without Docker. [OpenDesk setup and evidence](../examples/opendesk/README.md)

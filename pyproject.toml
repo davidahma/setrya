@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "setrya"
-version = "0.6.0"
+version = "0.7.0"
 description = "Regression tests for retrieval after document updates and tenant offboarding"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,7 +22,7 @@ setrya = "setrya.cli:console_main"
 include = ["setrya*", "examples*"]
 
 [tool.setuptools.package-data]
-examples = ["recorded-search/*.toml", "support-search/*.toml", "pgvector-search/*.toml", "pgvector-search/compose.yml"]
+examples = ["recorded-search/*.toml", "support-search/*.toml", "pgvector-search/*.toml", "pgvector-search/compose.yml", "offboarding/sqlite/policy.json", "opendesk/*.json", "opendesk/compose.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

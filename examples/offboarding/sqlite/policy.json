@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "target": "sqlite-support",
+  "probes": [
+    {"id": "source", "scope": "tickets", "checkpoint": "after_offboarding"},
+    {"id": "cache", "scope": "cached_answers", "checkpoint": "after_offboarding"}
+  ]
+}
