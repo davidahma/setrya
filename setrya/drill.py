@@ -119,7 +119,7 @@ class Probe:
 class Drill:
     rules: Rules
     probes: tuple[Probe, ...]
-    factory: str
+    factory: str | None
     options: dict
 
     def validate(self) -> None:
@@ -132,7 +132,10 @@ class Drill:
             raise InputError("execution probes must match the report rules, including result depth")
         if any(not isinstance(probe.question, str) or not probe.question.strip() for probe in self.probes):
             raise InputError("each probe needs a question")
-        if not isinstance(self.factory, str) or not _FACTORY.fullmatch(self.factory) or not isinstance(self.options, dict):
+        if (not isinstance(self.options, dict)
+                or (self.factory is None and self.options)
+                or (self.factory is not None
+                    and (not isinstance(self.factory, str) or not _FACTORY.fullmatch(self.factory)))):
             raise InputError("adapter needs a Python module:factory and an optional options table")
 
     @classmethod
@@ -142,12 +145,13 @@ class Drill:
                 document = tomllib.load(stream)
         except (OSError, UnicodeError, tomllib.TOMLDecodeError):
             raise InputError("could not read drill as TOML") from None
-        obj = mapping(document, "drill", {"version", "adapter", "rules", "probe"})
+        obj = mapping(document, "drill", {"version", "rules", "probe"}, {"adapter"})
         integer(obj["version"], "drill version", DRILL_VERSION, DRILL_VERSION)
-        adapter = mapping(obj["adapter"], "adapter", {"factory"}, {"options"})
-        factory = adapter["factory"]
+        adapter = mapping(obj["adapter"], "adapter", {"factory"}, {"options"}) if "adapter" in obj else {}
+        factory = adapter.get("factory")
         options = adapter.get("options", {})
-        if not isinstance(factory, str) or not _FACTORY.fullmatch(factory) or not isinstance(options, dict):
+        if "adapter" in obj and (not isinstance(factory, str) or not _FACTORY.fullmatch(factory)
+                                 or not isinstance(options, dict)):
             raise InputError("adapter needs a Python module:factory and an optional options table")
 
         if not isinstance(obj["probe"], list):

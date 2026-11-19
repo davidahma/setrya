@@ -24,3 +24,9 @@ Run `python3 -m setrya compare before.json after.json --summary comparison.md` t
 Schema 3 reports carry the drill format version, effective rules, and SHA-256 fingerprints of the adapter factory and each exact question. Comparisons require these bindings to match. Adapter options and implementation code can change across patch runs. Keep the test data, hooks, and intended environment equivalent, and record the commits with the reports. Schema 2 verdicts still replay. Generate two current reports to compare them.
 
 The question fingerprint is an unkeyed digest for equality checks. It can reveal the use of a guessable question to someone who hashes a candidate. Share synthetic or approved report data publicly. The command prints the fingerprint and probe ID, and raw question text stays out of the report.
+
+## Recorded tests and release reviews
+
+Schema 4 can carry a full application commit ID. It records a test failure by exception type and checks the recorded checkpoint deadline. Existing schema 2 and 3 reports remain replayable, and schema 3 reports retain the input fingerprints for offline comparison.
+
+A release review requires reports for the expected base and candidate commits and consistent native test exit codes. It can pass when both comparable tests pass or when the candidate verifies a fix. `compare` continues to require a failing baseline to claim a fix. Questions stay in the trusted drill. Reports name the probe and its fingerprint. [Recording and CI](recording.md)

@@ -63,7 +63,8 @@ def evaluate(report: Report) -> Verdict:
     if verdict.status is not Status.FAIL:
         error = next((event for event in report.events if event["kind"] == "adapter_error"), None)
         if error:
-            return Verdict(Status.ERROR, "The adapter could not complete the drill", error["seq"])
+            detail = "The recorded test did not complete" if error["operation"] == "test" else "The adapter could not complete the drill"
+            return Verdict(Status.ERROR, detail, error["seq"])
     return verdict
 
 
@@ -81,6 +82,8 @@ def _evaluate(report: Report) -> Verdict:
     held = events.get("held")
     if not _matches(held, {**identity, "name": rules.checkpoint}):
         return Verdict(Status.NOT_TESTED, f"Missing checkpoint acknowledgment for {rules.checkpoint} and the old revision")
+    if report.schema >= 4 and held["ns"] - events["started"]["ns"] > rules.checkpoint_ms * NS_PER_MS:
+        return Verdict(Status.NOT_TESTED, "The checkpoint acknowledgment arrived after the declared deadline", held["seq"])
     release = events.get("released")
     release_valid = release is not None and release["attempt"] == attempt
     receipt = events.get("receipt")

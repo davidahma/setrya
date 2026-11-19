@@ -3,17 +3,19 @@
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 import json
-import re
 import os
 from pathlib import Path
+import re
 import tempfile
 
 from .drill import DRILL_VERSION, Drill, InputError, ProbeRules, Rules, integer, label, mapping
 
-SCHEMA = 3
-CHECKER = 3
-_CHECKERS = {1: 1, 2: 2, SCHEMA: CHECKER}
+SCHEMA = 4
+CHECKER = 4
+_INPUT_SCHEMA = 3
+_CHECKERS = {1: 1, 2: 2, 3: 3, SCHEMA: CHECKER}
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
+_COMMIT = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 MAX_REPORT_BYTES = 16 * 1024 * 1024
 _MAX_TIME = 2**63 - 1
 PUBLICATION_IDENTITY = {"run_id", "document", "revision"}
@@ -26,7 +28,7 @@ _EVENT_FIELDS = {
     "probe": _PROBE_FIELDS | {"route", "scope"},
     "adapter_error": {"operation", "error"},
 }
-_OPERATIONS = {"factory", "seed", "search", "start_old", "checkpoint", "publish", "release", "receipt", "close"}
+_OPERATIONS = {"factory", "seed", "search", "start_old", "checkpoint", "publish", "release", "receipt", "close", "test"}
 _TRANSITIONS = {
     "seeded": None, "started": "seeded", "held": "started",
     "published": "held", "released": "published",
@@ -34,15 +36,27 @@ _TRANSITIONS = {
 _STAGES = {"seeded": "baseline", "published": "freshness", "released": "final"}
 
 
-def bind_inputs(drill: Drill) -> dict:
+def git_revision(value: object) -> str:
+    if not isinstance(value, str) or not _COMMIT.fullmatch(value):
+        raise InputError("use a full lowercase Git commit ID")
+    return value
+
+
+def bind_inputs(drill: Drill, *, test_id: str | None = None, revision: str | None = None) -> dict:
     def fingerprint(text: str) -> str:
         return sha256(text.encode("utf-8")).hexdigest()
 
-    return {
+    identity = drill.factory if test_id is None else f"recorded-test:{label(test_id, 'test ID')}"
+    if identity is None:
+        raise InputError("the drill needs an adapter or a recording test ID")
+    inputs = {
         "drill_version": DRILL_VERSION,
-        "adapter": fingerprint(drill.factory),
+        "adapter": fingerprint(identity),
         "questions": {probe.rules.id: fingerprint(probe.question) for probe in drill.probes},
     }
+    if revision is not None:
+        inputs["revision"] = git_revision(revision)
+    return inputs
 
 
 @dataclass(frozen=True)
@@ -66,7 +80,7 @@ class Report:
                         "schema": self.schema, "checker": _CHECKERS[self.schema],
                         "run_id": self.run_id, "rules": asdict(self.rules), "events": self.events,
                     }
-                    if self.schema == SCHEMA:
+                    if self.schema >= _INPUT_SCHEMA:
                         bundle["inputs"] = self.inputs
                     json.dump(bundle, stream, indent=2)
                     stream.write("\n")
@@ -93,7 +107,7 @@ class Report:
         if type(schema) is not int or schema not in _CHECKERS:
             raise InputError("unsupported report schema")
         keys = {"schema", "checker", "run_id", "rules", "events"}
-        fields = mapping(obj, "report", keys | ({"inputs"} if schema == SCHEMA else set()))
+        fields = mapping(obj, "report", keys | ({"inputs"} if schema >= _INPUT_SCHEMA else set()))
         if type(fields["checker"]) is not int or fields["checker"] != _CHECKERS[schema]:
             raise InputError("unsupported checker version")
         if not isinstance(fields["events"], list):
@@ -108,44 +122,65 @@ class Report:
         if type(self.schema) is not int or self.schema not in _CHECKERS:
             raise InputError("unsupported report schema")
         probes = {probe.id: probe for probe in self.rules.probes}
-        if self.schema == SCHEMA:
-            inputs = mapping(self.inputs, "report inputs", {"drill_version", "adapter", "questions"})
+        if self.schema >= _INPUT_SCHEMA:
+            optional = {"revision"} if self.schema >= 4 else set()
+            inputs = mapping(self.inputs, "report inputs", {"drill_version", "adapter", "questions"}, optional)
+            if "revision" in inputs:
+                git_revision(inputs["revision"])
             integer(inputs["drill_version"], "report drill version", DRILL_VERSION, DRILL_VERSION)
             questions = mapping(inputs["questions"], "question fingerprints", set(probes))
             for digest in (inputs["adapter"], *questions.values()):
                 if not isinstance(digest, str) or not _HEX.fullmatch(digest):
                     raise InputError("invalid input fingerprint")
-        previous_ns = 0
-        stage = None
-        receipt_seen = False
-        baselines = set()
-        errors = []
-        for index, event in enumerate(self.events, 1):
-            validate_observation(event, probes, legacy=self.schema == 1)
-            kind = event["kind"]
-            integer(event["seq"], "event sequence", index, index)
-            ns = integer(event["ns"], "event time", previous_ns, _MAX_TIME)
-            if errors and not (kind == "adapter_error" and event["operation"] == "close" and errors[-1] != "close"):
-                raise InputError("unexpected evidence after adapter error")
-            if kind in _TRANSITIONS:
-                if stage != _TRANSITIONS[kind]:
-                    raise InputError("invalid lifecycle event order")
-                stage = kind
-            if kind == "adapter_error":
-                errors.append(event["operation"])
-            if kind == "receipt":
-                if stage != "released" or receipt_seen:
-                    raise InputError("unexpected terminal write receipt")
-                receipt_seen = True
-            if kind == "probe":
-                if event["stage"] != _STAGES.get(stage):
-                    raise InputError("invalid probe evidence")
-                integer(event["started_ns"], "probe start time", previous_ns, ns)
-                if stage == "seeded":
-                    if event["probe_id"] in baselines:
-                        raise InputError("duplicate baseline probe")
-                    baselines.add(event["probe_id"])
-            previous_ns = ns
+        sequence = _EventSequence(probes, self.schema)
+        for event in self.events:
+            sequence.accept(event)
+
+
+class _EventSequence:
+    """Validate live and saved records with the same lifecycle and clock."""
+
+    def __init__(self, probes, schema):
+        self.probes = probes
+        self.schema = schema
+        self.previous_ns = 0
+        self.seq = 0
+        self.stage = None
+        self.receipt_seen = False
+        self.baselines = set()
+        self.error = None
+
+    def accept(self, event: dict) -> None:
+        validate_observation(event, self.probes, legacy=self.schema == 1)
+        kind = event["kind"]
+        integer(event["seq"], "event sequence", self.seq + 1, self.seq + 1)
+        ns = integer(event["ns"], "event time", self.previous_ns, _MAX_TIME)
+        if (self.error and not (kind == "adapter_error" and event["operation"] == "close"
+                               and self.error != "close")):
+            raise InputError("unexpected evidence after adapter error")
+
+        if kind in _TRANSITIONS:
+            if self.stage != _TRANSITIONS[kind]:
+                raise InputError("invalid lifecycle event order")
+            self.stage = kind
+        elif kind == "adapter_error":
+            if event["operation"] == "test" and self.schema < 4:
+                raise InputError("test errors require report schema 4")
+            self.error = event["operation"]
+        elif kind == "receipt":
+            if self.stage != "released" or self.receipt_seen:
+                raise InputError("unexpected terminal write receipt")
+            self.receipt_seen = True
+        elif kind == "probe":
+            if event["stage"] != _STAGES.get(self.stage):
+                raise InputError("invalid probe evidence")
+            integer(event["started_ns"], "probe start time", self.previous_ns, ns)
+            if self.stage == "seeded":
+                if event["probe_id"] in self.baselines:
+                    raise InputError("duplicate baseline probe")
+                self.baselines.add(event["probe_id"])
+        self.seq += 1
+        self.previous_ns = ns
 
 
 def validate_observation(event: dict, probes: dict, *, legacy: bool = False) -> None:

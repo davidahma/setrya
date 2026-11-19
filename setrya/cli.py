@@ -53,7 +53,9 @@ def format_verdict(
         lines.append(f"  {verdict.attribution}")
     for event in report.events:
         if event["kind"] == "adapter_error":
-            lines.append(f"  Adapter error during {event['operation']} ({event['error']})")
+            operation = event["operation"]
+            detail = "Test error" if operation == "test" else f"Adapter error during {operation}"
+            lines.append(f"  {detail} ({event['error']})")
     lines.append(f"  Run {report.run_id}")
     if replay:
         lines.append(f"  Replay  {replay}")
@@ -153,6 +155,7 @@ def main(argv=None) -> int:
     check.add_argument("drill")
     check.add_argument("--report", help="write a portable JSON report")
     check.add_argument("--summary", help="write a Markdown summary")
+    check.add_argument("--revision", help="record the full Git commit ID supplying the application")
     replay = commands.add_parser("replay", help="recompute a verdict from saved observations")
     replay.add_argument("report")
     diagnose = commands.add_parser("diagnose", help="show the verdict and the first missing observation")
@@ -161,6 +164,14 @@ def main(argv=None) -> int:
     comparison.add_argument("before")
     comparison.add_argument("after")
     comparison.add_argument("--summary", help="write a Markdown summary")
+    review_parser = commands.add_parser("review", help="decide a base-versus-candidate CI check from two reports")
+    review_parser.add_argument("before")
+    review_parser.add_argument("after")
+    review_parser.add_argument("--base-commit", required=True)
+    review_parser.add_argument("--candidate-commit", required=True)
+    review_parser.add_argument("--base-exit", type=int, required=True)
+    review_parser.add_argument("--candidate-exit", type=int, required=True)
+    review_parser.add_argument("--summary", help="write a Markdown summary")
     qualify = commands.add_parser("qualify", help="run the shipped qualification cases")
     qualify.add_argument("--case")
     qualify.add_argument("--quick", action="store_true", help="skip the 90-run repeatability case")
@@ -174,16 +185,23 @@ def main(argv=None) -> int:
             if args.command == "replay":
                 print(history(report))
             return verdict.status.exit_code
-        if args.command == "compare":
+        if args.command in {"compare", "review"}:
             from .comparison import compare
 
             if args.summary and Path(args.summary).resolve() in {Path(args.before).resolve(), Path(args.after).resolve()}:
                 raise InputError("comparison summary must use a distinct file")
             before, after = Report.load(args.before), Report.load(args.after)
-            code, summary = compare(before, after)
+            if args.command == "review":
+                from .review import review
+
+                code, summary = review(before, after, base_commit=args.base_commit, candidate_commit=args.candidate_commit,
+                                       base_exit=args.base_exit, candidate_exit=args.candidate_exit)
+            else:
+                code, summary = compare(before, after)
             print(summary)
             if args.summary:
-                _write_summary(args.summary, f"{before.rules.id} comparison", summary)
+                title = "release review" if args.command == "review" else "comparison"
+                _write_summary(args.summary, f"{before.rules.id} {title}", summary)
             return code
         if args.command == "check":
             paths = [Path(path).resolve() for path in (args.drill, args.report, args.summary) if path is not None]
@@ -191,7 +209,7 @@ def main(argv=None) -> int:
                 raise InputError("drill, report and summary must use distinct files")
             drill = Drill.load(args.drill)
             preflight()
-            result = run(drill)
+            result = run(drill, revision=args.revision)
             if args.report:
                 result.report.save(args.report)
             summary = format_verdict(result.verdict, result.report, rerun_command(args.drill),

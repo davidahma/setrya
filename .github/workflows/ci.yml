@@ -107,15 +107,42 @@ jobs:
           path: ${{ runner.temp }}/setrya-benchmark/
           if-no-files-found: warn
 
+  recorded-review:
+    name: Recorded pytest review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install '.[pytest]'
+      - name: Record the same test on two fixture revisions
+        run: python3 -m examples.recorded_search.verify --output "$RUNNER_TEMP/recorded-review"
+      - name: Publish the review summary
+        if: ${{ !cancelled() }}
+        run: |
+          summary="$RUNNER_TEMP/recorded-review/review.md"
+          if [ -f "$summary" ]; then cat "$summary" >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ !cancelled() }}
+        with:
+          name: recorded-pytest-review
+          path: ${{ runner.temp }}/recorded-review/
+          if-no-files-found: warn
+
   ci:
     name: CI
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
-    needs: [tests, pgvector]
+    needs: [tests, pgvector, recorded-review]
     steps:
       - name: Require all matrix cells to pass
         env:
           MATRIX_RESULT: ${{ needs.tests.result }}
           PGVECTOR_RESULT: ${{ needs.pgvector.result }}
-        run: test "$MATRIX_RESULT" = success && test "$PGVECTOR_RESULT" = success
+          RECORDED_RESULT: ${{ needs.recorded-review.result }}
+        run: test "$MATRIX_RESULT" = success && test "$PGVECTOR_RESULT" = success && test "$RECORDED_RESULT" = success

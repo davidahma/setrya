@@ -65,7 +65,7 @@ def _describe(label: str, verdict: Verdict, event: dict | None) -> str:
             f"  {verdict.detail}")
 
 
-def compare(before: Report, after: Report) -> tuple[int, str]:
+def compare(before: Report, after: Report, *, allow_passing_pair: bool = False) -> tuple[int, str]:
     old, new = evaluate(before), evaluate(after)
     difference = _difference(before, after)
     if difference:
@@ -88,6 +88,8 @@ def compare(before: Report, after: Report) -> tuple[int, str]:
         state = 2, "ERROR  An execution error leaves the comparison unresolved."
     elif new.status is Status.NOT_TESTED or old.status is Status.NOT_TESTED:
         state = 3, "INCONCLUSIVE  An observation required to establish the fix is missing."
+    elif allow_passing_pair:
+        state = 0, "PASS  Both revisions met the same recorded search expectations."
     else:
         state = 3, "INCONCLUSIVE  Both reports passed. A failing before run is needed to establish a fix."
 

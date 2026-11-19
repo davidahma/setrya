@@ -55,6 +55,10 @@ python3 -m setrya diagnose after.json
 
 The comparison shows the affected probe and decisive observations. Changed questions or depths make the runs incomparable. Missing write evidence leaves the result inconclusive. Attach the report pair and Markdown summary to the pull request. [Evidence and comparison contract](docs/evidence.md#compare-two-saved-runs)
 
+## Keep your existing pytest test
+
+If your test already controls the indexing worker, add a recorder at the checkpoint, publication, and search calls. Run the same test on the base and candidate commits, then use `setrya review` to publish one CI decision with the two reports. [Recording and CI example](docs/recording.md)
+
 ## Connect your own search
 
 Start with one document your users rely on, one question that retrieves it, and a second question about an unrelated document. Run the drill against a disposable instance of your application.
