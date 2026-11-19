@@ -127,6 +127,14 @@ jobs:
       - name: Run the installed example on two fixture revisions
         working-directory: ${{ runner.temp }}
         run: python3 -m examples.recorded_search.verify --output "$RUNNER_TEMP/recorded-review"
+      - name: Exercise the installed tenant offboarding CLI outside the checkout
+        working-directory: ${{ runner.temp }}
+        run: setrya offboarding demo --output offboarding-example
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: synthetic-offboarding-example
+          path: ${{ runner.temp }}/offboarding-example/
+          if-no-files-found: error
       - name: Publish the review summary
         if: ${{ !cancelled() }}
         run: |

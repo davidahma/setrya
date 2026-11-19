@@ -304,6 +304,29 @@ def isolation():
                         proc.communicate(timeout=3)
 
 
+def offboarding():
+    """Replay the two offboarding decisions after the example application exits."""
+    cli = ("-m", "setrya", "offboarding")
+    with TemporaryDirectory(prefix="setrya-offboarding-") as directory:
+        bundle = Path(directory) / "example"
+        outcome(command(*cli, "demo", "--output", bundle, timeout=45), 0, "")
+        for case, code, verdict in (("broken", 1, "FAIL"), ("fixed", 0, "PASS"),
+                                    ("inconclusive", 2, "INCONCLUSIVE")):
+            replay = command(*cli, "gate", "--policy", bundle / "policy.json",
+                             "--observations", bundle / f"{case}.json", "--expect-run", case)
+            outcome(replay, code, f"Gate {verdict}")
+        case_dir = bundle / "receipt"
+        checked = command(*cli, "verify-receipt", "--policy", case_dir / "policy.json",
+                          "--request", case_dir / "request.json", "--receipt", case_dir / "receipt.json",
+                          "--expect-request", (case_dir / "request.sha256").read_text().strip(),
+                          "--evidence", case_dir / "evidence.json",
+                          "--record", case_dir / "provider.json", case_dir / "provider.txt",
+                          "--record", case_dir / "backups.json", case_dir / "backups.txt")
+        outcome(checked, 2, "Receipt verified.")
+        require("Technical verdict PASS" in checked.stdout and "Review status OPEN_ITEMS" in checked.stdout,
+                "offboarding replay lost the distinction between a technical pass and an open review")
+
+
 def repeatability():
     with TemporaryDirectory(prefix="setrya-repeat-") as directory:
         for mode, code, verdict in (("broken", 1, "FAIL"), ("fixed", 0, "PASS"), ("opaque", 3, "NOT TESTED")):
@@ -322,7 +345,8 @@ def repeatability():
 CASES = {
     "demo": demo, "late-write": late_write, "retired-chunks": retired_chunks, "early-stale": early_stale,
     "missing-evidence": missing_evidence, "adapter-handoff": adapter_handoff, "report-replay": report_replay,
-    "report-comparison": report_comparison, "isolation": isolation, "repeatability": repeatability,
+    "report-comparison": report_comparison, "isolation": isolation, "offboarding": offboarding,
+    "repeatability": repeatability,
 }
 
 

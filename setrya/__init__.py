@@ -1,3 +1,3 @@
-"""Regression tests for search results after indexing changes."""
+"""Regression tests for retrieval after document updates and tenant offboarding."""
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"

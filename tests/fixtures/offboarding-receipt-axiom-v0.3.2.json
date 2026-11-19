@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "context": "customer",
+  "target": "desk",
+  "revision": "v3",
+  "run_id": "r7",
+  "job_id": "offboard-82",
+  "created_at": "2025-01-20T09:00:00Z",
+  "started_at": "2025-01-20T09:00:01Z",
+  "observed_at": "2025-01-20T09:00:02Z",
+  "request_sha256": "1e90d0be426e4ba4dcaf87814f0f6a0bdc850e75cc5923104d603d7a52a72c8f",
+  "policy_sha256": "be8b2d4d60b1b18dcde6518b4a61294126b56591f39aee1969b54bb0f11518e7",
+  "evidence_sha256": "2cf731621d1f214849cd53ce0fc58fbb4ae9b470812a19592efc3bee87678277",
+  "technical_verdict": "PASS",
+  "probes": [
+    {
+      "id": "summary",
+      "scope": "agent.read",
+      "checkpoint": "after_offboarding",
+      "verdict": "PASS",
+      "reasons": []
+    }
+  ],
+  "items": [
+    {
+      "id": "provider",
+      "kind": "provider_statement",
+      "issuer": "storage-provider",
+      "document_sha256": "5c4c1964340aca5b65393bbe9d3249cdd71be26665b3320ad694f034f2743283",
+      "descriptor_sha256": "68497fd98cb72dd50fa41ab041061f9ed7c75cfa07cf58e6aaa1c0a290e68407",
+      "outcome": "reported_deleted",
+      "status": "PROVIDER_REPORTED"
+    },
+    {
+      "id": "archive",
+      "kind": "retention_schedule",
+      "issuer": "storage-provider",
+      "document_sha256": "0eb3e36bfb24dcd9bb1d1bece1531216b59539a8fde17ee80224af0653c92aa3",
+      "descriptor_sha256": "5acc669e1936786fa61933afc2b35483cf85f4e30a422e0863dddfdcb3057696",
+      "expires_on": "2024-02-29",
+      "status": "SCHEDULED"
+    }
+  ],
+  "review_status": "OPEN_ITEMS"
+}

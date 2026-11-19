@@ -169,9 +169,16 @@ def _write_summary(path: str | Path, title: str, text: str) -> None:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(prog="setrya", description="Test whether search stays current after document updates.")
+    argv = sys.argv[1:] if argv is None else list(argv)
+    # The offboarding evidence formats have their own CLI exit-code contract.
+    if argv[:1] == ["offboarding"]:
+        from .offboarding.cli import main as offboarding_main
+
+        return offboarding_main(argv[1:])
+    parser = argparse.ArgumentParser(prog="setrya", description="Test what an application can retrieve after a document update or tenant offboarding.")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("offboarding", help="check tenant offboarding in CI or review one deletion request")
     demo_parser = commands.add_parser("demo", help="run three synthetic outcomes")
     demo_parser.add_argument("--case", choices=DEMO_CASES)
     check = commands.add_parser("check", help="run a drill")
@@ -259,7 +266,7 @@ def main(argv=None) -> int:
         if args.command == "demo":
             preflight()
             return demo(args.case)
-        if args.case != "pgvector":
+        if args.case not in {"pgvector", "offboarding"}:
             preflight()
         from .qualification import qualify as run_qualification
 

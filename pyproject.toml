@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "setrya"
-version = "0.5.1"
-description = "Regression tests for search results after indexing changes"
+version = "0.6.0"
+description = "Regression tests for retrieval after document updates and tenant offboarding"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {file = "LICENSE"}

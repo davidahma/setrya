@@ -1,13 +1,15 @@
 # Setrya
 
-Setrya is an open-source Python SDK and CLI for testing whether a document update reaches search and stays visible after an older indexing job finishes.
+Setrya is an open-source Python SDK and CLI for testing what an application can retrieve after a document changes or a tenant leaves.
 
 Your team shortens the refund window from 30 days to 14. The support agent searches and gets the new policy. Then a worker resumes with the copy it read yesterday. In a Setrya regression test, you release that worker on purpose and search again as the same agent. If the 30-day policy comes back, the report identifies the passage and its rank. A teammate can replay the failure after the app shuts down.
+
+A delayed job can also bring back a departed customer’s summary. Setrya can check for that in CI and, for a specific deletion request, produce a receipt showing what the application returned and what still needs review.
 
 [![Tests](https://github.com/davidahma/setrya/actions/workflows/ci.yml/badge.svg)](https://github.com/davidahma/setrya/actions/workflows/ci.yml)
 [![Offline qualification](https://github.com/davidahma/setrya/actions/workflows/qualification.yml/badge.svg)](https://github.com/davidahma/setrya/actions/workflows/qualification.yml)
 
-[Run the demo](#run-the-demo) · [Use the Python SDK](#use-the-python-sdk-in-your-tests) · [Review a fix in CI](#review-an-indexing-change-in-a-pull-request)
+[Run the search demo](#run-the-demo) · [Test tenant offboarding](#test-tenant-offboarding) · [Use the Python SDK](#use-the-python-sdk-in-your-tests) · [Review a fix in CI](#review-an-indexing-change-in-a-pull-request)
 
 ## Run the demo
 
@@ -25,12 +27,24 @@ python3 -m setrya demo
 | PASS | 30 days → 14 days | The worker rejected its stale write. Final searches found the 14-day policy and the unrelated delivery policy. |
 | NOT TESTED | 30 days → 14 days | The old worker committed. Search still returned 14 days. The response didn’t identify a snapshot that included the old write. |
 
+## Test tenant offboarding
+
+Acme leaves. The support app deletes its ticket and summary. Then a worker finishes writing the summary it read before deletion. From the same checkout, run the offboarding example in a new output directory.
+
+```sh
+python3 -m setrya offboarding demo --output offboarding-run
+```
+
+The **CI gate** checks whether the support agent can still read Acme’s summary and whether it can still read another tenant’s. The broken worker produces FAIL, the guarded worker produces PASS, and a missing baseline produces INCONCLUSIVE.
+
+The **deletion receipt** belongs to one request issued before the job starts. In a separate run, the app passes its technical checks and a provider reports deletion. The receipt still says `OPEN_ITEMS` because the backup operator supplied an expiry schedule. A reviewer can verify that result offline against the original request and exhibits. [Run the gate, issue a request, and replay a receipt](docs/offboarding.md) · [Download the synthetic example](https://github.com/davidahma/setrya/releases/download/v0.6.0/offboarding-example.zip)
+
 ## Use the Python SDK in your tests
 
 Install the release in your project’s virtual environment. Omit `[pytest]` for the core SDK, which uses only the Python standard library.
 
 ```sh
-python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.5.1/setrya-0.5.1.tar.gz'
+python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.6.0/setrya-0.6.0.tar.gz'
 ```
 
 A *drill* is a TOML file that names the document revisions, the caller and search route, and the passage IDs each query must return or exclude. The refund drill checks the top three hits for the support agent. A second query checks that the delivery policy stays findable. [Example drill](examples/recorded-search/drill.toml)
@@ -127,7 +141,7 @@ After PASS · event 11 · refund-window · final · refund@B
   Index rejected the old write. All final probes found their required passages.
 ```
 
-The example also saves `opaque.json`, which replays as NOT TESTED even though the test found the 14-day policy. You can download all three reports and the summary from the release. [Sample review bundle](https://github.com/davidahma/setrya/releases/download/v0.5.1/recorded-pytest-review.zip)
+The example also saves `opaque.json`, which replays as NOT TESTED even though the test found the 14-day policy. You can download all three reports and the summary from the release. [Sample review bundle](https://github.com/davidahma/setrya/releases/download/v0.6.0/recorded-pytest-review.zip)
 
 In your CI job, run `setrya review` with both reports, the expected commit IDs, and the test exits. Attach the JSON and Markdown even when the test fails. For a downloaded report, use the installed `setrya replay` command. Replay recomputes the verdict without loading the adapter. The report stores passage IDs and question fingerprints and omits raw queries and passage text. Choose identifiers you can share. [CI recipe and review command](docs/recording.md#use-it-in-a-pull-request) · [GitHub Actions example](.github/workflows/ci.yml)
 
