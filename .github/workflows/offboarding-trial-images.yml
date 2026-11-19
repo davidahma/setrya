@@ -7,12 +7,12 @@ on:
   push:
     branches: [main]
     paths:
-      - examples/opendesk/compose.yaml
+      - setrya/examples/opendesk/compose.yaml
       - .github/scripts/audit-trial-images.sh
       - .github/workflows/offboarding-trial-images.yml
   pull_request:
     paths:
-      - examples/opendesk/compose.yaml
+      - setrya/examples/opendesk/compose.yaml
       - .github/scripts/audit-trial-images.sh
       - .github/workflows/offboarding-trial-images.yml
 

@@ -10,7 +10,7 @@ from setrya.adapter import Checkpoint, Publication, Receipt, SearchResult
 from setrya.drill import InputError
 
 
-DRILL = Path(package_file).resolve().parents[1] / "examples" / "recorded-search" / "drill.toml"
+DRILL = Path(package_file).resolve().parents[1] / "setrya" / "examples" / "recorded-search" / "drill.toml"
 
 
 def observe(recorder, probe_id, marker):

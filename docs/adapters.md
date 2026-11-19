@@ -1,16 +1,16 @@
 # Connect a disposable search application
 
-Start with the [HTTP configuration](../examples/support-search/drill.toml) or run the same drill through the application's [Python retrieval function](../examples/support-search/python.toml).
+Start with the [HTTP configuration](../setrya/examples/support-search/drill.toml) or run the same drill through the application's [Python retrieval function](../setrya/examples/support-search/python.toml).
 
 ```sh
-python3 -m setrya check examples/support-search/python.toml --report run.json
+python3 -m setrya check setrya/examples/support-search/python.toml --report run.json
 ```
 
 A drill names a Python `module:factory` inside the trusted checkout or Python path. Both the installed `setrya` command and `python3 -m setrya` can import adapters from the working directory. Treat a drill and its adapter as executable test code. Setrya imports the adapter module and calls its factory with a `RunContext` containing a run ID, an isolated temporary directory, and the parsed drill. Use the run ID to namespace external state. Use only disposable data and make each operation bounded. Setrya manages the polling schedule, and the adapter manages timeouts for its own calls.
 
 ## Adapter methods
 
-The [public types](../setrya/adapter.py) and the [reference adapter](../examples/support_search/adapter.py) show the complete interface.
+The [public types](../setrya/adapter.py) and the [reference adapter](../setrya/examples/support_search/adapter.py) show the complete interface.
 
 | Method | What the app supplies |
 | --- | --- |
@@ -54,7 +54,7 @@ For pytest, install the optional dependency using `python3 -m pip install '.[pyt
 
 ```python
 def test_refund_index(setrya_check):
-    setrya_check("examples/support-search/drill.toml")
+    setrya_check("setrya/examples/support-search/drill.toml")
 ```
 
 If your existing pytest test owns worker timing and calls the search endpoint, use the `setrya_record` fixture to capture those observations in the test. [Record an existing test](recording.md)
@@ -64,3 +64,5 @@ If your existing pytest test owns worker timing and calls the search endpoint, u
 The [pgvector walkthrough](pgvector.md) uses an independent queued worker, current-upload filtering, and the normal HTTP search response. Run `setrya diagnose REPORT` for the first missing evidence when a check is inconclusive. For example, a terminal write receipt and a search snapshot watermark are separate observations. Use [offline comparison](evidence.md#compare-two-saved-runs) to hand off results from a broken run and its patch.
 
 The SQLite demo and its bundled adapters need FTS5. Other adapters use their own backend prerequisites. If an adapter changes the working directory during a check, relative report and summary destinations still refer to the directory where the check began. Use separate paths for the drill and each output.
+
+For chunk metadata, native PostgreSQL positions, Elasticsearch sequence numbers and refresh-only observations, see [Store evidence and ingestion](store-signals.md).

@@ -169,13 +169,13 @@ def reproduced_reference_cases(cases):
 
 
 def demo(path):
-    from examples.offboarding import fixture
+    from setrya.examples.offboarding import fixture
 
     try:
         return _produce(path, fixture)
     except (OSError, RuntimeError, ValueError) as error:
         print(f"Could not write reference report ({type(error).__name__}).", file=sys.stderr)
-        return 1
+        return 2
 
 
 def _produce(path, fixture):
@@ -233,6 +233,6 @@ def verify(path):
         validate(report)
     except (ValueError, OSError, RecursionError) as error:
         print(f"Invalid report ({type(error).__name__}).", file=sys.stderr)
-        return 1
+        return 2
     print("Report valid. All recorded verdicts match the observations.")
     return 0

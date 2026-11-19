@@ -7,6 +7,8 @@ from pathlib import Path
 import re
 import sys
 
+from setrya.status import Status
+
 from .inputs import InvalidReport, keys_match, read_json, require, save
 
 MAX_PROBES = 256
@@ -14,7 +16,7 @@ TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 CHECKPOINTS = ("after_offboarding", "after_worker")
 STATES = ("present", "absent", "unavailable", "not_tested")
 PROBE_FIELDS = {"id", "scope", "checkpoint"}
-EXIT_CODES = {"PASS": 0, "FAIL": 1, "INCONCLUSIVE": 2}
+EXIT_CODES = {v: Status.from_gate(v).exit_code for v in ("PASS", "FAIL", "INCONCLUSIVE")}
 
 
 def valid_token(value):
@@ -182,17 +184,17 @@ def run(args):
             save(report, args.output)
     except InvalidReport as error:
         print(f"Invalid gate input. {error}", file=sys.stderr)
-        return 3
+        return Status.ERROR.exit_code
     except OSError:
         print("Could not write gate report.", file=sys.stderr)
-        return 3
+        return Status.ERROR.exit_code
     for probe in report["probes"]:
         print(
-            probe["verdict"],
+            Status.from_gate(probe["verdict"]).label,
             probe["id"],
             probe["scope"],
             probe["checkpoint"],
             *probe["reasons"],
         )
-    print(f"Gate {report['verdict']}")
+    print(f"Gate {Status.from_gate(report['verdict']).label}")
     return EXIT_CODES[report["verdict"]]

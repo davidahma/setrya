@@ -11,10 +11,13 @@ import tempfile
 
 from .drill import DRILL_VERSION, Drill, InputError, ProbeRules, Rules, integer, label, mapping
 
-SCHEMA = 6
-CHECKER = 6
+# Internal ordering for the seven supported layouts. The current wire version is
+# namespaced so legacy numeric schema 1 is never mistaken for the frozen v1.
+SCHEMA = 7
+FORMAT = "setrya.search"
+CHECKER = 1
 _INPUT_SCHEMA = 3
-_CHECKERS = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, SCHEMA: CHECKER}
+_CHECKERS = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, SCHEMA: CHECKER}
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
 _COMMIT = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 MAX_REPORT_BYTES = 16 * 1024 * 1024
@@ -25,16 +28,24 @@ _PROBE_FIELDS = {"probe_id", "stage", "started_ns", "passages", "origins", "view
 _EVENT_FIELDS = {
     "seeded": set(), "started": {"attempt"}, "held": _IDENTITY | {"name"},
     "published": {"publication"}, "released": {"attempt"},
+    "refreshed": {"run_id", "attempt", "generation", "route", "scope"},
     "receipt": _IDENTITY | {"outcome", "generation", "commit"},
     "probe": _PROBE_FIELDS | {"route", "scope"},
     "adapter_error": {"operation", "error"},
 }
-_OPERATIONS = {"factory", "seed", "search", "start_old", "checkpoint", "publish", "release", "receipt", "close", "test"}
+_OPERATIONS = {"factory", "seed", "search", "start_old", "checkpoint", "publish", "release", "receipt", "close", "test", "refresh"}
 _TRANSITIONS = {
     "seeded": None, "started": "seeded", "held": "started",
     "published": "held", "released": "published",
 }
 _STAGES = {"seeded": "baseline", "published": "freshness", "released": "final"}
+
+
+def _unique_object(pairs):
+    result = dict(pairs)
+    if len(result) != len(pairs):
+        raise ValueError("duplicate JSON key")
+    return result
 
 
 def git_revision(value: object) -> str:
@@ -50,6 +61,12 @@ def bind_inputs(drill: Drill, *, test_id: str | None = None, revision: str | Non
     identity = drill.factory if test_id is None else f"recorded-test:{label(test_id, 'test ID')}"
     if identity is None:
         raise InputError("the drill needs an adapter or a recording test ID")
+    if test_id is None and identity.partition(":")[0] in {
+        "setrya.examples.support_search.adapter", "setrya.examples.pgvector_search.adapter"
+    }:
+        # These reviewed built-ins moved namespaces; retain the published input
+        # identity so a release upgrade alone cannot make a pair incomparable.
+        identity = identity.removeprefix("setrya.")
     inputs = {
         "drill_version": DRILL_VERSION,
         "adapter": fingerprint(identity),
@@ -68,6 +85,16 @@ class Report:
     schema: int = 2
     inputs: dict | None = None
 
+    @property
+    def format(self) -> str | None:
+        """The public wire-format identifier, absent on historical reports."""
+        return FORMAT if self.schema == SCHEMA else None
+
+    @property
+    def version(self) -> int:
+        """The version in the serialized artifact."""
+        return 1 if self.format else self.schema
+
     def save(self, path: str | Path) -> None:
         self.validate()
         target = Path(path)
@@ -81,6 +108,12 @@ class Report:
                         "schema": self.schema, "checker": _CHECKERS[self.schema],
                         "run_id": self.run_id, "rules": asdict(self.rules), "events": self.events,
                     }
+                    if self.schema == SCHEMA:
+                        bundle.update(format=self.format, schema=self.version)
+                    else:
+                        bundle["rules"].pop("visibility", None)
+                        for probe in bundle["rules"]["probes"]:
+                            probe.pop("absence", None)
                     if self.schema >= _INPUT_SCHEMA:
                         bundle["inputs"] = self.inputs
                     json.dump(bundle, stream, indent=2)
@@ -112,13 +145,22 @@ class Report:
         if len(data) > MAX_REPORT_BYTES:
             raise InputError("report exceeds size limit")
         try:
-            obj = json.loads(data)
+            obj = json.loads(data, object_pairs_hook=_unique_object)
         except (ValueError, RecursionError):
             raise InputError("could not read report as JSON") from None
         schema = obj.get("schema") if isinstance(obj, dict) else None
+        current = isinstance(obj, dict) and "format" in obj
+        if current:
+            if obj["format"] != FORMAT or type(schema) is not int or schema != 1:
+                raise InputError("unsupported report schema")
+            schema = SCHEMA
+        elif schema == SCHEMA:
+            raise InputError("unsupported report schema")
         if type(schema) is not int or schema not in _CHECKERS:
             raise InputError("unsupported report schema")
         keys = {"schema", "checker", "run_id", "rules", "events"}
+        if current:
+            keys.add("format")
         fields = mapping(obj, "report", keys | ({"inputs"} if schema >= _INPUT_SCHEMA else set()))
         if type(fields["checker"]) is not int or fields["checker"] != _CHECKERS[schema]:
             raise InputError("unsupported checker version")
@@ -151,6 +193,9 @@ class Report:
             for digest in (inputs["adapter"], *questions.values()):
                 if not isinstance(digest, str) or not _HEX.fullmatch(digest):
                     raise InputError("invalid input fingerprint")
+        if self.schema < SCHEMA and (self.rules.visibility != "strict" or any(
+                getattr(p, "absence", False) for p in self.rules.probes)):
+            raise InputError("this rule requires search format v1")
         sequence = _EventSequence(probes, self.schema)
         for event in self.events:
             sequence.accept(event)
@@ -165,12 +210,14 @@ class _EventSequence:
         self.previous_ns = 0
         self.seq = 0
         self.stage = None
-        self.receipt_seen = False
+        self.receipt = None
+        self.refreshes = set()
+        self.lifecycle = set()
         self.baselines = set()
         self.error = None
 
     def accept(self, event: dict) -> None:
-        validate_observation(event, self.probes, legacy=self.schema == 1)
+        validate_observation(event, self.probes, legacy=self.schema == 1, current=self.schema == SCHEMA)
         kind = event["kind"]
         integer(event["seq"], "event sequence", self.seq + 1, self.seq + 1)
         ns = integer(event["ns"], "event time", self.previous_ns, _MAX_TIME)
@@ -179,17 +226,29 @@ class _EventSequence:
             raise InputError("unexpected evidence after adapter error")
 
         if kind in _TRANSITIONS:
+            if kind in self.lifecycle:
+                raise InputError(f"duplicate lifecycle event: {kind}")
             if self.stage != _TRANSITIONS[kind]:
                 raise InputError("invalid lifecycle event order")
+            self.lifecycle.add(kind)
             self.stage = kind
         elif kind == "adapter_error":
             if event["operation"] == "test" and self.schema < 4:
                 raise InputError("test errors require report schema 4")
             self.error = event["operation"]
         elif kind == "receipt":
-            if self.stage != "released" or self.receipt_seen:
+            if self.receipt is not None:
+                raise InputError("duplicate terminal write receipt")
+            if self.stage != "released":
                 raise InputError("unexpected terminal write receipt")
-            self.receipt_seen = True
+            self.receipt = event
+        elif kind == "refreshed":
+            path = (event["route"], event["scope"])
+            if (self.receipt is None or self.receipt["outcome"] != "committed" or path in self.refreshes
+                    or any(event[k] != self.receipt[k] for k in ("run_id", "attempt", "generation"))
+                    or not any((p.route, p.scope) == path for p in self.probes.values())):
+                raise InputError("unexpected refresh acknowledgment")
+            self.refreshes.add(path)
         elif kind == "probe":
             if event["stage"] != _STAGES.get(self.stage):
                 raise InputError("invalid probe evidence")
@@ -202,7 +261,7 @@ class _EventSequence:
         self.previous_ns = ns
 
 
-def validate_observation(event: dict, probes: dict, *, legacy: bool = False) -> None:
+def validate_observation(event: dict, probes: dict, *, legacy: bool = False, current: bool = False) -> None:
     """Validate one payload before an adapter observation enters the report."""
     if not isinstance(event, dict) or not isinstance(event.get("kind"), str):
         raise InputError("each evidence event needs a kind")
@@ -225,7 +284,12 @@ def validate_observation(event: dict, probes: dict, *, legacy: bool = False) -> 
         for field in PUBLICATION_IDENTITY:
             label(publication[field], field)
     if kind == "receipt":
-        _validate_receipt(event)
+        _validate_receipt(event, current=current)
+    if kind == "refreshed":
+        if not current:
+            raise InputError("refresh evidence requires search format v1")
+        for key in fields:
+            label(event[key], key)
     if kind == "probe":
         _validate_probe(event, probes, legacy=legacy)
     if kind == "adapter_error":
@@ -234,10 +298,11 @@ def validate_observation(event: dict, probes: dict, *, legacy: bool = False) -> 
         label(event["error"], "adapter error type")
 
 
-def _validate_receipt(event: dict) -> None:
+def _validate_receipt(event: dict, *, current: bool) -> None:
     if event["outcome"] == "committed":
         label(event["generation"], "index generation")
-        integer(event["commit"], "write commit", 0, _MAX_TIME)
+        if event["commit"] is not None or not current:
+            integer(event["commit"], "write commit", 0, 2**64 - 1 if current else _MAX_TIME)
     elif event["outcome"] != "rejected" or event["generation"] is not None or event["commit"] is not None:
         raise InputError("invalid terminal write receipt")
 
@@ -262,7 +327,7 @@ def _validate_probe(event: dict, probes: dict, *, legacy: bool) -> None:
         view = mapping(event["view"], "search view", {"generation", "commit", "route", "scope"})
         for field in ("generation", "route", "scope"):
             label(view[field], field)
-        integer(view["commit"], "search commit", 0, _MAX_TIME)
+        integer(view["commit"], "search commit", 0, 2**64 - 1)
 
 
 def matches_search(event: dict, rules: ProbeRules) -> bool:
@@ -280,3 +345,10 @@ def establishes_baseline(event: dict, rules: ProbeRules, *, freshness: bool = Fa
     return matches_search(event, rules) and set(rules.before) <= passages and (
         not freshness or (None not in passages and new_markers.isdisjoint(passages))
     )
+
+def observed_change(event: dict, rules: ProbeRules) -> bool:
+    """A removal must be observed by an available, identified search on the declared route."""
+    passages = event["passages"]
+    if rules.absence:
+        return None not in passages and set(rules.forbid).isdisjoint(passages)
+    return set(rules.require) <= set(passages)

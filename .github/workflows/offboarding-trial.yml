@@ -32,7 +32,7 @@ jobs:
         run: |
           status=0
           python3 -I setrya-offboarding.pyz opendesk --output opendesk-trial || status=$?
-          test "$status" -eq 2
+          test "$status" -eq 3
       - name: Validate and scan the synthetic evidence before upload
         id: evidence
         if: ${{ !cancelled() }}
@@ -63,7 +63,7 @@ jobs:
           status=0
           python3 -I "$RUNNER_TEMP/setrya-offboarding.pyz" gate --policy opendesk-policy.json \
             --observations opendesk-observations.json --output "$RUNNER_TEMP/replay.json" || status=$?
-          test "$status" -eq 2
+          test "$status" -eq 3
           cmp opendesk-decision.json "$RUNNER_TEMP/replay.json"
 
   provenance:

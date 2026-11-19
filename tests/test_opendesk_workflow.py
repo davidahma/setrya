@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from examples.opendesk import run
+from setrya.examples.opendesk import run
 from setrya.cli import main
 
 
@@ -20,18 +20,18 @@ class OpenDeskWorkflowTests(unittest.TestCase):
             return main(["offboarding", "opendesk", *map(str, argv)])
 
     def test_verify_and_replay_preserve_v1_bytes_without_a_live_application(self):
-        report = files("examples.opendesk").joinpath("observed.json").read_bytes()
-        with TemporaryDirectory() as folder, patch("examples.opendesk.run.collect") as collect:
+        report = files("setrya.examples.opendesk").joinpath("observed.json").read_bytes()
+        with TemporaryDirectory() as folder, patch("setrya.examples.opendesk.run.collect") as collect:
             source = Path(folder, "v1.json")
             source.write_bytes(report)
             destination = Path(folder, "review")
             self.assertEqual(self.invoke("--verify-report", source), 0)
-            self.assertEqual(self.invoke("--from-report", source, "--output", destination), 2)
+            self.assertEqual(self.invoke("--from-report", source, "--output", destination), 3)
             self.assertEqual((destination / "opendesk.json").read_bytes(), report)
             evidence = json.loads((destination / "opendesk-decision.json").read_bytes())
             self.assertEqual(evidence["run_id"], "sha256-" + sha256(report).hexdigest())
             self.assertEqual(evidence["verdict"], "INCONCLUSIVE")
-            self.assertEqual(self.invoke("--from-report", source, "--output", destination), 3)
+            self.assertEqual(self.invoke("--from-report", source, "--output", destination), 2)
             collect.assert_not_called()
 
     def test_invalid_report_and_invalid_mode_leave_output_absent(self):
@@ -39,15 +39,15 @@ class OpenDeskWorkflowTests(unittest.TestCase):
             source = Path(folder, "bad.json")
             source.write_text("{}")
             destination = Path(folder, "result")
-            self.assertEqual(self.invoke("--verify-report", source), 3)
-            self.assertEqual(self.invoke("--from-report", source, "--output", destination), 3)
+            self.assertEqual(self.invoke("--verify-report", source), 2)
+            self.assertEqual(self.invoke("--from-report", source, "--output", destination), 2)
             self.assertFalse(destination.exists())
-            self.assertEqual(self.invoke("--verify-report", source, "--output", destination), 3)
-            self.assertEqual(self.invoke("--from-report", source), 3)
+            self.assertEqual(self.invoke("--verify-report", source, "--output", destination), 2)
+            self.assertEqual(self.invoke("--from-report", source), 2)
 
     def test_ctrl_c_keeps_observed_residual_and_reports_startup_or_cleanup_gaps(self):
-        for phase, residual, expected in (("observation", True, 1), ("startup", False, 3),
-                                          ("cleanup", True, 1), ("cleanup", False, 3)):
+        for phase, residual, expected in (("observation", True, 1), ("startup", False, 2),
+                                          ("cleanup", True, 1), ("cleanup", False, 2)):
             with self.subTest(phase=phase, residual=residual), TemporaryDirectory() as folder:
                 destination = Path(folder, "trial")
 
@@ -79,7 +79,7 @@ class OpenDeskWorkflowTests(unittest.TestCase):
                 self.assertEqual(self.invoke("--from-report", report, "--output", Path(folder, "review")), expected)
 
     def test_interrupted_startup_cannot_pass_even_when_report_replays(self):
-        report = json.loads(files("examples.opendesk").joinpath("observed.json").read_bytes())
+        report = json.loads(files("setrya.examples.opendesk").joinpath("observed.json").read_bytes())
         report.update(report_version=2, observations=[], outcome="INCONCLUSIVE",
                       offboarding_http_status=None, interrupted_at="startup")
         with TemporaryDirectory() as folder:
@@ -87,6 +87,6 @@ class OpenDeskWorkflowTests(unittest.TestCase):
             destination = Path(folder, "review")
             source.write_text(json.dumps(report))
             self.assertEqual(self.invoke("--verify-report", source), 0)
-            self.assertEqual(self.invoke("--from-report", source, "--output", destination), 3)
+            self.assertEqual(self.invoke("--from-report", source, "--output", destination), 2)
             decision = json.loads((destination / "opendesk-decision.json").read_bytes())
             self.assertEqual(decision["verdict"], "INCONCLUSIVE")

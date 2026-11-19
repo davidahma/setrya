@@ -75,7 +75,10 @@ def compare(before: Report, after: Report, *, allow_passing_pair: bool = False) 
     probe = next(item for item in before.rules.probes if item.id == (decisive.probe or before.rules.freshness_probe))
     if old.status is Status.FAIL and new.status is Status.PASS:
         new_event = _matching_proof(after, new, probe, old_event)
-        state = (0, "FIX VERIFIED  The affected probe passed at the matching phase.") if new_event else (
+        headline = ("PASS  The affected probe passed at the matching phase after refresh. Write visibility is unverified."
+                    if new.evidence_tier == "observed-after-refresh" else
+                    "FIX VERIFIED  The affected probe passed at the matching phase.")
+        state = (0, headline) if new_event else (
             3, "INCONCLUSIVE  The after report lacks a confirmed observation at the affected phase."
         )
     elif new.status is Status.FAIL:

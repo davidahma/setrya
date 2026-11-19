@@ -7,7 +7,7 @@ out=${2:?supply an output directory}
 case "$arch" in amd64|arm64) ;; *) exit 1 ;; esac
 mkdir -p "$out"
 grype db status
-docker compose -f examples/opendesk/compose.yaml config --no-interpolate --format json |
+docker compose -f setrya/examples/opendesk/compose.yaml config --no-interpolate --format json |
   jq -er '.services | to_entries[] | if (.key | test("^[a-zA-Z0-9_-]+$")) and
     (.value.image | test("^[^[:space:]]+@sha256:[0-9a-f]{64}$")) then
     [.key,.value.image] | @tsv else error("every service needs a digest-pinned image") end' > "$out/images.tsv"

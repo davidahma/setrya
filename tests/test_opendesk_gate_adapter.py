@@ -8,9 +8,9 @@ import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
 
-from examples.opendesk import to_gate
+from setrya.examples.opendesk import to_gate
 
-TRIAL = Path(__file__).resolve().parents[1] / "examples" / "opendesk"
+TRIAL = Path(__file__).resolve().parents[1] / "setrya" / "examples" / "opendesk"
 RECORDED = TRIAL / "observed.json"
 
 
@@ -31,7 +31,7 @@ class GateAdapterTests(unittest.TestCase):
             evidence = Path(directory) / "evidence.json"
             output = Path(directory) / "decision.json"
             subprocess.run(
-                [sys.executable, "-m", "examples.opendesk.to_gate", RECORDED, "--output", evidence],
+                [sys.executable, "-m", "setrya.examples.opendesk.to_gate", RECORDED, "--output", evidence],
                 check=True,
             )
             result = subprocess.run(
@@ -48,12 +48,12 @@ class GateAdapterTests(unittest.TestCase):
                     "--output",
                     output,
                 ],
-                cwd=TRIAL.parents[1],
+                cwd=TRIAL.parents[2],
                 check=False,
                 capture_output=True,
                 text=True,
             )
-            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
             packet = json.loads(evidence.read_bytes())
             decision = json.loads(output.read_bytes())
         self.assertEqual(packet["revision"], self.trial["target"]["commit"])

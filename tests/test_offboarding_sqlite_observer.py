@@ -9,11 +9,11 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 
-from examples.offboarding.sqlite import observe
+from setrya.examples.offboarding.sqlite import observe
 
 ROOT = Path(__file__).resolve().parents[1]
-PRODUCER = ROOT / "examples/offboarding/sqlite/observe.py"
-POLICY = ROOT / "examples/offboarding/sqlite/policy.json"
+PRODUCER = "setrya.examples.offboarding.sqlite.observe"
+POLICY = ROOT / "setrya/examples/offboarding/sqlite/policy.json"
 
 
 class BoundProducerTests(unittest.TestCase):
@@ -43,7 +43,7 @@ class BoundProducerTests(unittest.TestCase):
         return subprocess.run(
             [
                 sys.executable,
-                PRODUCER,
+                "-m", PRODUCER,
                 "--case",
                 case,
                 "--request",
@@ -52,7 +52,7 @@ class BoundProducerTests(unittest.TestCase):
                 self.output,
                 *extra,
             ],
-            cwd=self.work,
+            cwd=ROOT,
             capture_output=True,
             text=True,
             check=False,

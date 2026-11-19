@@ -128,6 +128,23 @@ class RecorderTests(unittest.TestCase):
             Recorder(self.drill, test_id="test", report=self.drill)
         self.assertEqual(self.drill.read_text(), original)
 
+    def test_duplicate_checkpoint_and_receipt_preserve_first_event_and_error(self):
+        for kind in ("held", "receipt"):
+            recorder = self.create()
+            with self.subTest(kind=kind), self.assertRaisesRegex(InputError, "duplicate"), recorder:
+                if kind == "receipt":
+                    self.sequence(recorder)
+                    recorder.receipt(Receipt(recorder.run_id, "other", "refund", "A", "rejected"))
+                else:
+                    recorder.seeded()
+                    recorder.started("attempt")
+                    checkpoint = Checkpoint(recorder.run_id, "attempt", "refund", "A", "after_source_read")
+                    recorder.held(checkpoint)
+                    recorder.held(replace(checkpoint, attempt="other"))
+            saved = Report.load(self.directory / f"{BASE}.json")
+            self.assertEqual([e["attempt"] for e in saved.events if e["kind"] == kind], ["attempt"])
+            self.assertIs(evaluate(saved).status, Status.ERROR)
+
     def test_misordered_event_preserves_a_readable_error_report(self):
         recorder = self.create()
         with self.assertRaisesRegex(InputError, "invalid lifecycle"):

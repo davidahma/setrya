@@ -6,7 +6,7 @@ from time import monotonic_ns
 from typing import Callable
 from uuid import uuid4
 
-from .adapter import Checkpoint, Publication, Receipt, SearchResult
+from .adapter import Checkpoint, Publication, Receipt, Refresh, SearchResult
 from .checker import Verdict, evaluate
 from .drill import Drill, InputError, Probe, label
 from .evidence import SCHEMA, Report, _EventSequence, _STAGES, bind_inputs
@@ -129,6 +129,9 @@ class Recorder:
 
     def receipt(self, receipt: Receipt) -> None:
         self._record("receipt", **asdict(receipt))
+
+    def refreshed(self, acknowledgment: Refresh) -> None:
+        self._record("refreshed", **asdict(acknowledgment))
 
     def search(self, probe_id: str, search: Callable[[Probe], SearchResult]) -> SearchResult:
         """Measure a call with its configured question, route, caller and depth."""

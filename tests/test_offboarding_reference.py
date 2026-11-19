@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from setrya.offboarding.cli import main
-from examples.offboarding.fixture import reference_case
+from setrya.examples.offboarding.fixture import reference_case
 from setrya.offboarding.reference import (
     CASES,
     ROLES,
@@ -155,7 +155,7 @@ class ReportTests(unittest.TestCase):
             )
             path.write_text('{"schema_version":1,"schema_version":1}')
             with contextlib.redirect_stderr(io.StringIO()):
-                self.assertEqual(main(["validate", str(path)]), 1)
+                self.assertEqual(main(["validate", str(path)]), 2)
 
     def test_legacy_validate_enforces_utf8_and_one_mib_on_file_and_symlink(self):
         with (
@@ -168,7 +168,7 @@ class ReportTests(unittest.TestCase):
             link.symlink_to(path)
             raw = json.dumps(self.report()).encode("utf-8")
             at_limit = raw.ljust(1024 * 1024, b" ")
-            for data, code in ((at_limit, 0), (at_limit + b" ", 1), (raw + b"\xff", 1)):
+            for data, code in ((at_limit, 0), (at_limit + b" ", 2), (raw + b"\xff", 2)):
                 with self.subTest(length=len(data)):
                     path.write_bytes(data)
                     self.assertEqual(main(["validate", str(link)]), code)

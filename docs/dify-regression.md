@@ -9,7 +9,7 @@ We ran the same upstream pytest test against the fix’s first parent and the fi
 | [Base `226110d`](https://github.com/langgenius/dify/commit/226110d61179f9242c76d6550c524ae92f83e844) | 2 failed | The final keyword table still contained the deleted node in both cases. |
 | [Candidate `06b8640`](https://github.com/langgenius/dify/commit/06b8640c4aedcff6737723b5799e8f9f0bb48f1d) | 2 passed | The keyword cleanup assertion held for both cases. |
 
-This establishes the indexing regression on real upstream code. A search verdict takes additional observations from the actual retrieval path. The upstream test supplies the worker timing and keyword-table assertion. To obtain a Setrya verdict for user retrieval, add a replacement publication and query through the real route and caller before and after the held write. The [recorded pytest example](../examples/recorded_search/existing_test.py) demonstrates that full sequence on Setrya’s fixture. Adoption and reviewer time on an independent team’s release are still unmeasured.
+This establishes the indexing regression on real upstream code. A search verdict takes additional observations from the actual retrieval path. The upstream test supplies the worker timing and keyword-table assertion. To obtain a Setrya verdict for user retrieval, add a replacement publication and query through the real route and caller before and after the held write. The [recorded pytest example](../setrya/examples/recorded_search/existing_test.py) demonstrates that full sequence on Setrya’s fixture. Adoption and reviewer time on an independent team’s release are still unmeasured.
 
 ## Repeat the native test
 

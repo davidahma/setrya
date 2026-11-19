@@ -42,6 +42,16 @@ class Receipt:
 
 
 @dataclass(frozen=True)
+class Refresh:
+    """A completed backend refresh on the read path following the exact write."""
+    run_id: str
+    attempt: str
+    generation: str
+    route: str
+    scope: str
+
+
+@dataclass(frozen=True)
 class ReadView:
     generation: str
     commit: int

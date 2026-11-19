@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:setrya:receipt:v1",
+  "title": "Setrya deletion receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "request_id",
+    "context",
+    "target",
+    "revision",
+    "run_id",
+    "job_id",
+    "created_at",
+    "started_at",
+    "observed_at",
+    "request_sha256",
+    "policy_sha256",
+    "evidence_sha256",
+    "technical_verdict",
+    "probes",
+    "items",
+    "review_status"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "context": {
+      "enum": [
+        "staging",
+        "customer"
+      ]
+    },
+    "target": {
+      "$ref": "#/$defs/token"
+    },
+    "revision": {
+      "$ref": "#/$defs/token"
+    },
+    "run_id": {
+      "$ref": "#/$defs/token"
+    },
+    "job_id": {
+      "$ref": "#/$defs/token"
+    },
+    "created_at": {
+      "$ref": "#/$defs/utcSeconds"
+    },
+    "started_at": {
+      "$ref": "#/$defs/utcSeconds"
+    },
+    "observed_at": {
+      "$ref": "#/$defs/utcSeconds"
+    },
+    "request_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "policy_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "evidence_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "technical_verdict": {
+      "$ref": "#/$defs/verdict"
+    },
+    "probes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/probe"
+      }
+    },
+    "items": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/missingItem"
+          },
+          {
+            "$ref": "#/$defs/statement"
+          },
+          {
+            "$ref": "#/$defs/schedule"
+          }
+        ]
+      }
+    },
+    "review_status": {
+      "enum": [
+        "READY_FOR_REVIEW",
+        "RESIDUAL_FOUND",
+        "OPEN_ITEMS"
+      ]
+    }
+  },
+  "$defs": {
+    "token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "utcSeconds": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "format": "date-time"
+    },
+    "verdict": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "INCONCLUSIVE"
+      ]
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "scope",
+        "checkpoint",
+        "verdict",
+        "reasons"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "scope": {
+          "$ref": "#/$defs/token"
+        },
+        "checkpoint": {
+          "enum": [
+            "after_offboarding",
+            "after_worker"
+          ]
+        },
+        "verdict": {
+          "$ref": "#/$defs/verdict"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "missingItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "kind": {
+          "enum": [
+            "provider_statement",
+            "retention_schedule"
+          ]
+        },
+        "status": {
+          "const": "MISSING"
+        }
+      }
+    },
+    "statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "issuer",
+        "descriptor_sha256",
+        "document_sha256",
+        "kind",
+        "outcome",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "issuer": {
+          "$ref": "#/$defs/token"
+        },
+        "descriptor_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "document_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "kind": {
+          "const": "provider_statement"
+        },
+        "outcome": {
+          "enum": [
+            "reported_deleted",
+            "reported_retained",
+            "unresolved"
+          ]
+        },
+        "status": {
+          "enum": [
+            "PROVIDER_REPORTED",
+            "REPORTED_RETAINED",
+            "UNRESOLVED"
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "outcome": {
+              "const": "reported_deleted"
+            },
+            "status": {
+              "const": "PROVIDER_REPORTED"
+            }
+          }
+        },
+        {
+          "properties": {
+            "outcome": {
+              "const": "reported_retained"
+            },
+            "status": {
+              "const": "REPORTED_RETAINED"
+            }
+          }
+        },
+        {
+          "properties": {
+            "outcome": {
+              "const": "unresolved"
+            },
+            "status": {
+              "const": "UNRESOLVED"
+            }
+          }
+        }
+      ]
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "issuer",
+        "descriptor_sha256",
+        "document_sha256",
+        "kind",
+        "expires_on",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "issuer": {
+          "$ref": "#/$defs/token"
+        },
+        "descriptor_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "document_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "kind": {
+          "const": "retention_schedule"
+        },
+        "expires_on": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "status": {
+          "const": "SCHEDULED"
+        }
+      }
+    }
+  }
+}

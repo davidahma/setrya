@@ -194,4 +194,4 @@ def run(args):
         print(f"Invalid receipt input or output. {error}", file=sys.stderr)
     except (OSError, RecursionError):
         print("Unable to read inputs or publish the requested file.", file=sys.stderr)
-    return 3
+    return 2

@@ -1,0 +1,247 @@
+{
+  "schema": 6,
+  "checker": 6,
+  "run_id": "a950882450dd447c800af4e99eee144c",
+  "rules": {
+    "id": "recorded-refund-policy",
+    "document": "refund",
+    "old_revision": "A",
+    "new_revision": "B",
+    "checkpoint": "after_source_read",
+    "freshness_probe": "refund-window",
+    "freshness_ms": 1200,
+    "checkpoint_ms": 2000,
+    "settle_ms": 2000,
+    "sample_ms": 20,
+    "max_gap_ms": 225,
+    "probes": [
+      {
+        "id": "refund-window",
+        "route": "support-search",
+        "scope": "support-agent",
+        "top_k": 3,
+        "before": [
+          "refund@A"
+        ],
+        "require": [
+          "refund@B"
+        ],
+        "forbid": [
+          "refund@A"
+        ]
+      },
+      {
+        "id": "delivery",
+        "route": "support-search",
+        "scope": "support-agent",
+        "top_k": 3,
+        "before": [
+          "delivery@1"
+        ],
+        "require": [
+          "delivery@1"
+        ],
+        "forbid": []
+      }
+    ]
+  },
+  "events": [
+    {
+      "kind": "seeded",
+      "seq": 1,
+      "ns": 48286090
+    },
+    {
+      "kind": "probe",
+      "seq": 2,
+      "ns": 49183330,
+      "probe_id": "refund-window",
+      "stage": "baseline",
+      "started_ns": 48300010,
+      "passages": [
+        "refund@A"
+      ],
+      "origins": [
+        "seed"
+      ],
+      "view": {
+        "generation": "a950882450dd447c800af4e99eee144c",
+        "commit": 1,
+        "route": "support-search",
+        "scope": "support-agent"
+      },
+      "route": "support-search",
+      "scope": "support-agent"
+    },
+    {
+      "kind": "probe",
+      "seq": 3,
+      "ns": 49965159,
+      "probe_id": "delivery",
+      "stage": "baseline",
+      "started_ns": 49203320,
+      "passages": [
+        "delivery@1"
+      ],
+      "origins": [
+        "seed"
+      ],
+      "view": {
+        "generation": "a950882450dd447c800af4e99eee144c",
+        "commit": 1,
+        "route": "support-search",
+        "scope": "support-agent"
+      },
+      "route": "support-search",
+      "scope": "support-agent"
+    },
+    {
+      "kind": "started",
+      "seq": 4,
+      "ns": 52072945,
+      "attempt": "old-worker-1"
+    },
+    {
+      "kind": "held",
+      "seq": 5,
+      "ns": 94391966,
+      "run_id": "a950882450dd447c800af4e99eee144c",
+      "attempt": "old-worker-1",
+      "document": "refund",
+      "revision": "A",
+      "name": "after_source_read"
+    },
+    {
+      "kind": "published",
+      "seq": 6,
+      "ns": 96337281,
+      "publication": {
+        "run_id": "a950882450dd447c800af4e99eee144c",
+        "document": "refund",
+        "revision": "B"
+      }
+    },
+    {
+      "kind": "probe",
+      "seq": 7,
+      "ns": 97104308,
+      "probe_id": "refund-window",
+      "stage": "freshness",
+      "started_ns": 96349168,
+      "passages": [
+        "refund@B"
+      ],
+      "origins": [
+        "publish"
+      ],
+      "view": {
+        "generation": "a950882450dd447c800af4e99eee144c",
+        "commit": 2,
+        "route": "support-search",
+        "scope": "support-agent"
+      },
+      "route": "support-search",
+      "scope": "support-agent"
+    },
+    {
+      "kind": "probe",
+      "seq": 8,
+      "ns": 97834981,
+      "probe_id": "delivery",
+      "stage": "freshness",
+      "started_ns": 97120852,
+      "passages": [
+        "delivery@1"
+      ],
+      "origins": [
+        "seed"
+      ],
+      "view": {
+        "generation": "a950882450dd447c800af4e99eee144c",
+        "commit": 2,
+        "route": "support-search",
+        "scope": "support-agent"
+      },
+      "route": "support-search",
+      "scope": "support-agent"
+    },
+    {
+      "kind": "released",
+      "seq": 9,
+      "ns": 99637684,
+      "attempt": "old-worker-1"
+    },
+    {
+      "kind": "receipt",
+      "seq": 10,
+      "ns": 121151355,
+      "run_id": "a950882450dd447c800af4e99eee144c",
+      "attempt": "old-worker-1",
+      "document": "refund",
+      "revision": "A",
+      "outcome": "committed",
+      "generation": "a950882450dd447c800af4e99eee144c",
+      "commit": 3
+    },
+    {
+      "kind": "probe",
+      "seq": 11,
+      "ns": 121982918,
+      "probe_id": "refund-window",
+      "stage": "final",
+      "started_ns": 121164214,
+      "passages": [
+        "refund@A"
+      ],
+      "origins": [
+        "old-worker-1"
+      ],
+      "view": {
+        "generation": "a950882450dd447c800af4e99eee144c",
+        "commit": 3,
+        "route": "support-search",
+        "scope": "support-agent"
+      },
+      "route": "support-search",
+      "scope": "support-agent"
+    },
+    {
+      "kind": "probe",
+      "seq": 12,
+      "ns": 122776926,
+      "probe_id": "delivery",
+      "stage": "final",
+      "started_ns": 121996709,
+      "passages": [
+        "delivery@1"
+      ],
+      "origins": [
+        "seed"
+      ],
+      "view": {
+        "generation": "a950882450dd447c800af4e99eee144c",
+        "commit": 3,
+        "route": "support-search",
+        "scope": "support-agent"
+      },
+      "route": "support-search",
+      "scope": "support-agent"
+    },
+    {
+      "kind": "adapter_error",
+      "seq": 13,
+      "ns": 130216247,
+      "operation": "test",
+      "error": "AssertionError"
+    }
+  ],
+  "inputs": {
+    "drill_version": 1,
+    "adapter": "20145c06b040cbf81bab6dc6c10de92e355b3f9ba61a5e12e9c9e5496ede60c4",
+    "questions": {
+      "refund-window": "290f81fc9fcf904c992c0ba0035c7fdbc9b4735418b9eef7f6b251855b2e0768",
+      "delivery": "5ce7d8f40c02ff550ed01037a144f41c7b8afb27387ff665fed02b0d08a736a5"
+    },
+    "revision": "68fcf65e8dd8695d7145e46ea0a9ae55ff86c526"
+  }
+}

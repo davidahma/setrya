@@ -8,20 +8,23 @@ import sys
 
 from setrya import __version__
 
-from . import gate, receipt_cli
+from . import gate, receipt_cli, signature
 
 
 class OffboardingParser(argparse.ArgumentParser):
     def error(self, message):
-        # Exit 2 is a valid inconclusive gate or an open receipt.
-        self.exit(3, f"Invalid arguments. Run '{self.prog} --help' for usage.\n")
+        self.exit(2, f"Invalid arguments. Run '{self.prog} --help' for usage.\n")
 
 
 def main(argv, *, invocation=("setrya", "offboarding")):
     argv = list(argv)
     prog = shlex.join(invocation)
+    if argv[:1] == ["drill"]:
+        from setrya.scenarios import main as scenario_main
+
+        return scenario_main(["delete", *argv[1:]])
     if argv[:1] == ["observe-sqlite"]:
-        from examples.offboarding.sqlite.observe import main as observe
+        from setrya.examples.offboarding.sqlite.observe import main as observe
 
         return observe(argv[1:], prog=f"{prog} observe-sqlite")
 
@@ -30,8 +33,10 @@ def main(argv, *, invocation=("setrya", "offboarding")):
     commands = parser.add_subparsers(dest="offboarding_action", required=True)
     demo = commands.add_parser("demo", help="run a synthetic offboarding and replay its evidence")
     demo.add_argument("--output", type=Path, required=True, help="a new directory for the example evidence")
+    commands.add_parser("drill", help="drive a held worker through tenant deletion")
     gate.add_command(commands)
     receipt_cli.add_commands(commands)
+    signature.add_commands(commands)
     reference_demo = commands.add_parser("reference-demo", help="write a timestamped worker reference report")
     reference_demo.add_argument("--output", type=Path, default=Path("artifacts/demo-report.json"))
     validate = commands.add_parser("validate", help="recompute reference report verdicts offline")
@@ -39,7 +44,7 @@ def main(argv, *, invocation=("setrya", "offboarding")):
     commands.add_parser("observe-sqlite", help="observe the example SQLite ticket and answer-cache deletion job")
     commands.add_parser("sqlite-policy", help="print the example SQLite observer policy as JSON")
     if argv[:1] == ["opendesk"]:
-        from examples.opendesk import cli as opendesk
+        from setrya.examples.opendesk import cli as opendesk
 
         opendesk.add_command(commands)
     else:
@@ -48,12 +53,14 @@ def main(argv, *, invocation=("setrya", "offboarding")):
 
     if args.offboarding_action == "gate":
         return gate.run(args)
+    if args.offboarding_action in {"sign-receipt", "verify-signature"}:
+        return signature.run(args)
     if args.offboarding_action in receipt_cli.COMMANDS:
         return receipt_cli.run(args)
     if args.offboarding_action == "opendesk":
         return opendesk.run(args)
     if args.offboarding_action == "sqlite-policy":
-        sys.stdout.write(files("examples.offboarding.sqlite").joinpath("policy.json").read_text(encoding="utf-8"))
+        sys.stdout.write(files("setrya.examples.offboarding.sqlite").joinpath("policy.json").read_text(encoding="utf-8"))
         return 0
     if args.offboarding_action in {"reference-demo", "validate"}:
         from . import reference
@@ -62,6 +69,6 @@ def main(argv, *, invocation=("setrya", "offboarding")):
             return reference.verify(args.report)
         return reference.demo(args.output)
 
-    from examples.offboarding.demo import run
+    from setrya.examples.offboarding.demo import run
 
     return run(args.output, invocation=invocation)

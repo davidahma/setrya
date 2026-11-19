@@ -8,6 +8,8 @@ import secrets
 from datetime import UTC, date, datetime
 
 from . import gate
+from setrya.status import Status
+
 from .inputs import InvalidReport, keys_match, require
 
 MAX_ITEMS = 256
@@ -17,7 +19,8 @@ STATEMENT_STATUS = {
     "reported_retained": "REPORTED_RETAINED",
     "unresolved": "UNRESOLVED",
 }
-EXIT_CODES = {"READY_FOR_REVIEW": 0, "RESIDUAL_FOUND": 1, "OPEN_ITEMS": 2}
+EXIT_CODES = {"READY_FOR_REVIEW": Status.PASS.exit_code, "RESIDUAL_FOUND": Status.FAIL.exit_code,
+              "OPEN_ITEMS": Status.NOT_TESTED.exit_code}
 DIGEST = re.compile(r"[0-9a-f]{64}")
 REQUEST_ID = re.compile(r"[0-9a-f]{32}")
 UTC_SECONDS = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")

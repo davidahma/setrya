@@ -6,13 +6,13 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from examples.opendesk import run
-from examples.opendesk.verify_report import TARGET, validate
+from setrya.examples.opendesk import run
+from setrya.examples.opendesk.verify_report import TARGET, validate
 
 
 class UpstreamReportTests(unittest.TestCase):
     def setUp(self):
-        self.report = json.loads((Path(__file__).resolve().parents[1] / "examples" / "opendesk" / "observed.json").read_text())
+        self.report = json.loads((Path(__file__).resolve().parents[1] / "setrya" / "examples" / "opendesk" / "observed.json").read_text())
         self.before, self.after = [
             item["workspaces"] for item in self.report["observations"]
         ]

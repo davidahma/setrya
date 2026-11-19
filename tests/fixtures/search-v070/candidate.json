@@ -1,0 +1,240 @@
+{
+  "schema": 6,
+  "checker": 6,
+  "run_id": "823e8f2179fc45de856fca9866a43497",
+  "rules": {
+    "id": "recorded-refund-policy",
+    "document": "refund",
+    "old_revision": "A",
+    "new_revision": "B",
+    "checkpoint": "after_source_read",
+    "freshness_probe": "refund-window",
+    "freshness_ms": 1200,
+    "checkpoint_ms": 2000,
+    "settle_ms": 2000,
+    "sample_ms": 20,
+    "max_gap_ms": 225,
+    "probes": [
+      {
+        "id": "refund-window",
+        "route": "support-search",
+        "scope": "support-agent",
+        "top_k": 3,
+        "before": [
+          "refund@A"
+        ],
+        "require": [
+          "refund@B"
+        ],
+        "forbid": [
+          "refund@A"
+        ]
+      },
+      {
+        "id": "delivery",
+        "route": "support-search",
+        "scope": "support-agent",
+        "top_k": 3,
+        "before": [
+          "delivery@1"
+        ],
+        "require": [
+          "delivery@1"
+        ],
+        "forbid": []
+      }
+    ]
+  },
+  "events": [
+    {
+      "kind": "seeded",
+      "seq": 1,
+      "ns": 49043422
+    },
+    {
+      "kind": "probe",
+      "seq": 2,
+      "ns": 49978048,
+      "probe_id": "refund-window",
+      "stage": "baseline",
+      "started_ns": 49058144,
+      "passages": [
+        "refund@A"
+      ],
+      "origins": [
+        "seed"
+      ],
+      "view": {
+        "generation": "823e8f2179fc45de856fca9866a43497",
+        "commit": 1,
+        "route": "support-search",
+        "scope": "support-agent"
+      },
+      "route": "support-search",
+      "scope": "support-agent"
+    },
+    {
+      "kind": "probe",
+      "seq": 3,
+      "ns": 50829450,
+      "probe_id": "delivery",
+      "stage": "baseline",
+      "started_ns": 49998158,
+      "passages": [
+        "delivery@1"
+      ],
+      "origins": [
+        "seed"
+      ],
+      "view": {
+        "generation": "823e8f2179fc45de856fca9866a43497",
+        "commit": 1,
+        "route": "support-search",
+        "scope": "support-agent"
+      },
+      "route": "support-search",
+      "scope": "support-agent"
+    },
+    {
+      "kind": "started",
+      "seq": 4,
+      "ns": 52942123,
+      "attempt": "old-worker-1"
+    },
+    {
+      "kind": "held",
+      "seq": 5,
+      "ns": 95772893,
+      "run_id": "823e8f2179fc45de856fca9866a43497",
+      "attempt": "old-worker-1",
+      "document": "refund",
+      "revision": "A",
+      "name": "after_source_read"
+    },
+    {
+      "kind": "published",
+      "seq": 6,
+      "ns": 98171480,
+      "publication": {
+        "run_id": "823e8f2179fc45de856fca9866a43497",
+        "document": "refund",
+        "revision": "B"
+      }
+    },
+    {
+      "kind": "probe",
+      "seq": 7,
+      "ns": 99050493,
+      "probe_id": "refund-window",
+      "stage": "freshness",
+      "started_ns": 98184098,
+      "passages": [
+        "refund@B"
+      ],
+      "origins": [
+        "publish"
+      ],
+      "view": {
+        "generation": "823e8f2179fc45de856fca9866a43497",
+        "commit": 2,
+        "route": "support-search",
+        "scope": "support-agent"
+      },
+      "route": "support-search",
+      "scope": "support-agent"
+    },
+    {
+      "kind": "probe",
+      "seq": 8,
+      "ns": 99886372,
+      "probe_id": "delivery",
+      "stage": "freshness",
+      "started_ns": 99067789,
+      "passages": [
+        "delivery@1"
+      ],
+      "origins": [
+        "seed"
+      ],
+      "view": {
+        "generation": "823e8f2179fc45de856fca9866a43497",
+        "commit": 2,
+        "route": "support-search",
+        "scope": "support-agent"
+      },
+      "route": "support-search",
+      "scope": "support-agent"
+    },
+    {
+      "kind": "released",
+      "seq": 9,
+      "ns": 101547225,
+      "attempt": "old-worker-1"
+    },
+    {
+      "kind": "receipt",
+      "seq": 10,
+      "ns": 123026475,
+      "run_id": "823e8f2179fc45de856fca9866a43497",
+      "attempt": "old-worker-1",
+      "document": "refund",
+      "revision": "A",
+      "outcome": "rejected",
+      "generation": null,
+      "commit": null
+    },
+    {
+      "kind": "probe",
+      "seq": 11,
+      "ns": 123835084,
+      "probe_id": "refund-window",
+      "stage": "final",
+      "started_ns": 123038723,
+      "passages": [
+        "refund@B"
+      ],
+      "origins": [
+        "publish"
+      ],
+      "view": {
+        "generation": "823e8f2179fc45de856fca9866a43497",
+        "commit": 2,
+        "route": "support-search",
+        "scope": "support-agent"
+      },
+      "route": "support-search",
+      "scope": "support-agent"
+    },
+    {
+      "kind": "probe",
+      "seq": 12,
+      "ns": 124639086,
+      "probe_id": "delivery",
+      "stage": "final",
+      "started_ns": 123848083,
+      "passages": [
+        "delivery@1"
+      ],
+      "origins": [
+        "seed"
+      ],
+      "view": {
+        "generation": "823e8f2179fc45de856fca9866a43497",
+        "commit": 2,
+        "route": "support-search",
+        "scope": "support-agent"
+      },
+      "route": "support-search",
+      "scope": "support-agent"
+    }
+  ],
+  "inputs": {
+    "drill_version": 1,
+    "adapter": "20145c06b040cbf81bab6dc6c10de92e355b3f9ba61a5e12e9c9e5496ede60c4",
+    "questions": {
+      "refund-window": "290f81fc9fcf904c992c0ba0035c7fdbc9b4735418b9eef7f6b251855b2e0768",
+      "delivery": "5ce7d8f40c02ff550ed01037a144f41c7b8afb27387ff665fed02b0d08a736a5"
+    },
+    "revision": "b42c69b5a4d53c20c327e3356792bc169d909d9d"
+  }
+}

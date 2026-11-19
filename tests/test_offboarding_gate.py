@@ -73,15 +73,15 @@ class GateTests(unittest.TestCase):
         self.report.unlink(missing_ok=True)
         code, stdout, stderr = self.invoke("--output", self.report, *extra)
         self.assertEqual(code, expected_code, stderr or stdout)
-        if code == 3:
+        if code == 2:
             self.assertFalse(self.report.exists())
             self.assertTrue(stderr)
             self.assertFalse(stdout)
             return stderr
         self.assertFalse(stderr)
         result = json.loads(self.report.read_bytes())
-        self.assertEqual(result["verdict"], ("PASS", "FAIL", "INCONCLUSIVE")[code])
-        self.assertIn(f"Gate {result['verdict']}", stdout)
+        self.assertEqual(result["verdict"], {0: "PASS", 1: "FAIL", 3: "INCONCLUSIVE"}[code])
+        self.assertIn(f"Gate {'NOT TESTED' if code == 3 else result['verdict']}", stdout)
         for probe in result["probes"]:
             for item in [
                 probe["id"],
@@ -120,7 +120,7 @@ class GateTests(unittest.TestCase):
                 with self.subTest(phase=phase, role=role, state=state):
                     policy, observations = documents()
                     observations["probes"][0][phase][role] = state
-                    code = 0 if state == pass_state else 2
+                    code = 0 if state == pass_state else 3
                     if (phase, role, state) == ("after", "subject", "present"):
                         code = 1
                     result = self.evaluate(policy, observations, code)
@@ -158,7 +158,7 @@ class GateTests(unittest.TestCase):
                 policy, observations = documents()
                 observations["offboarding"] = "unconfirmed"
                 observations["probes"][0]["after"]["subject"] = state
-                result = self.evaluate(policy, observations, 2)
+                result = self.evaluate(policy, observations, 3)
                 self.assertIn("offboarding_unconfirmed", result["probes"][0]["reasons"])
 
     def test_policy_requires_evidence_for_its_own_scope_and_checkpoint(self):
@@ -166,17 +166,17 @@ class GateTests(unittest.TestCase):
         observations["probes"] = []
         self.assertIn(
             "missing_probe",
-            self.evaluate(policy, observations, 2)["probes"][0]["reasons"],
+            self.evaluate(policy, observations, 3)["probes"][0]["reasons"],
         )
         policy["probes"] = []
-        self.evaluate(policy, observations, 3)
+        self.evaluate(policy, observations, 2)
 
         for field, value in (("scope", "replica"), ("checkpoint", "after_worker")):
             with self.subTest(field=field):
                 policy, observations = documents()
                 policy["probes"][0][field] = value
                 observations["probes"][0]["after"]["subject"] = "present"
-                result = self.evaluate(policy, observations, 2)
+                result = self.evaluate(policy, observations, 3)
                 self.assertIn(f"{field}_mismatch", result["probes"][0]["reasons"])
                 self.assertIn(
                     "observed_after_subject_present_outside_policy",
@@ -193,7 +193,7 @@ class GateTests(unittest.TestCase):
                         finished_after_offboarding=finished,
                     )
                     result = self.evaluate(
-                        policy, observations, 0 if captured and finished else 2
+                        policy, observations, 0 if captured and finished else 3
                     )
                     reasons = result["probes"][0]["reasons"]
                     self.assertEqual(
@@ -213,26 +213,26 @@ class GateTests(unittest.TestCase):
                         del worker[field]
                     else:
                         worker[field] = invalid
-                    self.evaluate(policy, observations, 3)
+                    self.evaluate(policy, observations, 2)
         policy, observations = documents("after_worker")
         worker = observations["probes"][0].pop("worker")
-        self.evaluate(policy, observations, 3)
+        self.evaluate(policy, observations, 2)
         policy, observations = documents()
         observations["probes"][0]["worker"] = worker
-        self.evaluate(policy, observations, 3)
+        self.evaluate(policy, observations, 2)
 
     def test_wrong_run_revision_or_target_is_invalid(self):
         for option in ("--expect-run", "--expect-revision"):
             with self.subTest(option=option):
-                self.evaluate(*documents(), 3, option, "other")
+                self.evaluate(*documents(), 2, option, "other")
         policy, observations = documents()
         observations["target"] = "other"
-        self.evaluate(policy, observations, 3)
+        self.evaluate(policy, observations, 2)
 
     def test_undeclared_duplicate_or_malformed_probes_are_invalid(self):
         policy, observations = documents()
         observations["probes"][0]["id"] = "unknown"
-        self.evaluate(policy, observations, 3)
+        self.evaluate(policy, observations, 2)
         for side in ("policy", "observations"):
             for mutation in (
                 "duplicate",
@@ -255,7 +255,7 @@ class GateTests(unittest.TestCase):
                         probe["checkpoint"] = "later"
                     else:
                         doc["version"] = True
-                    self.evaluate(policy, observations, 3)
+                    self.evaluate(policy, observations, 2)
 
     def test_rejected_input_content_stays_out_of_console_and_report(self):
         marker = "sample customer content"
@@ -270,7 +270,7 @@ class GateTests(unittest.TestCase):
                     observations["run_id"] = marker
                 else:
                     observations["probes"][0]["before"]["subject"] = marker
-                self.assertNotIn(marker, self.evaluate(policy, observations, 3))
+                self.assertNotIn(marker, self.evaluate(policy, observations, 2))
 
     def test_inputs_require_bounded_utf8_json_with_unique_fields(self):
         self.write_inputs(*documents())
@@ -284,7 +284,7 @@ class GateTests(unittest.TestCase):
             with self.subTest(prefix=raw[:16]):
                 self.observations.write_bytes(raw)
                 code, stdout, stderr = self.invoke("--output", self.report)
-                self.assertEqual(code, 3)
+                self.assertEqual(code, 2)
                 self.assertFalse(stdout)
                 self.assertNotIn("private", stderr)
                 self.assertFalse(self.report.exists())
@@ -297,8 +297,8 @@ class GateTests(unittest.TestCase):
         alias = self.root / "pending-link"
         alias.symlink_to(fifo)
         for command, status in (
-            (["gate", "--policy", self.policy, "--observations", alias], 3),
-            (["gate", "--policy", fifo, "--observations", self.observations], 3),
+            (["gate", "--policy", self.policy, "--observations", alias], 2),
+            (["gate", "--policy", fifo, "--observations", self.observations], 2),
         ):
             with self.subTest(command=command):
                 result = subprocess.run(
@@ -337,7 +337,7 @@ class GateTests(unittest.TestCase):
             for alias in (path, symbolic, hard):
                 with self.subTest(alias=alias.name):
                     code, stdout, stderr = self.invoke("--output", alias)
-                    self.assertEqual(code, 3)
+                    self.assertEqual(code, 2)
                     self.assertFalse(stdout)
                     self.assertTrue(stderr)
                     self.assertEqual(path.read_bytes(), original)
@@ -350,7 +350,7 @@ class GateTests(unittest.TestCase):
         alias = self.root / "destination.json"
         alias.symlink_to(existing)
         code, stdout, stderr = self.invoke("--output", alias)
-        self.assertEqual(code, 3)
+        self.assertEqual(code, 2)
         self.assertTrue(stderr)
         self.assertFalse(stdout)
         self.assertTrue(alias.is_symlink())
@@ -361,6 +361,6 @@ class GateTests(unittest.TestCase):
             [sys.executable, "-m", "setrya", "offboarding", "gate", "--policy", str(self.policy)],
             cwd=Path(__file__).resolve().parents[1], capture_output=True, timeout=5,
         )
-        self.assertEqual(result.returncode, 3)
+        self.assertEqual(result.returncode, 2)
         self.assertTrue(result.stderr)
         self.assertFalse(result.stdout)

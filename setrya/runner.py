@@ -10,7 +10,7 @@ from uuid import uuid4
 from .adapter import RunContext
 from .checker import NS_PER_MS, Status
 from .drill import Drill, InputError, Probe
-from .evidence import establishes_baseline, matches_search
+from .evidence import establishes_baseline, matches_search, observed_change
 from .recorder import RunResult, _Journal
 
 
@@ -23,6 +23,9 @@ def run(drill: Drill | str | Path, *, revision: str | None = None) -> RunResult:
         raise InputError("check requires an adapter. Use Recorder for a test-owned drill.")
     execution = _Execution(drill, uuid4().hex, revision=revision)
     module, factory_name = drill.factory.split(":")
+    # Drills saved before the bundled fixtures moved into the Setrya namespace.
+    if module in {"examples.support_search.adapter", "examples.pgvector_search.adapter"}:
+        module = "setrya." + module
     try:
         factory = getattr(import_module(module), factory_name)
     except (ImportError, AttributeError):
@@ -51,6 +54,22 @@ class _Execution(_Journal):
         self.operation = operation
         return getattr(self.adapter, operation)(*args)
 
+    def refresh_after_commit(self, receipt) -> None:
+        if self.rules.visibility != "observed-after-refresh" or receipt.outcome != "committed":
+            return
+        if not hasattr(self.adapter, "refresh"):
+            return
+        paths = set()
+        for probe in self.drill.probes:
+            path = (probe.rules.route, probe.rules.scope)
+            if path not in paths:
+                paths.add(path)
+                ack = self.call("refresh", receipt, probe)
+                if ack is not None:
+                    if (ack.route, ack.scope) != path:
+                        raise InputError("refresh acknowledged a different search route or caller")
+                    self.add("refreshed", **asdict(ack))
+
     def probe(self, probe: Probe) -> dict:
         _, event = self.observe(probe, lambda configured: self.call("search", configured))
         return event
@@ -59,16 +78,26 @@ class _Execution(_Journal):
         sleep(max(0, (timestamp - self.time()) / 1_000_000_000))
 
     def run(self) -> None:
-        freshness = next(probe for probe in self.drill.probes if probe.rules.id == self.rules.freshness_probe)
         self.call("seed")
+        if not self.baseline() or not self.hold():
+            return
+        if self.changed(self.published(self.call("publish"))):
+            self.finish()
+
+    def baseline(self):
+        freshness = next(probe for probe in self.drill.probes if probe.rules.id == self.rules.freshness_probe)
         self.add("seeded")
         for probe in self.drill.probes:
             if probe.rules.before:
                 event = self.probe(probe)
                 if probe == freshness and not establishes_baseline(event, probe.rules, freshness=True):
-                    return
+                    return False
 
+        return True
+
+    def hold(self):
         attempt = self.call("start_old")
+        self.attempt = attempt
         start = self.add("started", attempt=attempt)["ns"]
         deadline = start + self.rules.checkpoint_ms * NS_PER_MS
         interval = self.rules.sample_ms * NS_PER_MS
@@ -79,35 +108,52 @@ class _Execution(_Journal):
                 self.add("held", **asdict(held))
                 break
             if received >= deadline:
-                return
+                return False
             self.wait_until(min(received + interval, deadline))
         else:
-            return
+            return False
         expected_hold = (self.run_id, attempt, self.rules.document, self.rules.old_revision, self.rules.checkpoint)
         if (held.run_id, held.attempt, held.document, held.revision, held.name) != expected_hold:
-            return
+            return False
 
-        publication = self.call("publish")
-        published = self.add("published", publication=asdict(publication) if publication is not None else None)
-        if publication is None or (publication.run_id, publication.document, publication.revision) != (
+        return True
+
+    def published(self, publication):
+        return self.add("published", publication=asdict(publication) if publication is not None else None)
+
+    def changed(self, published):
+        freshness = next(probe for probe in self.drill.probes if probe.rules.id == self.rules.freshness_probe)
+        interval = self.rules.sample_ms * NS_PER_MS
+        publication = published["publication"]
+        if publication is None or (publication["run_id"], publication["document"], publication["revision"]) != (
             self.run_id, self.rules.document, self.rules.new_revision
         ):
-            return
+            return False
 
         cutoff = published["ns"] + self.rules.freshness_ms * NS_PER_MS
         while True:
             event = self.probe(freshness)
-            if matches_search(event, freshness.rules) and set(freshness.rules.require) <= set(event["passages"]):
+            if matches_search(event, freshness.rules) and observed_change(event, freshness.rules):
                 if event["ns"] > cutoff:
-                    return
+                    return False
                 break
             if event["started_ns"] >= cutoff:
-                return
+                return False
             self.wait_until(min(event["started_ns"] + interval, cutoff))
 
         # A second probe can expose a stale read while the worker is still held.
         for probe in self.drill.probes:
-            self.probe(probe)
+            event = self.probe(probe)
+            if freshness.rules.absence and probe != freshness and (
+                not matches_search(event, probe.rules) or not observed_change(event, probe.rules)
+                or None in event["passages"]
+            ):
+                return False
+        return True
+
+    def finish(self):
+        attempt = self.attempt
+        interval = self.rules.sample_ms * NS_PER_MS
         self.call("release")
         release = self.add("released", attempt=attempt)["ns"]
         final_cutoff = release + self.rules.settle_ms * NS_PER_MS
@@ -118,6 +164,7 @@ class _Execution(_Journal):
                 receipt = self.call("receipt")
                 if receipt is not None:
                     self.add("receipt", **asdict(receipt))
+                    self.refresh_after_commit(receipt)
             for probe in self.drill.probes:
                 self.probe(probe)
             if receipt is not None and self.result().verdict.status in {Status.PASS, Status.FAIL}:

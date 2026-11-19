@@ -118,7 +118,7 @@ def adapter_handoff():
             path = configuration(directory, mode)
             outcome(command("-m", "setrya", "check", str(path)), code, text)
             for flags in ((), ("-O",)):
-                outcome(command(*flags, "-m", "examples.support_search.baseline", "--mode", mode), code, text)
+                outcome(command(*flags, "-m", "setrya.examples.support_search.baseline", "--mode", mode), code, text)
     outcome(command("-m", "setrya", "check", str(EXAMPLE / "python.toml")), 0, "PASS")
 
 
@@ -311,7 +311,7 @@ def offboarding():
         bundle = Path(directory) / "example"
         outcome(command(*cli, "demo", "--output", bundle, timeout=45), 0, "")
         for case, code, verdict in (("broken", 1, "FAIL"), ("fixed", 0, "PASS"),
-                                    ("inconclusive", 2, "INCONCLUSIVE")):
+                                    ("inconclusive", 3, "NOT TESTED")):
             replay = command(*cli, "gate", "--policy", bundle / "policy.json",
                              "--observations", bundle / f"{case}.json", "--expect-run", case)
             outcome(replay, code, f"Gate {verdict}")
@@ -322,7 +322,7 @@ def offboarding():
                           "--evidence", case_dir / "evidence.json",
                           "--record", case_dir / "provider.json", case_dir / "provider.txt",
                           "--record", case_dir / "backups.json", case_dir / "backups.txt")
-        outcome(checked, 2, "Receipt verified.")
+        outcome(checked, 3, "Receipt verified.")
         require("Technical verdict PASS" in checked.stdout and "Review status OPEN_ITEMS" in checked.stdout,
                 "offboarding replay lost the distinction between a technical pass and an open review")
 
@@ -341,14 +341,26 @@ def offboarding_compatibility():
         policy.write_text(exported.stdout, encoding="utf-8")
         packet = root / "reads.json"
         for case, code, expected in (("clean", 0, "PASS"), ("residual", 1, "FAIL"),
-                                     ("unavailable", 2, "INCONCLUSIVE")):
+                                     ("unavailable", 3, "NOT TESTED")):
             outcome(command(*cli, "observe-sqlite", "--case", case, "--run-id", case, "--output", packet), 0, "")
             outcome(command(*cli, "gate", "--policy", policy, "--observations", packet, "--expect-run", case),
                     code, f"Gate {expected}")
         original = EXAMPLE.parent / "opendesk" / "observed.json"
         outcome(command(*cli, "opendesk", "--verify-report", original), 0, "report matches")
         outcome(command(*cli, "opendesk", "--from-report", original, "--output", root / "trial"),
-                2, "Gate INCONCLUSIVE")
+                3, "Gate NOT TESTED")
+
+
+def scheduled_changes():
+    """Exercise caller revocation, tenant deletion and update from the public CLI."""
+    with TemporaryDirectory(prefix="setrya-schedules-") as directory:
+        for kind in ("update", "delete", "revoke"):
+            for mode, code, verdict in (("fixed", 0, "PASS"), ("broken", 1, "FAIL")):
+                out = Path(directory) / f"{kind}-{mode}"
+                result = command("-m", "setrya", "scenario", kind, "--mode", mode,
+                                 "--schedule", "all", "--output", out, timeout=90)
+                outcome(result, code, verdict)
+                outcome(command("-m", "setrya", "replay", out), code, verdict)
 
 
 def repeatability():
@@ -371,7 +383,7 @@ CASES = {
     "missing-evidence": missing_evidence, "adapter-handoff": adapter_handoff, "report-replay": report_replay,
     "report-comparison": report_comparison, "isolation": isolation, "offboarding": offboarding,
     "offboarding-compatibility": offboarding_compatibility,
-    "repeatability": repeatability,
+    "scheduled-changes": scheduled_changes, "repeatability": repeatability,
 }
 
 

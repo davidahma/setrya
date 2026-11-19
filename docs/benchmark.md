@@ -7,7 +7,7 @@ Both tools can catch the bundled defects. This comparison measures the work of g
 Start the [disposable pgvector database](pgvector.md), then run this from the same environment.
 
 ```sh
-python3 -m examples.pgvector_search.benchmark --repeats 3 --output /tmp/setrya-benchmark
+python3 -m setrya.examples.pgvector_search.benchmark --repeats 3 --output /tmp/setrya-benchmark
 ```
 
 The output directory contains machine timings, an environment record, the plain pytest logs, the Setrya JSON reports, and offline comparisons. Each implementation uses the same HTTP search endpoints, caller, queries, depths, database, and worker hooks. Each trial gets a fresh fixture schema. Trial order alternates between Setrya and pytest. Both implementations have to detect the broken cases and pass the guarded cases.

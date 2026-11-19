@@ -1,26 +1,11 @@
 """Evaluate recorded observations. This module has no fixture or adapter imports."""
 
 from dataclasses import dataclass
-from enum import Enum
+from .status import Status
 
-from .evidence import Report, establishes_baseline, matches_search
+from .evidence import Report, establishes_baseline, matches_search, observed_change
 
 NS_PER_MS = 1_000_000
-
-
-class Status(Enum):
-    PASS = ("PASS", 0)
-    FAIL = ("FAIL", 1)
-    ERROR = ("ERROR", 2)
-    NOT_TESTED = ("NOT TESTED", 3)
-
-    @property
-    def label(self) -> str:
-        return self.value[0]
-
-    @property
-    def exit_code(self) -> int:
-        return self.value[1]
 
 
 @dataclass(frozen=True)
@@ -31,6 +16,7 @@ class Verdict:
     probe: str | None = None
     attribution: str | None = None
     confirmed: tuple[int, ...] = ()
+    evidence_tier: str | None = None
 
 
 def _matches(event: dict | None, identity: dict) -> bool:
@@ -38,7 +24,7 @@ def _matches(event: dict | None, identity: dict) -> bool:
 
 
 def _visible(view: dict | None, receipt: dict, probe) -> bool:
-    if view is None:
+    if view is None or receipt["commit"] is None:
         return False
     return (
         view["generation"] == receipt["generation"] and view["commit"] >= receipt["commit"]
@@ -46,12 +32,16 @@ def _visible(view: dict | None, receipt: dict, probe) -> bool:
     )
 
 
-def _write_resolved(event: dict, receipt: dict | None, probe) -> bool:
+def _write_resolved(event: dict, receipt: dict | None, probe, refreshes) -> bool:
     if receipt is None:
         return False
     if receipt["outcome"] == "rejected":
         return event["seq"] > receipt["seq"] and event["started_ns"] >= receipt["ns"]
-    return _visible(event["view"], receipt, probe)
+    refresh = refreshes.get((probe.route, probe.scope))
+    return _visible(event["view"], receipt, probe) or (
+        event["view"] is None and refresh is not None
+        and event["seq"] > refresh["seq"] and event["started_ns"] >= refresh["ns"]
+    )
 
 
 def _attribution(event: dict, rank: int, release: dict | None, receipt: dict | None, probe) -> str:
@@ -83,7 +73,7 @@ def _evaluate(report: Report) -> Verdict:
                and establishes_baseline(event, primary, freshness=True) for event in report.events):
         return Verdict(Status.NOT_TESTED, "Baseline search did not distinguish the original revision from its replacement",
                        probe=primary.id)
-    events = {event["kind"]: event for event in report.events if event["kind"] != "probe"}
+    events = {event["kind"]: event for event in report.events if event["kind"] in {"started", "held", "published", "released", "receipt"}}
     attempt = events.get("started", {}).get("attempt")
     identity = {"run_id": report.run_id, "attempt": attempt, "document": rules.document,
                 "revision": rules.old_revision}
@@ -104,6 +94,8 @@ def _evaluate(report: Report) -> Verdict:
                        probe=primary.id)
 
     probes = {probe.id: probe for probe in rules.probes}
+    refreshes = {(event["route"], event["scope"]): event for event in report.events
+                 if event["kind"] == "refreshed" and rules.visibility == "observed-after-refresh"}
     first_fresh = None
     last_pre_deadline = None
     saw_freshness_probe = False
@@ -126,7 +118,7 @@ def _evaluate(report: Report) -> Verdict:
             continue
         passages = event["passages"]
         has_identity = None not in passages
-        required = set(probe.require) <= set(passages)
+        required = observed_change(event, probe)
         if stage == "baseline":
             if establishes_baseline(event, probe, freshness=probe.id == primary.id):
                 baseline.add(probe.id)
@@ -153,10 +145,10 @@ def _evaluate(report: Report) -> Verdict:
                               if marker in probe.forbid), None)
             if forbidden:
                 rank, marker = forbidden
-                return Verdict(Status.FAIL, f"Expected {', '.join(probe.require)}. Observed forbidden {marker} at rank {rank}.",
+                return Verdict(Status.FAIL, f"Expected {', '.join(probe.require) or 'absence'}. Observed forbidden {marker} at rank {rank}.",
                                event["seq"], probe.id, _attribution(event, rank, release, receipt, probe))
 
-        if first_fresh and in_final_window and has_identity and not required and _write_resolved(event, timely_receipt, probe):
+        if first_fresh and in_final_window and has_identity and not required and _write_resolved(event, timely_receipt, probe, refreshes):
             missing = ", ".join(marker for marker in probe.require if marker not in passages)
             return Verdict(Status.FAIL, f"Required passage {missing} was absent after the write was resolved",
                            event["seq"], probe.id)
@@ -170,6 +162,14 @@ def _evaluate(report: Report) -> Verdict:
     missing_baseline = next((probe.id for probe in rules.probes if probe.before and probe.id not in baseline), None)
     if missing_baseline:
         return Verdict(Status.NOT_TESTED, "Baseline search did not establish the original passage", probe=missing_baseline)
+    if primary.absence:
+        for probe in rules.probes:
+            if probe == primary:
+                continue
+            checks = [event for event in report.events if event.get("stage") == "freshness"
+                      and event.get("probe_id") == probe.id and event["seq"] > first_fresh["seq"]]
+            if not checks or not matches_search(checks[-1], probe) or None in checks[-1]["passages"] or not observed_change(checks[-1], probe):
+                return Verdict(Status.NOT_TESTED, "Missing retained control before releasing the old worker", probe=probe.id)
     if not release_valid:
         return Verdict(Status.NOT_TESTED, "Missing matching release of the held worker")
     if receipt is None:
@@ -184,7 +184,7 @@ def _evaluate(report: Report) -> Verdict:
         if not matches_search(latest, probe):
             return Verdict(Status.NOT_TESTED, "Final search view did not match the declared route and caller",
                            latest["seq"], probe.id)
-        if not _write_resolved(latest, receipt, probe):
+        if not _write_resolved(latest, receipt, probe, refreshes):
             detail = ("Missing search visibility evidence for the old write" if receipt["outcome"] == "committed"
                       else "Missing a final search observation after the old write rejection")
             return Verdict(Status.NOT_TESTED, detail, latest["seq"], probe.id)
@@ -192,5 +192,11 @@ def _evaluate(report: Report) -> Verdict:
             return Verdict(Status.NOT_TESTED, "Final result lacked revision or passage identity", latest["seq"], probe.id)
     decisive = latest_final[primary.id]
     resolved = "Index rejected the old write" if receipt["outcome"] == "rejected" else "Search observed the completed write"
+    tier = "write-confirmed"
+    if receipt["outcome"] == "committed" and any(
+            not _visible(latest_final[p.id]["view"], receipt, p) for p in rules.probes):
+        tier = "observed-after-refresh"
+        resolved = "Observed after refresh (write visibility unverified)"
     return Verdict(Status.PASS, f"{resolved}. All final probes found their required passages.",
-                   decisive["seq"], decisive["probe_id"], confirmed=tuple(event["seq"] for event in latest_final.values()))
+                   decisive["seq"], decisive["probe_id"], confirmed=tuple(event["seq"] for event in latest_final.values()),
+                   evidence_tier=tier)

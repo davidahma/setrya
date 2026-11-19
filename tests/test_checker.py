@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from examples.support_search.__main__ import FixtureServer, Handler
+from setrya.examples.support_search.__main__ import FixtureServer, Handler
 
 from setrya.checker import Status, evaluate
 from setrya.cli import EXAMPLE, preflight

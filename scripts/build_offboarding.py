@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from setrya.offboarding.cli import main
 
-invocation = (sys.executable, "-I", str(Path(sys.argv[0]).resolve()))
+invocation = ("python3", "-I", str(Path(sys.argv[0]).resolve()))
 raise SystemExit(main(sys.argv[1:], invocation=invocation))
 '''
 # The release can be built from a source archive without git. Only these reviewed
@@ -20,31 +20,44 @@ raise SystemExit(main(sys.argv[1:], invocation=invocation))
 PACKAGE_FILES = (
     "LICENSE",
     "setrya/__init__.py",
+    "setrya/adapter.py",
+    "setrya/checker.py",
+    "setrya/drill.py",
+    "setrya/evidence.py",
+    "setrya/recorder.py",
+    "setrya/runner.py",
+    "setrya/scenario_fixture.py",
+    "setrya/scenarios.py",
+    "setrya/status.py",
+    "setrya/store_signals.py",
     "setrya/offboarding/__init__.py",
     "setrya/offboarding/cli.py",
     "setrya/offboarding/gate.py",
     "setrya/offboarding/inputs.py",
     "setrya/offboarding/receipt.py",
     "setrya/offboarding/receipt_cli.py",
+    "setrya/offboarding/signature.py",
+    "setrya/offboarding/observer.py",
+    "setrya/offboarding/receipt-v1.schema.json",
     "setrya/offboarding/reference.py",
-    "examples/__init__.py",
-    "examples/offboarding/__init__.py",
-    "examples/offboarding/demo.py",
-    "examples/offboarding/fixture.py",
-    "examples/offboarding/sqlite/__init__.py",
-    "examples/offboarding/sqlite/observe.py",
-    "examples/offboarding/sqlite/policy.json",
-    "examples/opendesk/__init__.py",
-    "examples/opendesk/cli.py",
-    "examples/opendesk/compose.yaml",
-    "examples/opendesk/observed.json",
-    "examples/opendesk/policy.json",
-    "examples/opendesk/policy-v2.json",
-    "examples/opendesk/provider.py",
-    "examples/opendesk/run.py",
-    "examples/opendesk/to_gate.py",
-    "examples/opendesk/transport.py",
-    "examples/opendesk/verify_report.py",
+    "setrya/examples/__init__.py",
+    "setrya/examples/offboarding/__init__.py",
+    "setrya/examples/offboarding/demo.py",
+    "setrya/examples/offboarding/fixture.py",
+    "setrya/examples/offboarding/sqlite/__init__.py",
+    "setrya/examples/offboarding/sqlite/observe.py",
+    "setrya/examples/offboarding/sqlite/policy.json",
+    "setrya/examples/opendesk/__init__.py",
+    "setrya/examples/opendesk/cli.py",
+    "setrya/examples/opendesk/compose.yaml",
+    "setrya/examples/opendesk/observed.json",
+    "setrya/examples/opendesk/policy.json",
+    "setrya/examples/opendesk/policy-v2.json",
+    "setrya/examples/opendesk/provider.py",
+    "setrya/examples/opendesk/run.py",
+    "setrya/examples/opendesk/to_gate.py",
+    "setrya/examples/opendesk/transport.py",
+    "setrya/examples/opendesk/verify_report.py",
 )
 
 

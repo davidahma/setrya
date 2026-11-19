@@ -1,6 +1,6 @@
 # Setrya
 
-Setrya is an open-source Python SDK and CLI for testing what an application can retrieve after a document changes or a tenant leaves.
+Setrya is an open-source Python SDK and CLI for testing what an application can retrieve after a document changes, a tenant leaves, or a caller loses access.
 
 Your team shortens the refund window from 30 days to 14. The support agent searches and gets the new policy. Then a worker resumes with the copy it read yesterday. In a Setrya regression test, you release that worker on purpose and search again as the same agent. If the 30-day policy comes back, the report identifies the passage and its rank. A teammate can replay the failure after the app shuts down.
 
@@ -27,6 +27,17 @@ python3 -m setrya demo
 | PASS | 30 days → 14 days | The worker rejected its stale write. Final searches found the 14-day policy and the unrelated delivery policy. |
 | NOT TESTED | 30 days → 14 days | The old worker committed. Search still returned 14 days. The response didn’t identify a snapshot that included the old write. |
 
+## Exercise retries, duplicate deliveries, and access changes
+
+Use a scenario to hold work before a change and choose the order in which deliveries finish. For a permission change, the revoked caller must lose the passage while the authorized caller can still read it. Save the run so a reviewer can replay it after the application stops.
+
+```sh
+setrya scenario revoke --schedule all --output access-run
+setrya replay access-run
+```
+
+The same commands accept `update` and `delete`. A team can supply its own adapter. [Schedules and adapter contract](docs/scenarios.md) · [Evidence from real stores](docs/store-signals.md)
+
 ## Test tenant offboarding
 
 Acme leaves. The support app deletes its ticket and summary. Then a worker finishes writing the summary it read before deletion. From the same checkout, run the offboarding example in a new output directory.
@@ -35,34 +46,34 @@ Acme leaves. The support app deletes its ticket and summary. Then a worker finis
 python3 -m setrya offboarding demo --output offboarding-run
 ```
 
-The **CI gate** checks whether the support agent can still read Acme’s summary and whether it can still read another tenant’s. The broken worker produces FAIL, the guarded worker produces PASS, and a missing baseline produces INCONCLUSIVE.
+The **CI gate** checks whether the support agent can still read Acme’s summary and whether it can still read another tenant’s. The broken worker produces FAIL, the guarded worker produces PASS, and a missing baseline produces NOT TESTED.
 
-The **deletion receipt** belongs to one request issued before the job starts. In a separate run, the app passes its technical checks and a provider reports deletion. The receipt still says `OPEN_ITEMS` because the backup operator supplied an expiry schedule. A reviewer can verify that result offline against the original request and exhibits. [Run the gate, issue a request, and replay a receipt](docs/offboarding.md) · [Download the synthetic example](https://github.com/davidahma/setrya/releases/download/v0.7.0/offboarding-example.zip)
+The **deletion receipt** belongs to one request issued before the job starts. In a separate run, the app passes its technical checks and a provider reports deletion. The receipt still says `OPEN_ITEMS` because the backup operator supplied an expiry schedule. A reviewer can verify that result offline against the original request and exhibits. [Run the gate, issue a request, and replay a receipt](docs/offboarding.md) · [Download the synthetic example](https://github.com/davidahma/setrya/releases/download/v0.8.0/offboarding-example.zip)
 
-Already using Axiom? Setrya can run its SQLite observer and pinned OpenDesk trial, validate historical demo reports, and verify deletion receipts. A reviewer can download the single-file offboarding CLI and replay a case offline. [Axiom command map](docs/offboarding.md#migrate-from-axiom) · [Portable CLI and evidence](https://github.com/davidahma/setrya/releases/tag/v0.7.0)
+Already using Axiom? Setrya can run its SQLite observer and pinned OpenDesk trial, validate historical demo reports, and verify deletion receipts. A reviewer can download the single-file offboarding CLI and replay a case offline. [Axiom command map](docs/offboarding.md#migrate-from-axiom) · [Portable CLI and evidence](https://github.com/davidahma/setrya/releases/tag/v0.8.0)
 
 ## Use the Python SDK in your tests
 
 Install the release in your project’s virtual environment. Omit `[pytest]` for the core SDK, which uses only the Python standard library.
 
 ```sh
-python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.7.0/setrya-0.7.0.tar.gz'
+python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.8.0/setrya-0.8.0.tar.gz'
 ```
 
-A *drill* is a TOML file that names the document revisions, the caller and search route, and the passage IDs each query must return or exclude. The refund drill checks the top three hits for the support agent. A second query checks that the delivery policy stays findable. [Example drill](examples/recorded-search/drill.toml)
+A *drill* is a TOML file that names the document revisions, the caller and search route, and the passage IDs each query must return or exclude. The refund drill checks the top three hits for the support agent. A second query checks that the delivery policy stays findable. [Example drill](setrya/examples/recorded-search/drill.toml)
 
 From the cloned checkout you can run a complete drill in Python.
 
 ```python
 from setrya.runner import run
 
-result = run("examples/support-search/drill.toml")
+result = run("setrya/examples/support-search/drill.toml")
 print(result.verdict.status.label)  # PASS
 ```
 
 ### Keep your existing pytest test
 
-Keep your setup and assertions. The `setrya_record` fixture records what they observe. Here, your `open_app` fixture starts a disposable app for this run. Its methods wait for the worker, return a checkpoint and write receipt, and search as the support agent. [Working pytest example](examples/recorded_search/existing_test.py) · [Observation types](docs/adapters.md#adapter-methods)
+Keep your setup and assertions. The `setrya_record` fixture records what they observe. Here, your `open_app` fixture starts a disposable app for this run. Its methods wait for the worker, return a checkpoint and write receipt, and search as the support agent. [Working pytest example](setrya/examples/recorded_search/existing_test.py) · [Observation types](docs/adapters.md#adapter-methods)
 
 ```python
 def test_refund_update(open_app, setrya_record):
@@ -119,7 +130,7 @@ def verify_refund(open_app):
 If you want Setrya to pause the worker and schedule the searches, give the drill a Python adapter. From the checkout, run the bundled adapter against its HTTP endpoint and save the result. The Markdown summary names the tested revision and gives the reviewer a replay command.
 
 ```sh
-python3 -m setrya check examples/support-search/drill.toml --report run.json --summary summary.md
+python3 -m setrya check setrya/examples/support-search/drill.toml --report run.json --summary summary.md
 python3 -m setrya replay run.json
 ```
 
@@ -130,7 +141,7 @@ In pytest, the `setrya_check` fixture runs the whole adapter-driven drill and re
 The bundled example runs the same pytest test on two Git commits, one with a broken worker and one with the fix. It captures both test exits and writes the comparison to `review-run/review.md`. With Git and the pytest extra installed, choose a new output directory for each run.
 
 ```sh
-python -m examples.recorded_search.verify --output review-run
+python -m setrya.examples.recorded_search.verify --output review-run
 setrya replay review-run/candidate.json
 ```
 
@@ -143,17 +154,17 @@ After PASS · event 11 · refund-window · final · refund@B
   Index rejected the old write. All final probes found their required passages.
 ```
 
-The example also saves `opaque.json`, which replays as NOT TESTED even though the test found the 14-day policy. You can download all three reports and the summary from the release. [Sample review bundle](https://github.com/davidahma/setrya/releases/download/v0.7.0/recorded-pytest-review.zip)
+The example also saves `opaque.json`, which replays as NOT TESTED even though the test found the 14-day policy. You can download all three reports and the summary from the release. [Sample review bundle](https://github.com/davidahma/setrya/releases/download/v0.8.0/recorded-pytest-review.zip)
 
 In your CI job, run `setrya review` with both reports, the expected commit IDs, and the test exits. Attach the JSON and Markdown even when the test fails. For a downloaded report, use the installed `setrya replay` command. Replay recomputes the verdict without loading the adapter. The report stores passage IDs and question fingerprints and omits raw queries and passage text. Choose identifiers you can share. [CI recipe and review command](docs/recording.md#use-it-in-a-pull-request) · [GitHub Actions example](.github/workflows/ci.yml)
 
-For a single report, `setrya diagnose` explains a missing observation. For a pair without CI commit and exit information, `setrya compare` checks whether the recorded evidence establishes a fix. The `check` and `replay` commands exit 0 for PASS, 1 for FAIL, 2 for an input or execution error, and 3 for NOT TESTED. [Evidence and comparison](docs/evidence.md#compare-two-saved-runs)
+For a single report, `setrya diagnose` explains a missing observation. For a pair without CI commit and exit information, `setrya compare` checks whether the recorded evidence establishes a fix. Checks, driven scenarios and offline gate replay exit 0 for PASS, 1 for FAIL, 2 for an input or execution error, and 3 for NOT TESTED. [Evidence and comparison](docs/evidence.md#compare-two-saved-runs)
 
 ## More search regressions
 
-- **A deleted paragraph still appears in search.** The refund document shrinks from five chunks to three. A query for the retired clause catches a stale chunk that the general refund query misses. [Retired-chunk drill](examples/support-search/retired.toml)
+- **A deleted paragraph still appears in search.** The refund document shrinks from five chunks to three. A query for the retired clause catches a stale chunk that the general refund query misses. [Retired-chunk drill](setrya/examples/support-search/retired.toml)
 - **A re-upload hides a current passage.** An orphaned pgvector candidate takes a top-three slot. The search returns two current passages and drops the clause about the original payment method. [PostgreSQL/pgvector walkthrough](docs/pgvector.md)
 
-If your suite already catches late writes, compare the plain Python test with Setrya’s saved evidence. The paired benchmark runs both approaches against the same pgvector database and worker hooks. [Plain test](examples/support_search/baseline.py) · [Paired benchmark](docs/benchmark.md)
+If your suite already catches late writes, compare the plain Python test with Setrya’s saved evidence. The paired benchmark runs both approaches against the same pgvector database and worker hooks. [Plain test](setrya/examples/support_search/baseline.py) · [Paired benchmark](docs/benchmark.md)
 
 To contribute a drill, include a broken case that exposes the regression and a control query that should keep working. [Contributing](CONTRIBUTING.md) · [Offline qualification](docs/qualification.md) · [Security policy](SECURITY.md) · [Apache 2.0 license](LICENSE)

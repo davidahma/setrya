@@ -51,17 +51,22 @@ class ProbeRules:
     before: tuple[str, ...]
     require: tuple[str, ...]
     forbid: tuple[str, ...]
+    absence: bool = False
 
     @classmethod
     def parse(cls, value: object) -> "ProbeRules":
-        obj = mapping(value, "probe rules", {"id", "route", "scope", "top_k", "require", "forbid"}, {"before"})
+        obj = mapping(value, "probe rules", {"id", "route", "scope", "top_k", "require", "forbid"}, {"before", "absence"})
         probe = cls(
             label(obj["id"], "probe ID"), label(obj["route"], "route"),
             label(obj["scope"], "caller scope"), integer(obj["top_k"], "top_k", 1, 100),
             labels(obj.get("before", []), "before"), labels(obj["require"], "require"),
-            labels(obj["forbid"], "forbid"),
+            labels(obj["forbid"], "forbid"), obj.get("absence", False),
         )
-        if not probe.require or set(probe.require) & set(probe.forbid):
+        if type(probe.absence) is not bool:
+            raise InputError("absence must be a boolean")
+        if probe.absence and (probe.require or not probe.before or not set(probe.before) <= set(probe.forbid)):
+            raise InputError("an absence probe must forbid its baseline markers and have no required replacement")
+        if (not probe.absence and not probe.require) or set(probe.require) & set(probe.forbid):
             raise InputError("each probe needs required passages disjoint from forbidden passages")
         if any(len(items) > probe.top_k for items in (probe.before, probe.require)):
             raise InputError("top_k must accommodate the required passages")
@@ -82,24 +87,31 @@ class Rules:
     sample_ms: int
     max_gap_ms: int
     probes: tuple[ProbeRules, ...]
+    visibility: str = "strict"
 
     @classmethod
     def parse(cls, value: object, *, legacy: bool = False) -> "Rules":
         names = {"id", "document", "old_revision", "new_revision", "checkpoint", "freshness_probe"}
         times = {"freshness_ms", "checkpoint_ms", "settle_ms", "sample_ms", "max_gap_ms"}
-        obj = mapping(value, "drill rules", names | times | {"probes"})
+        obj = mapping(value, "drill rules", names | times | {"probes"}, {"visibility"})
+        visibility = obj.get("visibility", "strict")
+        if visibility not in ("strict", "observed-after-refresh"):
+            raise InputError("visibility must be strict or observed-after-refresh")
         if not isinstance(obj["probes"], (list, tuple)) or not 2 <= len(obj["probes"]) <= 16:
             raise InputError("declare a freshness probe and at least one separate control")
         probes = tuple(ProbeRules.parse(probe) for probe in obj["probes"])
         rules = cls(**{name: label(obj[name], name) for name in names},
                     **{name: integer(obj[name], name, 1, 120_000) for name in times},
-                    probes=probes)
+                    probes=probes, visibility=visibility)
         selected = next((probe for probe in probes if probe.id == rules.freshness_probe), None)
         if len({probe.id for probe in probes}) != len(probes) or selected is None:
             raise InputError("probe IDs must be distinct and include freshness_probe")
         if rules.old_revision == rules.new_revision or not selected.before or not selected.forbid:
             raise InputError("freshness probe needs distinct revisions, before passages and forbidden passages")
-        if not legacy and (not set(selected.require) - set(selected.before)
+        if selected.absence and not any((p.route, p.scope) == (selected.route, selected.scope) and p.before and p.require
+                                        and set(p.require) <= set(p.before) for p in probes if p != selected):
+            raise InputError("an absence drill requires a retained positive control on the same route")
+        if not legacy and not selected.absence and (not set(selected.require) - set(selected.before)
                            or not set(selected.before) & set(selected.forbid)):
             raise InputError("freshness probe needs a revision-specific required marker and a forbidden baseline marker")
         if not rules.sample_ms < rules.max_gap_ms <= min(rules.freshness_ms, rules.settle_ms):
@@ -159,7 +171,7 @@ class Drill:
         parsed_probes = []
         questions = []
         for raw in obj["probe"]:
-            probe = mapping(raw, "probe", {"id", "route", "scope", "top_k", "question", "require", "forbid"}, {"before"})
+            probe = mapping(raw, "probe", {"id", "route", "scope", "top_k", "question", "require", "forbid"}, {"before", "absence"})
             question = probe["question"]
             if not isinstance(question, str) or not question.strip():
                 raise InputError("each probe needs a question")

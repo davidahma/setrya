@@ -36,7 +36,7 @@ class PortableOffboardingTests(unittest.TestCase):
         evidence = self.work / "sample"
         demo = self.run_python(self.archive, "demo", "--output", evidence, check=True)
         for case, code, verdict in (("broken", 1, "FAIL"), ("fixed", 0, "PASS"),
-                                    ("inconclusive", 2, "INCONCLUSIVE")):
+                                    ("inconclusive", 3, "NOT TESTED")):
             replay = self.run_python(
                 self.archive, "gate", "--policy", evidence / "policy.json",
                 "--observations", evidence / f"{case}.json", "--expect-run", case,
@@ -49,12 +49,22 @@ class PortableOffboardingTests(unittest.TestCase):
         reviewer = self.work / "reviewer"
         shutil.copytree(evidence / "receipt", reviewer)
         command = shlex.split(demo.stdout.splitlines()[-1])
-        self.assertEqual(command[:3], [sys.executable, "-I", str(self.archive.resolve())])
-        replay = subprocess.run(command, cwd=reviewer, capture_output=True, text=True, timeout=15)
-        self.assertEqual(replay.returncode, 2, replay.stderr)
+        self.assertEqual(command[:3], ["python3", "-I", str(self.archive.resolve())])
+        env = {**os.environ, "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"]}
+        replay = subprocess.run(command, cwd=reviewer, env=env, capture_output=True, text=True, timeout=15)
+        self.assertEqual(replay.returncode, 3, replay.stderr)
         self.assertIn("Receipt verified.", replay.stdout)
         self.assertIn("Technical verdict PASS", replay.stdout)
         self.assertIn("Review status OPEN_ITEMS", replay.stdout)
+
+    def test_driven_deletion_schedules_inside_archive(self):
+        clean = self.run_python(self.archive, "drill", "--schedule", "all", "--mode", "fixed",
+                                "--output", self.work / "controlled", check=True)
+        self.assertIn("reverse  PASS", clean.stdout)
+        broken = self.run_python(self.archive, "drill", "--schedule", "reverse", "--mode", "broken",
+                                 "--output", self.work / "unguarded")
+        self.assertEqual(broken.returncode, 1)
+        self.assertIn("FAIL", broken.stdout)
 
     def test_reference_and_sqlite_observer_inside_archive(self):
         report = self.work / "reference.json"
@@ -62,7 +72,7 @@ class PortableOffboardingTests(unittest.TestCase):
         self.run_python(self.archive, "validate", report, check=True)
         policy = self.work / "policy.json"
         policy.write_text(self.run_python(self.archive, "sqlite-policy", check=True).stdout)
-        for case, code in (("clean", 0), ("residual", 1), ("unavailable", 2)):
+        for case, code in (("clean", 0), ("residual", 1), ("unavailable", 3)):
             observations = self.work / f"sqlite-{case}.json"
             self.run_python(self.archive, "observe-sqlite", "--case", case, "--output", observations, check=True)
             gate = self.run_python(self.archive, "gate", "--policy", policy, "--observations", observations)

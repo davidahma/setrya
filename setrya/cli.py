@@ -16,8 +16,8 @@ from .evidence import Report, matches_search
 from .runner import RunResult, run
 
 ROOT = Path(__file__).resolve().parent.parent
-EXAMPLE = ROOT / "examples" / "support-search"
-PGVECTOR = ROOT / "examples" / "pgvector-search"
+EXAMPLE = ROOT / "setrya" / "examples" / "support-search"
+PGVECTOR = ROOT / "setrya" / "examples" / "pgvector-search"
 DEMO_CASES = {"broken": Status.FAIL, "fixed": Status.PASS, "opaque": Status.NOT_TESTED}
 DEMO_PASSAGES = {"refund@A": "30 days", "refund@B": "14 days"}
 
@@ -127,7 +127,7 @@ def demo(selected: str | None) -> int:
 
 def rerun_command(path: str) -> str:
     # Reports and summaries avoid embedding private absolute paths or file names.
-    if re.fullmatch(r"examples/(?:support-search/(?:drill|python|retired)|pgvector-search/(?:drill|reupload))\.toml", path):
+    if re.fullmatch(r"setrya/examples/(?:support-search/(?:drill|python|retired)|pgvector-search/(?:drill|reupload))\.toml", path):
         return "python3 -m setrya check " + shlex.quote(path)
     return 'python3 -m setrya check "$DRILL" --report run.json'
 
@@ -140,7 +140,9 @@ def replay_command(report_path: str | None, *, artifact: str = "run.json", varia
 
 
 def console_main() -> int:
-    if sys.argv[1:2] != ["check"]:
+    args = sys.argv[1:]
+    live_scenario = args[:1] == ["scenario"] and args[1:2] in (["update"], ["delete"], ["revoke"])
+    if args[:1] != ["check"] and args[:2] != ["offboarding", "drill"] and not live_scenario:
         return main()
     # Only live checks import adapters from the working checkout.
     original_path = sys.path
@@ -170,7 +172,10 @@ def _write_summary(path: str | Path, title: str, text: str) -> None:
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
-    # The offboarding evidence formats have their own CLI exit-code contract.
+    if argv[:1] == ["scenario"]:
+        from .scenarios import main as scenario_main
+
+        return scenario_main(argv[1:])
     if argv[:1] == ["offboarding"]:
         from .offboarding.cli import main as offboarding_main
 
@@ -178,6 +183,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="setrya", description="Test what an application can retrieve after a document update or tenant offboarding.")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("scenario", help="drive update, deletion or access-revocation races and replay a schedule")
     commands.add_parser("offboarding", help="check tenant offboarding in CI or review one deletion request")
     demo_parser = commands.add_parser("demo", help="run three synthetic outcomes")
     demo_parser.add_argument("--case", choices=DEMO_CASES)
@@ -210,6 +216,10 @@ def main(argv=None) -> int:
 
     try:
         if args.command in {"replay", "diagnose"}:
+            if args.command == "replay" and Path(args.report).is_dir():
+                from .scenarios import main as scenario_main
+
+                return scenario_main(["replay", args.report])
             report = Report.load(args.report)
             verdict = evaluate(report)
             print(format_verdict(verdict, report))
@@ -250,8 +260,8 @@ def main(argv=None) -> int:
             summary_path = Path(args.summary).absolute() if args.summary else None
             error_summary = summary_path
             drill = Drill.load(args.drill)
-            if drill.factory in {"examples.support_search.adapter:http_fixture",
-                                 "examples.support_search.adapter:python_fixture"}:
+            if drill.factory in {"setrya.examples.support_search.adapter:http_fixture",
+                                 "setrya.examples.support_search.adapter:python_fixture"}:
                 preflight()
             result = run(drill, revision=args.revision)
             if report_path:

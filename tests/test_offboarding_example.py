@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from examples.offboarding import fixture
+from setrya.examples.offboarding import fixture
 
 
 class OffboardingExampleTests(unittest.TestCase):

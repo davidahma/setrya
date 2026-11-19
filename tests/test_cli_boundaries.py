@@ -32,7 +32,7 @@ class CliBoundaryTests(unittest.TestCase):
             app.mkdir()
             drill = app / "config.toml"
             content = (EXAMPLE / "drill.toml").read_text().replace(
-                "examples.support_search.adapter:http_fixture", "test_trust:fixture"
+                "setrya.examples.support_search.adapter:http_fixture", "test_trust:fixture"
             )
             drill.write_text(content)
             with patch.object(EvidenceFixture, "close", side_effect=lambda: os.chdir(app)), patch(

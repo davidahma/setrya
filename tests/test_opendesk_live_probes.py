@@ -10,10 +10,10 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
-from examples.opendesk import run
-from examples.opendesk import to_gate
-from examples.opendesk import transport
-from examples.opendesk.verify_report import (
+from setrya.examples.opendesk import run
+from setrya.examples.opendesk import to_gate
+from setrya.examples.opendesk import transport
+from setrya.examples.opendesk.verify_report import (
     HEALTHY_V2,
     MAX_INPUT_BYTES,
     METADATA,
@@ -24,7 +24,7 @@ from examples.opendesk.verify_report import (
 
 from setrya.offboarding import gate
 
-HERE = Path(__file__).resolve().parents[1] / "examples" / "opendesk"
+HERE = Path(__file__).resolve().parents[1] / "setrya" / "examples" / "opendesk"
 MARKER = run.CASES["Acme"][0]
 TICKET = str(uuid4())
 
@@ -250,9 +250,9 @@ class LiveProbeTests(unittest.TestCase):
                 inputs.append(fifo)
             for path in inputs:
                 for args in (
-                    ["-m", "examples.opendesk.verify_report", path],
+                    ["-m", "setrya.examples.opendesk.verify_report", path],
                     [
-                        "-m", "examples.opendesk.to_gate",
+                        "-m", "setrya.examples.opendesk.to_gate",
                         path,
                         "--output",
                         directory / "converted.json",

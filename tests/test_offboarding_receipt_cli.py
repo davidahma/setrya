@@ -56,16 +56,16 @@ class OffboardingReceiptCLITests(unittest.TestCase):
     def test_replay_v032_receipt_and_recompute_exact_bytes(self):
         # The checked-in receipt was generated with the original v0.3.2 CLI from these inputs.
         command = ["verify-receipt", *self.inputs, "--receipt", LEGACY_RECEIPT]
-        verified = self.invoke(2, *command)
+        verified = self.invoke(3, *command)
         self.assertIn("Receipt verified.", verified)
         self.assertIn("Technical verdict PASS", verified)
         self.assertIn("Review status OPEN_ITEMS", verified)
         self.assertIn("SCHEDULED archive", verified)
         output = self.root / "new-receipt.json"
-        self.invoke(2, "receipt", *self.inputs, "--output", output)
-        self.assertEqual(output.read_bytes(), LEGACY_RECEIPT.read_bytes())
         self.invoke(3, "receipt", *self.inputs, "--output", output)
-        self.invoke(3, *command, "--expect-job", "neighboring-job")
+        self.assertEqual(output.read_bytes(), LEGACY_RECEIPT.read_bytes())
+        self.invoke(2, "receipt", *self.inputs, "--output", output)
+        self.invoke(2, *command, "--expect-job", "neighboring-job")
 
     def test_replay_requires_original_exhibits_and_exact_json_types(self):
         for field, value in (("version", True), ("technical_verdict", "FAIL"), ("review_status", "READY_FOR_REVIEW")):
@@ -73,14 +73,14 @@ class OffboardingReceiptCLITests(unittest.TestCase):
                 modified = json.loads(LEGACY_RECEIPT.read_bytes())
                 modified[field] = value
                 path = self.store("modified.json", modified)
-                self.invoke(3, "verify-receipt", *self.inputs, "--receipt", path)
+                self.invoke(2, "verify-receipt", *self.inputs, "--receipt", path)
         (self.root / "provider.txt").write_bytes(b"different document")
-        self.invoke(3, "verify-receipt", *self.inputs, "--receipt", LEGACY_RECEIPT)
+        self.invoke(2, "verify-receipt", *self.inputs, "--receipt", LEGACY_RECEIPT)
 
     def test_replay_allows_only_the_declared_clock_skew(self):
         observed = datetime.fromisoformat(self.data["evidence"]["job"]["observed_at"])
         with patch("setrya.offboarding.receipt_cli.datetime", wraps=datetime) as clock:
-            for seconds, expected_exit in ((300, 2), (301, 3), (-86400, 2)):
+            for seconds, expected_exit in ((300, 3), (301, 2), (-86400, 3)):
                 with self.subTest(seconds=seconds):
                     clock.now.return_value = observed - timedelta(seconds=seconds)
                     self.invoke(expected_exit, "verify-receipt", *self.inputs, "--receipt", LEGACY_RECEIPT)
@@ -95,14 +95,14 @@ class OffboardingReceiptCLITests(unittest.TestCase):
             content = path.read_bytes()
             digests.append(hashlib.sha256(content).hexdigest())
             self.assertIn(digests[-1], stdout)
-            self.invoke(3, *args, "--output", path)
+            self.invoke(2, *args, "--output", path)
             self.assertEqual(content, path.read_bytes())
         self.assertNotEqual(*digests)
 
     @unittest.skipUnless(shutil.which("ssh-keygen"), "OpenSSH signing is optional")
     def test_detached_signature_preserves_original_receipt_namespace(self):
         receipt = self.root / "receipt.json"
-        self.invoke(2, "receipt", *self.inputs, "--output", receipt)
+        self.invoke(3, "receipt", *self.inputs, "--output", receipt)
         key = self.root / "reviewer.key"
         trust = self.root / "allowed_signers"
         subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key], check=True)
@@ -127,6 +127,6 @@ class OffboardingReceiptCLITests(unittest.TestCase):
             except InvalidReport:
                 return None
 
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             winners = list(filter(None, pool.map(attempt, [{"case": "a"}, {"case": "b"}])))
         self.assertEqual(winners, [hashlib.sha256(output.read_bytes()).hexdigest()])

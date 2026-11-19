@@ -38,13 +38,13 @@ jobs:
         run: scripts/qualify-offline.sh --case late-write
       - name: Publish synthetic replay evidence
         if: ${{ !cancelled() && runner.os == 'Linux' && matrix.python == '3.11' }}
-        run: python3 -m setrya check examples/support-search/drill.toml --report run.json --summary "$GITHUB_STEP_SUMMARY"
+        run: python3 -m setrya check setrya/examples/support-search/drill.toml --report run.json --summary "$GITHUB_STEP_SUMMARY"
       - name: Capture a known failing check
         id: failing_evidence
         if: ${{ !cancelled() && runner.os == 'Linux' && matrix.python == '3.11' }}
         continue-on-error: true
         run: |
-          sed 's/mode = "fixed"/mode = "broken"/' examples/support-search/drill.toml > "$RUNNER_TEMP/setrya-broken.toml"
+          sed 's/mode = "fixed"/mode = "broken"/' setrya/examples/support-search/drill.toml > "$RUNNER_TEMP/setrya-broken.toml"
           python3 -m setrya check "$RUNNER_TEMP/setrya-broken.toml" --report run.failed.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: ${{ !cancelled() && runner.os == 'Linux' && matrix.python == '3.11' }}
@@ -131,13 +131,37 @@ jobs:
           git archive HEAD | tar -x -C "$source_dir"
           cd "$source_dir"
           python3 -m setrya qualify --case pgvector
-          python3 -m examples.pgvector_search.benchmark --repeats 3 --output "$RUNNER_TEMP/setrya-benchmark"
+          python3 -m setrya.examples.pgvector_search.benchmark --repeats 3 --output "$RUNNER_TEMP/setrya-benchmark"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: ${{ !cancelled() }}
         with:
           name: pgvector-benchmark
           path: ${{ runner.temp }}/setrya-benchmark/
           if-no-files-found: warn
+
+  elasticsearch:
+    name: Elasticsearch native visibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+      - name: Run both visibility tiers on one disposable shard
+        shell: bash
+        run: |
+          node=$(docker run --rm -d -p 127.0.0.1::9200 \
+            -e discovery.type=single-node -e xpack.security.enabled=false -e xpack.ml.enabled=false \
+            -e ES_JAVA_OPTS="-Xms512m -Xmx512m" \
+            docker.elastic.co/elasticsearch/elasticsearch:8.19.12@sha256:6711d4eff91dce95b900eb3c771c5298672ba00f6d20cab79551c4acc133f629)
+          trap 'docker stop "$node" >/dev/null' EXIT
+          endpoint=$(docker port "$node" 9200/tcp)
+          export SETRYA_ELASTICSEARCH_PORT="${endpoint##*:}"
+          curl -fsS --retry 30 --retry-all-errors --retry-delay 2 --max-time 5 "http://$endpoint" >/dev/null
+          python3 -m unittest discover -s tests -p test_elasticsearch_store.py -v
 
   recorded-review:
     name: Recorded pytest review
@@ -155,10 +179,14 @@ jobs:
         run: python3 -m pytest -q
       - name: Run the installed example on two fixture revisions
         working-directory: ${{ runner.temp }}
-        run: python3 -m examples.recorded_search.verify --output "$RUNNER_TEMP/recorded-review"
+        run: python3 -m setrya.examples.recorded_search.verify --output "$RUNNER_TEMP/recorded-review"
       - name: Exercise the installed tenant offboarding CLI outside the checkout
         working-directory: ${{ runner.temp }}
-        run: setrya offboarding demo --output offboarding-example
+        run: |
+          mkdir examples
+          echo 'raise RuntimeError("unexpected generic examples import")' > examples/__init__.py
+          python3 -c 'from importlib.metadata import files; assert all(path.parts[0] != "examples" for path in files("setrya"))'
+          setrya offboarding demo --output offboarding-example
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: synthetic-offboarding-example
@@ -181,12 +209,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
-    needs: [tests, pgvector, recorded-review, secrets]
+    needs: [tests, pgvector, elasticsearch, recorded-review, secrets]
     steps:
       - name: Require all matrix cells to pass
         env:
           MATRIX_RESULT: ${{ needs.tests.result }}
           PGVECTOR_RESULT: ${{ needs.pgvector.result }}
+          ELASTIC_RESULT: ${{ needs.elasticsearch.result }}
           RECORDED_RESULT: ${{ needs.recorded-review.result }}
           SECRET_SCAN_RESULT: ${{ needs.secrets.result }}
-        run: test "$MATRIX_RESULT" = success && test "$PGVECTOR_RESULT" = success && test "$RECORDED_RESULT" = success && test "$SECRET_SCAN_RESULT" = success
+        run: test "$MATRIX_RESULT" = success && test "$PGVECTOR_RESULT" = success && test "$ELASTIC_RESULT" = success && test "$RECORDED_RESULT" = success && test "$SECRET_SCAN_RESULT" = success

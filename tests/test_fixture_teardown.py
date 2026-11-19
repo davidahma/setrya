@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 
-from examples.support_search.client import Client, FixtureError
+from setrya.examples.support_search.client import Client, FixtureError
 
 
 class FixtureTeardownTests(unittest.TestCase):
@@ -15,7 +15,7 @@ class FixtureTeardownTests(unittest.TestCase):
             (directory / "cleanup_case.py").write_text(
                 "from pathlib import Path\n"
                 "import sys\n"
-                "from examples.support_search.__main__ import serve\n"
+                "from setrya.examples.support_search.__main__ import serve\n"
                 "class Fixture:\n"
                 "    def close(self):\n"
                 "        raise RuntimeError('cleanup failed')\n"
@@ -38,7 +38,7 @@ class FixtureTeardownTests(unittest.TestCase):
         process.kill.assert_called_once()
 
     def test_cleanup_failure_preserves_startup_error(self):
-        with TemporaryDirectory() as folder, patch("examples.support_search.client.subprocess.Popen") as spawn:
+        with TemporaryDirectory() as folder, patch("setrya.examples.support_search.client.subprocess.Popen") as spawn:
             spawn.return_value.poll.return_value = 1
             spawn.return_value.wait.return_value = 1
             with self.assertRaisesRegex(FixtureError, "did not start") as raised:

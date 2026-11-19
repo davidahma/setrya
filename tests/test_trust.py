@@ -100,7 +100,7 @@ class TrustTests(unittest.TestCase):
     def config(self, mode="fixed", **replacements):
         content = (EXAMPLE / "drill.toml").read_text(encoding="utf-8")
         changes = {
-            'factory = "examples.support_search.adapter:http_fixture"': f'factory = "{FACTORY}"',
+            'factory = "setrya.examples.support_search.adapter:http_fixture"': f'factory = "{FACTORY}"',
             'mode = "fixed"': f'mode = "{mode}"',
             'freshness_ms = 1200': 'freshness_ms = 300',
             'max_gap_ms = 225': 'max_gap_ms = 120',
@@ -181,8 +181,8 @@ class TrustTests(unittest.TestCase):
         mismatches = (("revision", "C"), ("document", "different"), ("run_id", "other-run"))
         # The reference app publishes B even if a drill asks for C.
         self.config(**{'new_revision = "B"': 'new_revision = "C"',
-                       'factory = "examples.support_search.adapter:http_fixture"':
-                           'factory = "examples.support_search.adapter:http_fixture"'})
+                       'factory = "setrya.examples.support_search.adapter:http_fixture"':
+                           'factory = "setrya.examples.support_search.adapter:http_fixture"'})
         self.assert_exit(self.check(), 3, "Missing matching publication of revision C")
         self.assertNotIn("released", {event["kind"] for event in self.bundle()["events"]})
         self.assert_exit(self.replay(), 3, "Missing matching publication of revision C")
@@ -225,6 +225,7 @@ class TrustTests(unittest.TestCase):
         self.config()
         self.assert_exit(self.check(), 0, "PASS")
         legacy = self.bundle()
+        legacy.pop("format")
         legacy.update(schema=1, checker=1)
         legacy.pop("inputs", None)
         for event in legacy["events"]:
@@ -248,7 +249,7 @@ class TrustTests(unittest.TestCase):
 
     def test_console_entry_resolves_adapter_in_working_checkout_without_implicit_cwd(self):
         (self.directory / "checkout_adapter.py").write_text("from test_trust import fixture\n")
-        self.config(**{'factory = "examples.support_search.adapter:http_fixture"':
+        self.config(**{'factory = "setrya.examples.support_search.adapter:http_fixture"':
                            'factory = "checkout_adapter:fixture"'})
         isolated = ("-P", "-c", "from setrya.cli import main; raise SystemExit(main())")
         installed_entry = ("-P", "-c", "from setrya.cli import console_main; raise SystemExit(console_main())")
