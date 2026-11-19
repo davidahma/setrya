@@ -35,7 +35,7 @@ services:
       - ./transport.py:/stub/transport.py:ro
 
   app:
-    image: ghcr.io/useopendesk/opendesk:v0.4.13@sha256:e0fca3427eec675426c6c96766267d7980c861b52f630afc906fcf0c7dca0fe1
+    image: ghcr.io/useopendesk/opendesk:v0.4.14@sha256:cb60703a043dc2afa9fb3266e93079813be3e171ed70177e2d4ac47cb266f4d8
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     read_only: true
