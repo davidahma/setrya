@@ -56,13 +56,18 @@ class Fixture:
         option = "" if self.weak else "?refresh=true"
         self.write = self.request("POST", "/_update/refund" + option, {"doc": patch})
 
+    @property
+    def refresh_generation(self):
+        # Elasticsearch UUIDs are base64url and may start with "-" or "_".
+        return "es-index-" + self.uuid
+
     def receipt(self):
         position = elasticsearch_position(self.write, index_uuid=self.uuid, shard=0)
         return Receipt(self.run_id, "index-job", "refund", self.captured["revision"], "committed",
-                       self.uuid if self.weak else position.generation, None if self.weak else position.commit)
+                       self.refresh_generation if self.weak else position.generation, None if self.weak else position.commit)
 
     def refresh(self, receipt, probe):
-        return elasticsearch_refresh(self.request("POST", "/_refresh"), receipt=receipt, generation=self.uuid,
+        return elasticsearch_refresh(self.request("POST", "/_refresh"), receipt=receipt, generation=self.refresh_generation,
                                      route="support-search", scope="support-agent")
 
     def search(self, probe):

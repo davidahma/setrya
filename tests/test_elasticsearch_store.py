@@ -30,7 +30,8 @@ class ElasticsearchIntegrationTests(unittest.TestCase):
                     with self.subTest(policy=policy, mode=mode):
                         result = run(replace(drill, rules=replace(drill.rules, visibility=policy), options={"mode":mode}))
                         self.assertIs(result.verdict.status, Status.PASS if mode == "fixed" else Status.FAIL,
-                                      result.verdict.detail)
+                                      (result.verdict.detail, [e for e in result.report.events
+                                                           if e["kind"] == "adapter_error"]))
                         if mode == "fixed":
                             self.assertEqual(result.verdict.evidence_tier, tier)
                         result.report.save(evidence)

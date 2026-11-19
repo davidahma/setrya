@@ -39,8 +39,8 @@ class Client:
                 error.add_note("Search fixture cleanup also failed after startup.")
             raise
 
-    def request(self, endpoint, **payload):
-        connection = HTTPConnection("127.0.0.1", self.port, timeout=2)
+    def request(self, endpoint, *, timeout=2, **payload):
+        connection = HTTPConnection("127.0.0.1", self.port, timeout=timeout)
         try:
             connection.request("POST", endpoint, json.dumps(payload), {
                 "Content-Type": "application/json", "X-Fixture-Key": self.key,
@@ -52,7 +52,10 @@ class Client:
         finally:
             connection.close()
 
-    def seed(self): return self.request("/fixture/seed")
+    def seed(self):
+        # Initial SQLite file creation and fsync precede the observed worker race.
+        return self.request("/fixture/seed", timeout=10)
+
     def start_old(self): return self.request("/fixture/start")
     def checkpoint(self): return self.request("/fixture/checkpoint")
     def publish(self): return self.request("/fixture/publish")

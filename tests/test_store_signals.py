@@ -8,7 +8,8 @@ import unittest
 from setrya.adapter import Receipt
 from setrya.checker import Status, evaluate
 from setrya.cli import EXAMPLE
-from setrya.drill import Drill, InputError
+from setrya.drill import Drill, InputError, label
+from setrya.examples.elasticsearch_search import Fixture
 from setrya.evidence import Report, bind_inputs
 from setrya.store_signals import elasticsearch_position, elasticsearch_refresh, passage_metadata, postgres_wal
 from test_checker import History, view
@@ -16,6 +17,22 @@ from test_runtime_evidence import make_report
 
 
 class VisibilityTests(unittest.TestCase):
+    def test_refresh_receipt_preserves_base64url_index_identities(self):
+        fixture = Fixture.__new__(Fixture)
+        fixture.run_id, fixture.weak = "run", True
+        fixture.captured = {"revision": "A"}
+        fixture.write = {"_id": "doc", "_index": "index", "_primary_term": 1, "_seq_no": 3}
+        fixture.request = lambda *args: {"_shards": {"total": 1, "successful": 1, "failed": 0}}
+        probe = Drill.load(EXAMPLE / "drill.toml").probes[0]
+        identities = set()
+        for index_uuid in ("-2msia5mS4WwN7HhDtHK0A", "_2msia5mS4WwN7HhDtHK0A"):
+            fixture.uuid = index_uuid
+            receipt = fixture.receipt()
+            identities.add(label(receipt.generation, "index generation"))
+            self.assertEqual(receipt.generation, fixture.refresh(receipt, probe).generation)
+            self.assertIsNone(receipt.commit)
+        self.assertEqual(len(identities), 2)
+
     def history(self, *, policy="observed-after-refresh", refresh=True, late=False, watermark=None):
         history = History()
         history.rules = replace(history.rules, visibility=policy)

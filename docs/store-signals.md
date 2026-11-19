@@ -49,12 +49,12 @@ from setrya.store_signals import elasticsearch_refresh
 def refresh(self, receipt, probe):
     response = self.client.indices.refresh(index=self.concrete_index)
     return elasticsearch_refresh(
-        response.body, receipt=receipt, generation=self.index_uuid,
+        response.body, receipt=receipt, generation="es-index-" + self.index_uuid,
         route=self.search_route, scope=self.caller,
     )
 ```
 
-In this configuration the committed receipt carries the concrete index UUID as `generation` and can leave `commit=None`. Resolve the index and caller from the application route. Only acknowledge a successful refresh of the concrete generation the application actually reads. The helper checks that all shards succeeded. Time elapsed, an HTTP 200 from a proxy, or a completed queue job does not establish a refresh. A store without a refresh acknowledgment or matching watermark yields NOT TESTED after a commit. [Elasticsearch refresh semantics](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-refresh)
+Use the same `"es-index-" + index_uuid` generation in the committed receipt and refresh acknowledgment. The prefix accommodates Elasticsearch UUIDs that start with a hyphen or underscore. The receipt can leave `commit=None`. Resolve the index and caller from the application route. Only acknowledge a successful refresh of the concrete generation the application actually reads. The helper checks that all shards succeeded. Time elapsed, an HTTP 200 from a proxy, or a completed queue job does not establish a refresh. A store without a refresh acknowledgment or matching watermark yields NOT TESTED after a commit. [Elasticsearch refresh semantics](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-refresh)
 
 A passing refresh-only run prints **Observed after refresh (write visibility unverified)** and exposes `verdict.evidence_tier == "observed-after-refresh"`. This answers whether the caller returned the expected passages after the refresh completed. Strict confirmation exposes `"write-confirmed"`. A stale hit still fails either policy. A read supplying a contradictory watermark cannot substitute the refresh acknowledgment.
 
