@@ -54,6 +54,8 @@ class OpenDeskWorkflowTests(unittest.TestCase):
                 def interrupt_at_checkpoint(stack, report):
                     if phase == "startup":
                         raise KeyboardInterrupt
+                    report["target"] = {**run.TRIAL_BUILD, "platform": "linux/amd64",
+                                        "binary_sha256": run.TRIAL_BINARIES["linux/amd64"]}
                     before = {label: run.HEALTHY_V2.copy() for label in run.CASES}
                     after = {label: run.UNTESTED.copy() for label in run.CASES}
                     if residual:
@@ -70,7 +72,7 @@ class OpenDeskWorkflowTests(unittest.TestCase):
                 with (patch.object(run, "run", side_effect=interrupt_at_checkpoint),
                       patch.object(run.Stack, "compose", side_effect=KeyboardInterrupt if phase == "cleanup" else None) as cleanup):
                     self.assertEqual(self.invoke("--output", destination), expected)
-                cleanup.assert_called_once_with("down", "--volumes", "--remove-orphans")
+                cleanup.assert_called_once_with("down", "--volumes", "--remove-orphans", "--rmi", "local")
                 report = destination / "opendesk.json"
                 self.assertEqual(self.invoke("--verify-report", report), 0)
                 self.assertEqual(json.loads(report.read_bytes())["interrupted_at"], phase)

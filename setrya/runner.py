@@ -28,28 +28,33 @@ def run(drill: Drill | str | Path, *, revision: str | None = None) -> RunResult:
         module = "setrya." + module
     try:
         factory = getattr(import_module(module), factory_name)
+    except KeyboardInterrupt as error:
+        execution.add_error("factory", error)
+        return execution.result()
     except (ImportError, AttributeError):
         raise InputError("could not import adapter factory from the checkout or Python path") from None
 
     with TemporaryDirectory(prefix="setrya-") as directory:
         try:
             execution.adapter = factory(RunContext(execution.run_id, Path(directory), drill))
-        except Exception as error:
+        except (Exception, KeyboardInterrupt) as error:
             execution.add_error("factory", error)
         else:
             try:
                 execution.run()
-            except Exception as error:
+            except (Exception, KeyboardInterrupt) as error:
                 execution.add_error(execution.operation, error)
             finally:
                 try:
                     execution.adapter.close()
-                except Exception as error:
+                except (Exception, KeyboardInterrupt) as error:
                     execution.add_error("close", error)
     return execution.result()
 
 
 class _Execution(_Journal):
+    operation = "seed"
+
     def call(self, operation: str, *args):
         self.operation = operation
         return getattr(self.adapter, operation)(*args)

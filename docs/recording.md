@@ -7,7 +7,7 @@ Use the opt-in `setrya_record` fixture when your test can pause a worker, publis
 From your application’s test environment, install the release and enable the pytest plugin for your test.
 
 ```sh
-python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.9.0/setrya-0.9.0.tar.gz'
+python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.9.1/setrya-0.9.1.tar.gz'
 python -m pytest -p setrya.pytest_plugin tests/test_refund.py
 ```
 

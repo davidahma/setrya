@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from setrya.examples.opendesk import run
-from setrya.examples.opendesk.verify_report import TARGET, validate
+from setrya.examples.opendesk.verify_report import TARGET, TRIAL_BINARIES, TRIAL_BUILD, validate
 
 
 class UpstreamReportTests(unittest.TestCase):
@@ -34,6 +34,22 @@ class UpstreamReportTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 self.report["target"] = {**previous, field: TARGET[field]}
                 validate(self.report)
+
+    def test_trial_recipe_matches_the_packaged_file_and_binaries_bind_platform(self):
+        from hashlib import sha256
+        self.assertEqual(sha256((run.HERE / "Dockerfile.trial").read_bytes()).hexdigest(), TRIAL_BUILD["recipe_sha256"])
+        self.report.update(report_version=2, observations=[], interrupted_at="startup",
+                           offboarding_http_status=None, outcome="INCONCLUSIVE", target=TRIAL_BUILD)
+        validate(self.report)
+        for platform, binary in TRIAL_BINARIES.items():
+            self.report["target"] = {**TRIAL_BUILD, "platform": platform, "binary_sha256": binary}
+            validate(self.report)
+            self.report["target"]["binary_sha256"] = "0" * 64
+            with self.assertRaises(ValueError):
+                validate(self.report)
+        self.report.update(target=TRIAL_BUILD, interrupted_at="seeding")
+        with self.assertRaises(ValueError):
+            validate(self.report)
 
     def test_denied_request_cannot_be_called_absent(self):
         self.after["Acme"]["agent_summary"] = "NOT_RETURNED"

@@ -72,17 +72,23 @@ def preset(kind: str, mode: str = "fixed") -> Drill:
     return Drill(rules, tuple(probes), FIXTURE, {"mode": mode})
 
 
-def _check_kind(kind, rules):
+def _has_revocation_control(rules, *, historical=False):
+    primary = next(p for p in rules.probes if p.id == rules.freshness_probe)
+    retained = {marker for probe in rules.probes if probe.route == primary.route and probe.scope != primary.scope
+                for marker in set(probe.before).intersection(probe.require)}
+    if historical:
+        return bool(retained.intersection(primary.forbid))
+    return set(primary.before) <= retained
+
+
+def _check_kind(kind, rules, *, historical=False):
     if kind not in KINDS:
         raise InputError("unknown scenario")
     primary = next(p for p in rules.probes if p.id == rules.freshness_probe)
     if primary.absence != (kind != "update"):
         raise InputError("delete and revoke require an absence freshness probe; update requires a replacement")
-    if kind == "revoke" and not any(
-        p.scope != primary.scope and p.route == primary.route and
-        set(primary.forbid) & set(p.require) & set(p.before) for p in rules.probes
-    ):
-        raise InputError("revocation requires another authorized caller who retains the target passage")
+    if kind == "revoke" and not _has_revocation_control(rules, historical=historical):
+        raise InputError("each revoked baseline marker needs a matching still-authorized control")
 
 
 def _combine(verdicts):
@@ -118,7 +124,8 @@ def _drive(app, lanes, manifest):
         # The first delivery really ran and reached the worker hook. Stop it
         # before it can commit; redeliver its durable message as a new attempt.
         first = app.delivery(messages[0], _attempt(run_id, "initial"))
-        prior = _Execution(lanes[0].drill, run_id)
+        prior = _Execution(lanes[0].drill, run_id,
+                           test_id=_test_id(manifest["kind"], schedule, "initial", manifest["config"]))
         prior.started_ns = lanes[0].started_ns
         prior.adapter = first
         if not prior.baseline() or not prior.hold():
@@ -230,7 +237,7 @@ def run_scenario(kind: str, schedule: str, output: str | Path, *,
     with TemporaryDirectory(prefix="setrya-scenario-") as directory:
         app = None
         try:
-            app = factory(RunContext(run_id, Path(directory), drill))
+            app = factory(RunContext(run_id, Path(directory), drill, scenario_kind=kind))
             _drive(app, lanes, manifest)
         except (Exception, KeyboardInterrupt) as error:
             manifest["error"] = type(error).__name__
@@ -345,7 +352,7 @@ def _replay_lane_group(directory, meta):
                     or report.inputs["adapter"] != expected
                     or (current and report.inputs.get("revision") != meta["revision"])):
                 raise InputError("delivery report does not belong to this scenario")
-            _check_kind(meta["kind"], report.rules)
+            _check_kind(meta["kind"], report.rules, historical=True)
             reports[i] = report
             verdict = evaluate(report)
             if current and verdict.status == Status.FAIL:
@@ -358,6 +365,9 @@ def _replay_lane_group(directory, meta):
     if any(r.rules != reports[0].rules or r.inputs.get("revision") != reports[0].inputs.get("revision")
            or r.inputs["questions"] != reports[0].inputs["questions"] for r in reports.values()):
         raise InputError("delivery rules or input revisions differ")
+    if current and meta["kind"] == "revoke" and not _has_revocation_control(reports[0].rules):
+        verdicts.append(Verdict(Status.NOT_TESTED,
+                                "Missing still-authorized control for the revoked caller’s baseline passages"))
     if meta["error"] is not None:
         label(meta["error"], "error type")
         verdicts.append(Verdict(Status.ERROR, f"Adapter raised {meta['error']}"))
@@ -441,15 +451,21 @@ def main(argv=None):
         arg.add_argument("--drill", type=Path)
         arg.add_argument("--adapter")
         arg.add_argument("--revision")
-        arg.add_argument("--mode", choices=("fixed", "broken"), default="fixed")
+        arg.add_argument("--mode", choices=("fixed", "broken"), help="override the bundled SQLite worker mode")
     args = parser.parse_args(argv)
     try:
         if args.kind == "replay":
             verdict = replay(args.directory)
         else:
-            drill = Drill.load(args.drill) if args.drill else preset(args.kind, args.mode)
+            drill = Drill.load(args.drill) if args.drill else preset(args.kind)
             if args.adapter:
                 drill = replace(drill, factory=args.adapter)
+            if args.mode is not None:
+                if drill.factory != FIXTURE:
+                    print("ERROR  --mode applies only to the bundled SQLite worker. "
+                          "Configure your adapter in the drill options.", file=sys.stderr)
+                    return Status.ERROR.exit_code
+                drill = replace(drill, options={**drill.options, "mode": args.mode})
             if args.schedule == "all":
                 verdict = _run_suite(args.kind, args.output, drill, args.revision)
             else:

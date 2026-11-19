@@ -10,11 +10,15 @@ from .adapter import Checkpoint, Publication, Receipt, SearchResult
 
 class Application:
     def __init__(self, context):
+        options = context.drill.options
+        mode = options.get("mode", "fixed")
+        if options.keys() - {"mode"} or mode not in ("fixed", "broken"):
+            raise ValueError("the SQLite scenario fixture accepts mode fixed or broken")
+        self.broken = mode == "broken"
         self.context = context
         self.path = context.directory.resolve() / "index.db"
         self.pool = ThreadPoolExecutor(max_workers=4)
         self.workers = []
-        self.broken = context.drill.options.get("mode") == "broken"
 
     def seed(self):
         with closing(sqlite3.connect(self.path)) as db, db:
@@ -30,19 +34,23 @@ class Application:
             """)
 
     def publish(self):
-        rules = self.context.drill.rules
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("UPDATE state SET epoch = epoch + 1")
-            if rules.new_revision == "updated":
+            if self.context.scenario_kind == "update":
+                revision = "updated"
                 db.execute("UPDATE state SET marker = 'subject@B'")
                 db.execute("UPDATE projection SET marker = 'subject@B' WHERE document = 'subject'")
-            elif rules.new_revision == "deleted":
+            elif self.context.scenario_kind == "delete":
+                revision = "deleted"
                 db.execute("UPDATE state SET marker = NULL")
                 db.execute("DELETE FROM projection WHERE document = 'subject'")
-            elif rules.new_revision == "revoked":
+            elif self.context.scenario_kind == "revoke":
+                revision = "revoked"
                 db.execute("DELETE FROM grants WHERE caller = 'support'")
                 db.execute("DELETE FROM projection WHERE caller = 'support' AND document = 'subject'")
-        return Publication(self.context.run_id, rules.document, rules.new_revision)
+            else:
+                raise ValueError("unknown SQLite fixture mutation")
+        return Publication(self.context.run_id, "subject", revision)
 
     def delivery(self, message_id, attempt):
         worker = _Delivery(self, message_id, attempt)
@@ -71,6 +79,7 @@ class _Delivery:
             self.consumed, epoch, marker = db.execute(
                 "SELECT id,epoch,marker FROM messages WHERE id = ?", (self.message,)
             ).fetchone()
+            self.document, self.revision = marker.split("@")
             readers = list(db.execute("SELECT caller FROM grants"))
         self.captured.set()
         self.resume.wait()
@@ -88,8 +97,7 @@ class _Delivery:
         if self.future.done():
             self.future.result()
         if self.captured.is_set():
-            rules = self.app.context.drill.rules
-            return Checkpoint(self.app.context.run_id, self.attempt, rules.document, rules.old_revision, rules.checkpoint)
+            return Checkpoint(self.app.context.run_id, self.attempt, self.document, self.revision, "before-write")
 
     def message_id(self):
         return self.consumed
@@ -106,9 +114,8 @@ class _Delivery:
 
     def receipt(self):
         if self.future.done():
-            rules = self.app.context.drill.rules
             outcome = self.future.result()
-            return Receipt(self.app.context.run_id, self.attempt, rules.document, rules.old_revision,
+            return Receipt(self.app.context.run_id, self.attempt, self.document, self.revision,
                            outcome, "projection" if outcome == "committed" else None)
 
     def search(self, probe):

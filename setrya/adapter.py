@@ -12,6 +12,7 @@ class RunContext:
     run_id: str
     directory: Path
     drill: Drill
+    scenario_kind: str | None = None
 
 
 @dataclass(frozen=True)

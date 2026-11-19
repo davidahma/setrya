@@ -10,6 +10,17 @@ Use the installed `setrya offboarding gate` or `setrya offboarding verify-receip
 
 Setrya checks the files, request binding, and internal consistency. Someone who controls the observer or job log could fabricate the recorded events. Review the identity and permissions of each evidence producer before relying on its readings. A passing technical result covers the declared reads and checkpoints. Provider statements identify their issuer, and scheduled retention stays an open item. [Receipt guide](docs/offboarding.md#review-one-deletion-request)
 
+## Verify the Python release
+
+Starting with 0.9.1, the offline qualification workflow attests the source archive after testing the checkout and its unpacked contents. Download the archive, set `EXPECTED_COMMIT` to the full Git commit from your approved release record, and verify the artifact before installing it.
+
+```sh
+gh attestation verify setrya-0.9.1.tar.gz --repo davidahma/setrya \
+  --signer-workflow davidahma/setrya/.github/workflows/qualification.yml \
+  --source-ref refs/heads/main --source-digest "$EXPECTED_COMMIT" --deny-self-hosted-runners
+python -m pip install ./setrya-0.9.1.tar.gz
+```
+
 ## Verify a downloaded offboarding tool
 
 The portable CLI runs with Python 3.11 or newer. Before executing it, check that GitHub attested the exact file on Setrya’s protected main branch. Obtain the expected full commit ID from your approved release record. The same command accepts the downloadable synthetic offboarding ZIP and reference report. The workflow runs the packaged code and scans the generated evidence before uploading the files. [Portable build workflow](.github/workflows/offboarding-portable.yml)
@@ -21,4 +32,4 @@ gh attestation verify setrya-offboarding.pyz --repo davidahma/setrya \
 python3 -I setrya-offboarding.pyz --help
 ```
 
-The OpenDesk trial uses synthetic data and digest-pinned images. Its guide documents the isolation, the scope of each read and the image audit. [OpenDesk trial](setrya/examples/opendesk/README.md)
+The OpenDesk trial runs synthetic data against a checksum-verified application build and two digest-pinned service images. It checks the running application’s executable digest before collecting observations. The trial guide covers isolation, read permissions and the vulnerability inventory for each supported architecture. [OpenDesk trial](setrya/examples/opendesk/README.md)

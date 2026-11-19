@@ -1,5 +1,5 @@
 """Exercise the controlled worker, scoped probes and offline schedule verification."""
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 from io import StringIO
 import json
@@ -8,16 +8,100 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
+from zipfile import ZipFile
 
 from setrya.adapter import Refresh, SearchResult
 from setrya.checker import Status
-from setrya.drill import InputError
+from setrya.drill import Drill, InputError
 from setrya.evidence import Report
 from setrya.scenario_fixture import Application, _Delivery
 from setrya.scenarios import KINDS, SCHEDULES, main, preset, replay, run_scenario
 
 
 class ScenarioTests(unittest.TestCase):
+    def test_mode_overrides_only_the_bundled_worker_and_preserves_drill_defaults(self):
+        with TemporaryDirectory() as tmp, redirect_stdout(StringIO()), redirect_stderr(StringIO()) as errors:
+            root = Path(tmp)
+            base = ["update", "--drill", "app.toml", "--schedule", "single"]
+            for configured, flags, expected in (
+                ("broken", [], 1),
+                ("broken", ["--mode", "fixed"], 0),
+                ("fixed", ["--mode", "broken"], 1),
+                ("mistyped", [], 2),
+            ):
+                with self.subTest(configured=configured, flags=flags):
+                    drill = replace(preset("update"), options={"mode": configured})
+                    output = root / (configured + "-".join(flags))
+                    with patch.object(Drill, "load", return_value=drill):
+                        self.assertEqual(main([*base, *flags, "--output", str(output)]), expected)
+                    self.assertEqual(replay(output).status.exit_code, expected)
+            with patch.object(Drill, "load", return_value=preset("update")):
+                output = root / "custom"
+                self.assertEqual(main([*base, "--adapter", "custom:Worker", "--mode", "broken",
+                                       "--output", str(output)]), 2)
+                self.assertIn("--mode applies only to the bundled SQLite worker", errors.getvalue())
+                self.assertFalse(output.exists())
+
+    def test_fixture_reports_the_target_it_captured_and_the_mutation_it_performed(self):
+        revisions = {"update": "updated", "delete": "deleted", "revoke": "revoked"}
+        for kind in KINDS:
+            for mode in ("fixed", "broken"):
+                for field, value in (("document", "other-doc"), ("old_revision", "Z"),
+                                     ("checkpoint", "other-hook"), ("new_revision", "unexpected"),
+                                     ("new_revision", "deleted" if kind == "revoke" else "revoked")):
+                    with self.subTest(kind=kind, mode=mode, field=field, value=value), TemporaryDirectory() as tmp:
+                        drill = preset(kind, mode)
+                        drill = replace(drill, rules=replace(drill.rules, **{field: value}))
+                        output = Path(tmp, "run")
+                        live = run_scenario(kind, "single", output, drill=drill)
+                        self.assertIs(live.status, Status.NOT_TESTED)
+                        self.assertEqual(replay(output), live)
+                        events = Report.load(output / "delivery-0.json").events
+                        held = next(e for e in events if e["kind"] == "held")
+                        self.assertEqual((held["document"], held["revision"], held["name"]),
+                                         ("subject", "A", "before-write"))
+                        if field == "new_revision":
+                            published = next(e["publication"] for e in events if e["kind"] == "published")
+                            self.assertEqual((published["document"], published["revision"]), ("subject", revisions[kind]))
+                        self.assertFalse(any(e["kind"] == "released" for e in events))
+
+    def test_retry_accepts_an_injected_application_without_a_configured_factory(self):
+        drill = replace(preset("delete"), factory=None, options={})
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp, "retry")
+            self.assertIs(run_scenario("delete", "retry", output, drill=drill, factory=Application).status,
+                          Status.PASS)
+            self.assertIs(replay(output).status, Status.PASS)
+            retry = json.loads((output / "scenario.json").read_bytes())["retry"]
+            self.assertEqual(retry["receipt"]["outcome"], "rejected")
+
+    def test_every_revoked_baseline_marker_requires_positive_authorization_evidence(self):
+        drill = preset("revoke")
+        primary, retained, owner = drill.probes
+        for baseline in (("subject@A",), ("subject@A", "retained@A")):
+            with self.subTest(baseline=baseline), TemporaryDirectory() as tmp:
+                subject = replace(primary, rules=replace(primary.rules, before=baseline,
+                                                         forbid=("subject@A", "retained@A")))
+                unrelated = replace(owner, question="control", rules=replace(
+                    owner.rules, before=("retained@A",), require=("retained@A",)))
+                probes = (subject, retained, unrelated)
+                weak = replace(drill, probes=probes, rules=replace(drill.rules, probes=tuple(p.rules for p in probes)))
+                out = Path(tmp, "run")
+                with self.assertRaisesRegex(InputError, "each revoked baseline marker"):
+                    run_scenario("revoke", "single", out, drill=weak)
+                self.assertFalse(out.exists())
+
+    def test_v090_revocation_with_unrelated_positive_control_stays_readable(self):
+        # The old release ran a tenant-wide deletion and kept only an unrelated
+        # marker for the owner. It returned PASS on the guarded worker.
+        with TemporaryDirectory() as tmp:
+            with ZipFile(Path(__file__).with_name("fixtures") / "scenario-v090-unrelated-control.zip") as bundle:
+                bundle.extractall(tmp)
+            result = replay(Path(tmp, "fixed"))
+            self.assertIs(result.status, Status.NOT_TESTED)
+            self.assertIn("still-authorized control", result.detail)
+            self.assertIs(replay(Path(tmp, "broken")).status, Status.FAIL)
+
     def test_every_worker_schedule_and_mutation_replays_after_teardown(self):
         with TemporaryDirectory() as tmp:
             for kind in KINDS:

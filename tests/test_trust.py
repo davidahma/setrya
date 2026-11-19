@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from setrya.adapter import Checkpoint, Publication, ReadView, Receipt, SearchResult
 from setrya.checker import Status
-from setrya.cli import EXAMPLE, demo
+from setrya.cli import EXAMPLE, demo, main
 from setrya.drill import Drill, InputError
 from setrya.runner import run
 
@@ -213,6 +213,27 @@ class TrustTests(unittest.TestCase):
                                self.summary.read_text()):
                     self.assertNotIn(PRIVATE, output)
                 self.assertIn("setrya replay run.json", self.summary.read_text())
+
+    def test_interrupted_check_persists_failure_or_incomplete_run_and_replays(self):
+        cases = (
+            ("setrya.runner.import_module", "fixed", "factory", 2),
+            ("test_trust.fixture", "fixed", "factory", 2),
+            ("test_trust.EvidenceFixture.release", "fixed", "release", 2),
+            ("test_trust.EvidenceFixture.release", "release-error", "release", 1),
+            ("test_trust.EvidenceFixture.close", "ranked", "close", 1),
+        )
+        for hook, mode, operation, expected in cases:
+            with self.subTest(hook=hook, mode=mode), redirect_stdout(StringIO()):
+                self.config(mode)
+                self.report.unlink(missing_ok=True)
+                with patch(hook, side_effect=KeyboardInterrupt):
+                    code = main(["check", str(self.drill), "--report", str(self.report),
+                                 "--summary", str(self.summary)])
+                self.assertEqual(code, expected)
+                self.assertEqual(main(["replay", str(self.report)]), expected)
+                self.assertIn(f"Adapter error during {operation} (KeyboardInterrupt)", self.summary.read_text())
+                if expected == 1:
+                    self.assertIn("refund@A at rank", self.summary.read_text())
 
     def test_adapter_error_without_failure_is_replayable_execution_error(self):
         for mode, detail in (("early-error", "release (ConnectionError)"), ("close-error", "close (ConnectionError)")):

@@ -99,6 +99,8 @@ class Report:
         self.validate()
         target = Path(path)
         try:
+            if target.is_symlink() or (target.exists() and not target.is_file()):
+                raise InputError("report destination must be a regular file")
             with tempfile.NamedTemporaryFile(
                 mode="w", encoding="utf-8", dir=target.parent, prefix=".setrya-", delete=False
             ) as stream:

@@ -1,0 +1,26 @@
+# Build the API and workers exercised by the offboarding fixture.
+FROM --platform=$BUILDPLATFORM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS build
+ARG TARGETARCH
+ENV GOTOOLCHAIN=local CGO_ENABLED=0
+WORKDIR /src
+ADD --checksum=sha256:59cbcda7fd8d2b0c88a092a320503d2d568ac65d5d8fb7c5e66fcf4c5e7831d5 https://codeload.github.com/useopendesk/opendesk/tar.gz/779e28e5ff0ac59cda609edabefa1ecb9cc9c4b5 /tmp/opendesk.tar.gz
+RUN tar -xzf /tmp/opendesk.tar.gz --strip-components=1 && \
+    go mod edit -require=github.com/andybalholm/brotli@v1.2.7 && \
+    printf '%s\n' 'github.com/andybalholm/brotli v1.2.7 h1:UgafRPGMam5ySHfRkhthMqOFA6IFoeF3D7mWIDLjG5A=' \
+        'github.com/andybalholm/brotli v1.2.7/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=' >> go.sum
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=linux GOARCH=$TARGETARCH go build -mod=readonly -trimpath -buildvcs=false \
+        -ldflags "-s -w -X github.com/useopendesk/opendesk/internal/version.Version=v0.4.14 -X github.com/useopendesk/opendesk/internal/version.Commit=779e28e5ff0ac59cda609edabefa1ecb9cc9c4b5" \
+        -o /out/opendesk ./cmd/opendesk && mkdir -p /out/data/files /out/data/nats
+
+FROM scratch
+COPY --from=build /out/opendesk /opendesk
+COPY --from=build --chown=65532:65532 /out/data /data
+COPY --from=build /src/LICENSE /licenses/opendesk
+ENV DATA_DIR=/data HTTP_ADDR=:8080 OPENDESK_ENV=production
+USER 65532:65532
+VOLUME /data
+EXPOSE 8080 4222
+HEALTHCHECK --interval=15s --timeout=4s --start-period=60s --retries=3 CMD ["/opendesk", "healthcheck"]
+ENTRYPOINT ["/opendesk"]
+CMD ["serve"]

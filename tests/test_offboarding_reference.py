@@ -58,6 +58,13 @@ class ReportTests(unittest.TestCase):
         case["worker"]["terminal"] = "unobserved"
         self.assertEqual(assess(case)["verdict"], "INCONCLUSIVE")
 
+    def test_reference_replay_checks_recorded_times_across_checkpoints(self):
+        report = self.report()
+        row = next(r for r in report["cases"][1]["observations"] if r["phase"] == "worker_finished")
+        row["observed_at"] = "2000-01-01T00:00:00.000000Z"
+        with self.assertRaisesRegex(InvalidReport, "checkpoint order"):
+            validate(report)
+
     def test_observed_residue_remains_a_failure_with_unrelated_gaps(self):
         case = self.case("broken")
         case["worker"] = {"captured_before_delete": False, "terminal": "unobserved"}

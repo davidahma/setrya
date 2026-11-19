@@ -25,6 +25,7 @@ def observed_rows(case):
     require(isinstance(case["observations"], list), "Observations must be a list.")
     rows = {}
     phases = []
+    timestamps = {phase: [] for phase in PHASES}
     for row in case["observations"]:
         require(
             keys_match(row, {"phase", "subject", "surface", "state", "observed_at"}),
@@ -54,11 +55,15 @@ def observed_rows(case):
         require(key not in rows, "Duplicate observation.")
         rows[key] = row["state"]
         phases.append(PHASES.index(phase))
+        timestamps[phase].append(timestamp)
     require(
         len(rows) == len(PHASES) * len(SUBJECTS) * len(SURFACES),
         "Incomplete observation matrix.",
     )
     require(phases == sorted(phases), "Observations cross checkpoint order.")
+    for earlier, later in zip(PHASES, PHASES[1:]):
+        require(max(timestamps[earlier]) <= min(timestamps[later]),
+                "Observation times contradict the checkpoint order.")
     return rows
 
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "setrya"
-version = "0.9.0"
+version = "0.9.1"
 description = "Test retrieval after document updates, tenant deletion, and access revocation"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,7 +23,7 @@ include = ["setrya*"]
 
 [tool.setuptools.package-data]
 "setrya.offboarding" = ["receipt-v1.schema.json"]
-"setrya.examples" = ["recorded-search/*.toml", "support-search/*.toml", "pgvector-search/*.toml", "pgvector-search/compose.yml", "offboarding/sqlite/policy.json", "opendesk/*.json", "opendesk/compose.yaml"]
+"setrya.examples" = ["recorded-search/*.toml", "support-search/*.toml", "pgvector-search/*.toml", "pgvector-search/compose.yml", "offboarding/sqlite/policy.json", "opendesk/*.json", "opendesk/compose.yaml", "opendesk/Dockerfile.trial"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

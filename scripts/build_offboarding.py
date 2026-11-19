@@ -52,6 +52,7 @@ PACKAGE_FILES = (
     "setrya/examples/opendesk/__init__.py",
     "setrya/examples/opendesk/cli.py",
     "setrya/examples/opendesk/compose.yaml",
+    "setrya/examples/opendesk/Dockerfile.trial",
     "setrya/examples/opendesk/observed.json",
     "setrya/examples/opendesk/policy.json",
     "setrya/examples/opendesk/policy-v2.json",

@@ -8,7 +8,9 @@ import subprocess
 import sys
 
 from .receipt_schema import validate_receipt
-from .inputs import InvalidReport, MAX_JSON_BYTES, regular_file_opener, unique_fields
+from .inputs import InvalidReport, read_regular_bytes, unique_fields
+
+MAX_SIGSTORE_BYTES = 32 * 1024 * 1024
 
 
 def add_commands(commands):
@@ -28,10 +30,7 @@ def add_commands(commands):
 def run(args):
     signing = args.offboarding_action == "sign-receipt"
     try:
-        with open(args.receipt, "rb", opener=regular_file_opener) as src:
-            raw = src.read(MAX_JSON_BYTES + 1)
-        if len(raw) > MAX_JSON_BYTES:
-            raise InvalidReport("Receipt exceeds the 1 MiB limit.")
+        raw = read_regular_bytes(args.receipt, "receipt")
         obj = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_fields)
         validate_receipt(obj)
         if signing:
@@ -48,8 +47,11 @@ def run(args):
             if signing:
                 command = ["cosign", "sign-blob", "--yes", "--bundle", str(bundle), str(snapshot)]
             else:
-                command = ["cosign", "verify-blob", "--bundle", str(args.bundle.resolve()),
-                           "--trusted-root", str(args.trusted_root.resolve()),
+                root = Path(folder, "trusted-root.json").resolve()
+                bundle.write_bytes(read_regular_bytes(args.bundle, "signature bundle", MAX_SIGSTORE_BYTES))
+                root.write_bytes(read_regular_bytes(args.trusted_root, "trusted root", MAX_SIGSTORE_BYTES))
+                command = ["cosign", "verify-blob", "--bundle", str(bundle),
+                           "--trusted-root", str(root),
                            "--certificate-identity", args.identity, "--certificate-oidc-issuer", args.issuer,
                            str(snapshot)]
             try:

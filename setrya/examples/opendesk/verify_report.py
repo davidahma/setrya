@@ -17,6 +17,18 @@ TARGET = {
     "commit": "779e28e5ff0ac59cda609edabefa1ecb9cc9c4b5",
     "image": "sha256:cb60703a043dc2afa9fb3266e93079813be3e171ed70177e2d4ac47cb266f4d8",
 }
+# The original publisher's image remains a supported historical target. The
+# locally built fixture identifies the exact executable that the observer used.
+TRIAL_BUILD = {
+    "version": TARGET["version"],
+    "commit": TARGET["commit"],
+    "recipe_sha256": "2d6fbb14332682642ea49163c519620483fca59448ee62dd82c62766a3ddec5d",
+    "brotli": "v1.2.7",
+}
+TRIAL_BINARIES = {
+    "linux/amd64": "0ba6e4a75bb935e9665a403ed7228e1fb21dd86a8544513c759d6a64bb095894",
+    "linux/arm64": "8ef2676dabec891a0d0b394d6e8274538e5abe88cac4ca814af9f2f122e65e25",
+}
 METADATA = {
     "report_version": 1,
     "case": "upstream_opendesk_workspace_offboarding",
@@ -130,7 +142,15 @@ def validate(report):
     require(type(version) is int and version in (1, LATEST_VERSION))
     healthy = HEALTHY if version == 1 else HEALTHY_V2
     supported_targets = (TARGET_V0413,) if version == 1 else (TARGET_V0413, TARGET)
-    require(report["target"] in supported_targets)
+    if version == 2 and report["target"] == TRIAL_BUILD:
+        # The container may have failed to start before its executable could be read.
+        require(report["interrupted_at"] in ("startup", "cleanup") and report["observations"] == []
+                and report["offboarding_http_status"] is None)
+    else:
+        if version == 2:
+            supported_targets += tuple({**TRIAL_BUILD, "platform": platform, "binary_sha256": digest}
+                                       for platform, digest in TRIAL_BINARIES.items())
+        require(report["target"] in supported_targets)
     for key, value in METADATA.items():
         if key not in ("report_version", "target"):
             require(report[key] == value)

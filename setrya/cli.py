@@ -284,9 +284,13 @@ def main(argv=None) -> int:
             result = run(drill, revision=args.revision)
             if report_path:
                 result.report.save(report_path)
-            summary = format_verdict(result.verdict, result.report, rerun_command(args.drill),
-                                     replay_command(args.report))
+            replay_hint = replay_command(args.report)
+            summary = format_verdict(result.verdict, result.report, rerun_command(args.drill), replay_hint)
             print(summary)
+            interrupted = next((e for e in result.report.events if e["kind"] == "adapter_error"
+                                and e["error"] == "KeyboardInterrupt"), None)
+            if interrupted is not None:
+                print(f"Interrupted during {interrupted['operation']}. {replay_hint}", file=sys.stderr)
             error_summary = None
             if summary_path:
                 _write_summary(summary_path, result.report.rules.id, summary)

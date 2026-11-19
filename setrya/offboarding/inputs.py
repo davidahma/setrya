@@ -47,14 +47,19 @@ def unique_fields(pairs):
     return result
 
 
-def read_json(path, label):
+def read_regular_bytes(path, label, limit=MAX_JSON_BYTES):
     try:
         with open(path, "rb", opener=regular_file_opener) as stream:
-            raw = stream.read(MAX_JSON_BYTES + 1)
+            raw = stream.read(limit + 1)
     except OSError:
         raise InvalidReport(f"Could not read {label} input.") from None
-    if len(raw) > MAX_JSON_BYTES:
-        raise InvalidReport(f"The {label} input exceeds the 1 MiB limit.")
+    if len(raw) > limit:
+        raise InvalidReport(f"The {label} input exceeds the {limit // (1024 * 1024)} MiB limit.")
+    return raw
+
+
+def read_json(path, label):
+    raw = read_regular_bytes(path, label)
     try:
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_fields)
     except (ValueError, RecursionError):

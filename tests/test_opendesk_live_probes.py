@@ -31,7 +31,7 @@ TICKET = str(uuid4())
 
 class LiveProbeTests(unittest.TestCase):
     def test_changed_compose_target_stops_before_container_start(self):
-        stack = Mock()
+        stack = Mock(compose_dir=HERE)
         stack.compose.return_value = json.dumps(
             {"services": {"app": {"image": "ghcr.io/useopendesk/opendesk:other"}}}
         )
@@ -40,6 +40,20 @@ class LiveProbeTests(unittest.TestCase):
         stack.compose.assert_called_once_with(
             "config", "--no-interpolate", "--format", "json", capture=True
         )
+
+    def test_unrecognized_running_executable_stops_before_seeding(self):
+        config = {"services": {"app": {"build": {"context": str(HERE), "dockerfile": "Dockerfile.trial"}}}}
+        stack = Mock(compose_dir=HERE)
+
+        def compose(action, *args, **kwargs):
+            if action == "config":
+                return json.dumps(config)
+            if action == "cp":
+                Path(args[-1]).write_bytes(b"unrecognized trial build")
+        stack.compose.side_effect = compose
+        with self.assertRaisesRegex(ValueError, "executable"):
+            run.run(stack, {})
+        stack.sql.assert_not_called()
 
     def test_transport_sends_one_request_to_the_designated_service(self):
         call = {

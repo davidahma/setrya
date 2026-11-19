@@ -16,7 +16,7 @@ setrya offboarding gate --policy policy.json --observations observations.json --
 | `residual` | The job skipped the cache. The observer found the departed tenant’s answer. | FAIL, 1 |
 | `unavailable` | The cache reader lost its connection before the final read. | NOT TESTED, 3 |
 
-An observation run exits 0 when it collected the packet. Use the gate's exit code for the release decision. By default the observer generates a run ID and records its source digest as the revision. The [observer](observe.py) also runs as a standalone Python script with the standard library.
+An observation run exits 0 when it collected the packet. Use the gate's exit code for the release decision. By default the observer generates a run ID and records its source digest as the revision. To run the [observer](observe.py) without installing Setrya, use the portable CLI with the same options, for example `python3 -I setrya-offboarding.pyz observe-sqlite --case clean --output clean.json`.
 
 ## Observe a request-specific job
 

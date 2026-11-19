@@ -39,7 +39,14 @@ def _event(report: Report, verdict: Verdict) -> dict | None:
     return None
 
 
-def _matching_proof(report: Report, verdict: Verdict, probe: ProbeRules, failed: dict) -> dict | None:
+def _first_change(report: Report, primary: ProbeRules) -> dict | None:
+    return next((event for event in report.events if event.get("stage") == "freshness"
+                 and event["probe_id"] == primary.id and matches_search(event, primary)
+                 and observed_change(event, primary)), None)
+
+
+def _matching_proof(report: Report, verdict: Verdict, probe: ProbeRules,
+                    failed_report: Report, failed: dict) -> dict | None:
     if verdict.status is not Status.PASS:
         return None
     if failed["stage"] == "final":
@@ -47,12 +54,18 @@ def _matching_proof(report: Report, verdict: Verdict, probe: ProbeRules, failed:
                      if report.events[seq - 1]["probe_id"] == probe.id), None)
 
     primary = next(item for item in report.rules.probes if item.id == report.rules.freshness_probe)
-    fresh = next(event for event in report.events if event.get("stage") == "freshness"
-                 and event["probe_id"] == primary.id and matches_search(event, primary)
-                 and observed_change(event, primary))
+    change = _first_change(report, primary)
+    if change is None:
+        return None
+    failed_change = _first_change(failed_report, primary)
+    # A recurrence on a second query needs a second query on the passing lane.
+    # A failure on the transition itself can be compared to the transition.
+    minimum = change["seq"]
+    if failed_change and failed["seq"] > failed_change["seq"]:
+        minimum += 1
     return next((event for event in report.events
                  if event.get("stage") == "freshness" and event["probe_id"] == probe.id
-                 and event["seq"] >= fresh["seq"] and matches_search(event, probe)
+                 and event["seq"] >= minimum and matches_search(event, probe)
                  and None not in event["passages"] and set(probe.require) <= set(event["passages"])
                  and not set(probe.forbid).intersection(event["passages"])), None)
 
@@ -74,7 +87,7 @@ def compare(before: Report, after: Report, *, allow_passing_pair: bool = False) 
     decisive = old if old.status is Status.FAIL and new.status is not Status.FAIL else new
     probe = next(item for item in before.rules.probes if item.id == (decisive.probe or before.rules.freshness_probe))
     if old.status is Status.FAIL and new.status is Status.PASS:
-        new_event = _matching_proof(after, new, probe, old_event)
+        new_event = _matching_proof(after, new, probe, before, old_event)
         headline = ("PASS  The affected probe passed at the matching phase after refresh. Write visibility is unverified."
                     if new.evidence_tier == "observed-after-refresh" else
                     "FIX VERIFIED  The affected probe passed at the matching phase.")
@@ -84,7 +97,7 @@ def compare(before: Report, after: Report, *, allow_passing_pair: bool = False) 
     elif new.status is Status.FAIL:
         state = 1, "FAILURE OBSERVED  The after report records a failure."
         if old.status is Status.PASS:
-            old_event = _matching_proof(before, old, probe, new_event)
+            old_event = _matching_proof(before, old, probe, after, new_event)
             if old_event is None:
                 state = 1, "FAILURE OBSERVED  The before report lacks a confirmed observation at the affected phase."
             elif (old.evidence_tier == "observed-after-refresh" and old_event["stage"] == "final"

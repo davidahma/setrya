@@ -2,6 +2,7 @@
 
 import argparse
 import base64
+import hashlib
 import hmac
 from importlib.resources import files
 import json
@@ -21,14 +22,15 @@ from .verify_report import (
     HEALTHY_V2,
     LATEST_VERSION,
     METADATA,
-    TARGET,
+    TRIAL_BINARIES,
+    TRIAL_BUILD,
     UNTESTED,
     outcome,
     validate,
 )
 
 HERE = Path(__file__).resolve().parent
-COMPOSE_TIMEOUTS = {"config": 30, "up": 15 * 60, "exec": 60, "down": 90}
+COMPOSE_TIMEOUTS = {"config": 30, "up": 15 * 60, "exec": 60, "cp": 90, "down": 90}
 SUPPORT_EMAIL = "agent@example.test"
 CASES = {
     "Acme": ("copper compass", "Route returns to the copper-compass desk."),
@@ -315,12 +317,23 @@ def run(stack, report):
     config = stack.compose(
         "config", "--no-interpolate", "--format", "json", capture=True
     )
-    app_image = json.loads(config)["services"]["app"]["image"]
-    expected = f"ghcr.io/useopendesk/opendesk:{TARGET['version']}@{TARGET['image']}"
-    if app_image != expected:
-        print("Compose app image differs from the report target.", file=sys.stderr)
-        raise ValueError("Unexpected opendesk image")
-    stack.compose("up", "--detach", "--wait", "--wait-timeout", "150")
+    app = json.loads(config)["services"]["app"]
+    recipe = stack.compose_dir / "Dockerfile.trial"
+    build = app.get("build", {})
+    if (app.get("image") or set(build) != {"context", "dockerfile"} or build["dockerfile"] != recipe.name
+            or Path(build["context"]).resolve() != stack.compose_dir.resolve()
+            or hashlib.sha256(recipe.read_bytes()).hexdigest() != TRIAL_BUILD["recipe_sha256"]):
+        raise ValueError("Unexpected OpenDesk trial build")
+    stack.compose("up", "--build", "--detach", "--wait", "--wait-timeout", "150")
+    with tempfile.TemporaryDirectory() as verification:
+        binary = Path(verification, "opendesk")
+        stack.compose("cp", "app:/opendesk", str(binary))
+        with binary.open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    platform = next((name for name, expected in TRIAL_BINARIES.items() if expected == digest), None)
+    if platform is None:
+        raise ValueError("Unexpected OpenDesk trial executable")
+    report["target"] = {**TRIAL_BUILD, "platform": platform, "binary_sha256": digest}
     api = API(stack)
     stack.sql(
         "opendesk",
@@ -356,6 +369,7 @@ def run(stack, report):
 def capture(report_path, stack):
     evidence = {
         **METADATA,
+        "target": TRIAL_BUILD,
         "report_version": LATEST_VERSION,
         "outcome": "INCONCLUSIVE",
         "interrupted_at": "startup",
@@ -381,7 +395,7 @@ def capture(report_path, stack):
         )
     finally:
         try:
-            stack.compose("down", "--volumes", "--remove-orphans")
+            stack.compose("down", "--volumes", "--remove-orphans", "--rmi", "local")
         except (KeyboardInterrupt, OSError, subprocess.SubprocessError):
             print(
                 f"Cleanup failed for disposable project {stack.project}",
@@ -407,7 +421,7 @@ def collect(report_path):
     with tempfile.TemporaryDirectory(prefix="setrya-opendesk-") as directory:
         compose_dir = Path(directory)
         assets = files("setrya.examples.opendesk")
-        for name in ("compose.yaml", "transport.py", "provider.py"):
+        for name in ("compose.yaml", "Dockerfile.trial", "transport.py", "provider.py"):
             (compose_dir / name).write_bytes(assets.joinpath(name).read_bytes())
         return capture(report_path, Stack(compose_dir))
 

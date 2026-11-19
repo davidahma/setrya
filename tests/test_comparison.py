@@ -48,6 +48,35 @@ class ComparisonTests(unittest.TestCase):
         self.assertIn("After PASS · event", text)
         self.assertIn("freshness · delivery@1", text)
 
+    def test_recurrence_while_held_requires_a_second_read_on_the_passing_revision(self):
+        def lane(name, followup, revision):
+            h = History()
+            h.probe(35, "freshness", ["refund@B"])
+            if followup:
+                h.probe(40, "freshness", [followup])
+            h.add("released", 50, attempt="attempt")
+            h.receipt("rejected")
+            h.probe(70, "final", ["refund@B"])
+            h.probe(75, "final", ["delivery@1"], "delivery")
+            return make_report(h, name=name, revision=revision)
+
+        base = lane("base", "refund@A", "a" * 40)
+        for followup, expected in ((None, 3), ("refund@B", 0)):
+            with self.subTest(followup=followup):
+                candidate = lane("candidate", followup, "b" * 40)
+                self.assertEqual(evaluate(candidate).status, Status.PASS)
+                self.assertEqual(compare(base, candidate)[0], expected)
+                code, text = review(base, candidate, base_commit="a" * 40, candidate_commit="b" * 40,
+                                    base_exit=1, candidate_exit=0)
+                self.assertEqual(code, expected, text)
+                _, reverse = compare(candidate, base)
+                if followup:
+                    self.assertIn("After PASS · event 8", text)
+                    self.assertTrue(reverse.startswith("REGRESSION"))
+                else:
+                    self.assertTrue(text.startswith("INCONCLUSIVE"))
+                    self.assertTrue(reverse.startswith("FAILURE OBSERVED"))
+
     def test_absence_requires_a_control_observed_after_the_deletion(self):
         def lane(name, control_after_deletion):
             history = History()

@@ -1,7 +1,8 @@
 import copy
 import io
 import json
-from contextlib import redirect_stderr
+import os
+from contextlib import closing, redirect_stderr
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -9,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from setrya.offboarding.cli import main
+from setrya.offboarding.gate import evaluate
 from setrya.offboarding.observer import open_reader, read_pair
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +18,39 @@ RECEIPT = ROOT / "tests/fixtures/offboarding-receipt-axiom-v0.3.2.json"
 
 
 class TrustTests(unittest.TestCase):
+    def test_writer_restoring_both_tenants_cannot_create_a_passing_read_pair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "support.db")
+            with closing(sqlite3.connect(path)) as writer:
+                writer.execute("PRAGMA journal_mode = WAL")
+                writer.execute("CREATE TABLE tickets (tenant TEXT)")
+                tenants = [("acme",), ("birch",)]
+                query = "SELECT 1 FROM tickets WHERE tenant = ?"
+                with writer:
+                    writer.executemany("INSERT INTO tickets VALUES (?)", tenants)
+                with open_reader(path) as reader:
+                    before = read_pair(reader, query, ("acme", "birch"))
+                    with writer:
+                        writer.execute("DELETE FROM tickets")
+
+                    def restore_on_control(sql):
+                        if "'birch'" in sql:
+                            with writer:
+                                writer.executemany("INSERT INTO tickets VALUES (?)", tenants)
+
+                    reader.set_trace_callback(restore_on_control)
+                    after = read_pair(reader, query, ("acme", "birch"))
+                    reader.set_trace_callback(None)
+                    restored = read_pair(reader, query, ("acme", "birch"))
+        self.assertEqual(before, {"subject": "present", "control": "present"})
+        self.assertEqual(after, {"subject": "absent", "control": "absent"})
+        self.assertEqual(restored, before)
+        probe = {"id": "source", "scope": "tickets", "checkpoint": "after_offboarding"}
+        policy = {"version": 1, "target": "fixture", "probes": [probe]}
+        packet = {**policy, "run_id": "test", "revision": "fixture", "offboarding": "completed",
+                  "probes": [{**probe, "before": before, "after": after}]}
+        self.assertEqual(evaluate(policy, packet)["verdict"], "INCONCLUSIVE")
+
     def test_read_only_observer_after_writer_disconnects(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp, "support.db")
@@ -53,16 +88,50 @@ class TrustTests(unittest.TestCase):
     def test_verification_requires_local_trust_and_exact_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             bundle, root = Path(tmp, "bundle.json"), Path(tmp, "root.json")
+            bundle.write_bytes(b"synthetic bundle")
+            root.write_bytes(b"independent trust policy")
             args = ["verify-signature", "--receipt", str(RECEIPT), "--bundle", str(bundle),
                     "--trusted-root", str(root), "--issuer", "https://issuer.example",
                     "--identity", "reviewer@example.com"]
-            with patch("subprocess.run") as runner:
-                self.assertEqual(main(args), 0)
-                command = runner.call_args.args[0]
-                self.assertEqual(command[:-1], ["cosign", "verify-blob", "--bundle", str(bundle.resolve()),
-                                                 "--trusted-root", str(root.resolve()),
-                                                 "--certificate-identity", "reviewer@example.com",
+            def verify(command, *, check):
+                self.assertTrue(check)
+                self.assertEqual(command[:3], ["cosign", "verify-blob", "--bundle"])
+                self.assertEqual(Path(command[3]).read_bytes(), bundle.read_bytes())
+                self.assertEqual(command[4], "--trusted-root")
+                self.assertEqual(Path(command[5]).read_bytes(), root.read_bytes())
+                self.assertEqual(command[6:-1], ["--certificate-identity", "reviewer@example.com",
                                                  "--certificate-oidc-issuer", "https://issuer.example"])
+                self.assertEqual(Path(command[-1]).read_bytes(), RECEIPT.read_bytes())
+
+            with patch("subprocess.run", side_effect=verify) as runner:
+                self.assertEqual(main(args), 0)
+                runner.assert_called_once()
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "named pipes require POSIX")
+    def test_nonregular_sigstore_inputs_stop_before_invoking_cosign(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fifo, normal = Path(tmp, "pipe"), Path(tmp, "regular")
+            os.mkfifo(fifo)
+            normal.write_text("{}")
+            with patch("subprocess.run") as runner, redirect_stderr(io.StringIO()):
+                for bundle, root in ((fifo, normal), (normal, fifo)):
+                    self.assertEqual(main(["verify-signature", "--receipt", str(RECEIPT),
+                                           "--bundle", str(bundle), "--trusted-root", str(root),
+                                           "--issuer", "https://issuer.example", "--identity", "reviewer@example.com"]), 2)
+                runner.assert_not_called()
+
+    def test_oversized_sigstore_inputs_stop_before_invoking_cosign(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            large, normal = Path(tmp, "large"), Path(tmp, "regular")
+            large.write_bytes(b"0123456789")
+            normal.write_text("{}")
+            with (patch("setrya.offboarding.signature.MAX_SIGSTORE_BYTES", 8),
+                  patch("subprocess.run") as runner, redirect_stderr(io.StringIO())):
+                for bundle, root in ((large, normal), (normal, large)):
+                    self.assertEqual(main(["verify-signature", "--receipt", str(RECEIPT), "--bundle", str(bundle),
+                                           "--trusted-root", str(root), "--issuer", "https://issuer.example",
+                                           "--identity", "reviewer@example.com"]), 2)
+                runner.assert_not_called()
 
     def test_schema_is_required_before_signing_or_verifying(self):
         original = json.loads(RECEIPT.read_bytes())

@@ -14,7 +14,7 @@ OpenDesk writes the source message and AI summary for both fictional workspaces.
 
 On the pinned build the CLI exits **3**. The two storage probes pass. The support agent still reads Birch, but OpenDesk returns HTTP 400 with `workspace_required` for Acme. The resulting agent-read check is **INCONCLUSIVE**. The summary jobs finished before deletion, so worker overlap is **NOT TESTED** and the corresponding gate check is **INCONCLUSIVE**. The raw trial outcome `COMPLETED` means that the trial collected the expected observations and cleaned up its environment.
 
-The first run pulls three images pinned by digest. A randomly named, isolated Compose project runs on an internal network without published ports, using ephemeral credentials and a local model stub. The runner allows 15 minutes for startup and downloads, 60 seconds for each Compose execution, and 90 seconds for cleanup. A cleanup failure identifies the project on stderr. All four evidence files are kept together for completed or interrupted observations. New runs need fresh output directories.
+The first run needs network access for two digest-pinned service images, a pinned Go toolchain, the upstream source archive and Go modules. Docker BuildKit builds the trial binary locally. Subsequent runs can reuse its build cache. A randomly named, isolated Compose project runs on an internal network without published ports, using ephemeral credentials and a local model stub. The runner allows 15 minutes for startup and downloads, 60 seconds for each Compose execution, and 90 seconds for cleanup. A cleanup failure identifies the project on stderr. All four evidence files are kept together for completed or interrupted observations. New runs need fresh output directories.
 
 ## Inspect or replay the saved evidence
 
@@ -50,7 +50,9 @@ The native summary is stored on the ticket. Its source in this trial is a separa
 
 ## Upstream boundary
 
-The trial runs the published multi-architecture image from [the pinned release](https://github.com/useopendesk/opendesk/releases/tag/v0.4.14). The release records the image digest in `images.json`. The application source, database migrations, ticket save, membership checks, and deletion implementation come from upstream. Fixture data, the model substitute, the read-only observer, and the report are supplied by Setrya. For the exact behavior at this revision, see the [summary writer](https://github.com/useopendesk/opendesk/blob/779e28e5ff0ac59cda609edabefa1ecb9cc9c4b5/internal/ai/features.go), [workspace API](https://github.com/useopendesk/opendesk/blob/779e28e5ff0ac59cda609edabefa1ecb9cc9c4b5/internal/core/workspaces.go), and [offboarding operation](https://github.com/useopendesk/opendesk/blob/779e28e5ff0ac59cda609edabefa1ecb9cc9c4b5/internal/core/ops.go).
+The trial builds the API and workers from the OpenDesk v0.4.14 source archive at commit `779e28e`. This Setrya build uses Brotli v1.2.7, the first release that fixes GO-2026-6888. The upstream release pinned v1.2.2. The web and admin frontends are outside this API trial and their browser bundles are omitted. The migrations, ticket storage, membership checks and deletion code come from the pinned source. [Build recipe](Dockerfile.trial) · [Upstream source](https://github.com/useopendesk/opendesk/tree/779e28e5ff0ac59cda609edabefa1ecb9cc9c4b5) · [Go advisory](https://pkg.go.dev/vuln/GO-2026-6888)
+
+Setrya checks the build recipe, then hashes the executable in the running container before seeding either workspace. The report records the source commit, recipe hash, Brotli version, platform and verified binary hash. A startup failure can record the intended recipe without a verified binary. Archived observations from the publisher’s v0.4.13 and v0.4.14 images still identify their original digests.
 
 ## Trial image review
 
@@ -58,16 +60,14 @@ The Compose project accepts synthetic inputs on its own internal network and pub
 
 The trial uses digest-pinned Chainguard PostgreSQL 18.7 and Python 3.15.2 images. OpenDesk's migration supports a database without the vector extension. The storage checks read the source message and the ticket summary by ID. Vector search is outside this trial's coverage. [Upstream migration](https://github.com/useopendesk/opendesk/blob/779e28e5ff0ac59cda609edabefa1ecb9cc9c4b5/migrations/000501_ai_embeddings.up.sql) · [PostgreSQL image](https://images.chainguard.dev/directory/image/postgres/overview) · [Python image](https://images.chainguard.dev/directory/image/python/overview)
 
-The November 19, 2026 Grype inventory for these image digests returned the following package-level matches. The same counts were recorded on both Linux amd64 and arm64 for the pinned images. The earlier inventory covered amd64.
+On November 19, 2026 the Syft inventories for both Linux amd64 and arm64 contained Brotli v1.2.7 in `/opendesk`. Grype reported these counts per architecture with that day's vulnerability database.
 
-| Trial service | Previous images, Critical / High | Pinned digests, Critical / High | Other matches per architecture on that date |
-| --- | --- | --- | --- |
-| OpenDesk v0.4.14 | 1 / 0 | 1 / 0 | 1 Medium |
-| PostgreSQL | 12 / 206 | 0 / 0 | 1 Medium, 1 Low |
-| Python model stub | 0 / 78 | 0 / 0 | 4 Medium, 3 Low, 1 Negligible |
+| Trial service | Critical | High | Other package matches |
+| --- | ---: | ---: | --- |
+| Setrya build of OpenDesk v0.4.14 | 0 | 0 | 1 Medium |
+| PostgreSQL | 0 | 0 | 1 Medium, 1 Low |
+| Python model stub | 0 | 0 | 4 Medium, 3 Low, 1 Negligible |
 
-**OpenDesk and Brotli.** The released application includes Brotli v1.2.2. The advisory affects the decoder's `Reader.Read` method and lists v1.2.7 as the first fixed release. PostHog uses the Brotli writer to compress outbound telemetry. For linux/amd64 and linux/arm64, `go list -deps` identified PostHog as the only direct importer in the OpenDesk command. The Go function tables in both published binaries contained the encoder and had no entry for `(*Reader).Read`. Keep the package finding visible and reassess it whenever the OpenDesk image changes. [Go advisory](https://pkg.go.dev/vuln/GO-2026-6888) · [OpenDesk dependency pin](https://github.com/useopendesk/opendesk/blob/779e28e5ff0ac59cda609edabefa1ecb9cc9c4b5/go.mod#L58) · [PostHog encoder](https://github.com/PostHog/posthog-go/blob/v1.42.4/request_compression.go#L42-L52)
+The image audit runs weekly, on demand and when a pull request changes the Compose images, build recipe, accepted binary hashes or audit. It builds each platform, checks the actual application binary hash and Brotli inventory, and scans all three runtime images. Every High or Critical match fails the gate. A failed scan or missing inventory also fails. Each run retains the full SBOMs and reports. [Trial image audits](https://github.com/davidahma/setrya/actions/workflows/offboarding-trial-images.yml)
 
-**Image updates.** Dependabot checks the Compose images weekly. For an image update, verify the publisher and multi-architecture digest, review the inventory for both platforms, and run the full offboarding trial. The runner checks the OpenDesk image against the target declared in its report before starting the services. When updating that target, preserve replay of evidence recorded against earlier releases. [Compose image pins](compose.yaml) · [Chainguard signature verification](https://www.chainguard.dev/docs/chainguard/containers/security-and-compliance/verifying-chainguard-images-and-metadata-signatures-with-cosign)
-
-The [trial image audit](https://github.com/davidahma/setrya/actions/workflows/offboarding-trial-images.yml) runs weekly, on demand, and on pull requests that change the image pins or the audit. It saves the Syft package inventory, full Grype report and High/Critical findings for each image and architecture. A new High or Critical match fails the audit. The reviewed Brotli match is displayed as `KNOWN` only for the recorded image digest, module version and binary path. A scanner or database failure also fails the job.
+Dependabot checks the two Compose registry images weekly. For a new OpenDesk release, review the source and toolchain pins in the build recipe, rebuild both architectures, and update their expected hashes. Qualify the live application and retain the existing report targets for offline review. [Compose pins](compose.yaml) · [Chainguard signature verification](https://www.chainguard.dev/docs/chainguard/containers/security-and-compliance/verifying-chainguard-images-and-metadata-signatures-with-cosign)

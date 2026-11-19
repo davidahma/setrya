@@ -29,16 +29,20 @@ For deletion, the primary probe must see the departing tenant’s passage before
 
 These schedules deliberately exercise particular orderings. A PASS records the observed runs. It does not establish every possible ordering. The retry schedule covers failure before publication and a delayed retry commit after publication.
 
+With the bundled SQLite adapter, an explicit `--mode fixed` or `--mode broken` overrides the TOML worker mode for that run. Omitting the flag preserves the configured mode. For other adapters, configure the worker in the drill’s options table.
+
+The SQLite fixture captures `subject@A` at `before-write`. Its three operations publish `updated`, `deleted` and `revoked`, respectively. A custom drill must match the observed identities to pass. Versions through 0.9.0 copied those labels from the drill into their reports. Recollect custom SQLite fixture runs that used different labels to verify the actual target.
+
 ## Connect a disposable test application
 
-Implement `ScenarioApplication` and `Delivery` in your adapter package. The factory receives a `setrya.adapter.RunContext` containing the run ID, temporary directory and drill. The factory must give every delivery access to the same application's state. The application performs the following operations.
+Implement `ScenarioApplication` and `Delivery` in your adapter package. The factory receives a `setrya.adapter.RunContext` containing the run ID, temporary directory, drill and `scenario_kind` (`update`, `delete` or `revoke`). The factory must give every delivery access to the same application's state. The application performs the following operations.
 
 1. `seed()` prepares the subject and retained control. `delivery(message_id, attempt)` returns a handle for a physical delivery. Multiple handles may refer to the same durable message.
 2. `start_old()` dispatches a worker and returns its attempt ID. `checkpoint()` returns a `Checkpoint` when the worker has really captured the old input and is held before its write. It may return `None` while waiting. `message_id()` reports the message actually consumed. On the retry schedule, `retryable_failure()` stops the held attempt before commit, makes its message available for redelivery, and returns its rejected `Receipt`.
 3. `publish()` performs the real update, tenant deletion or access mutation once and returns a `Publication` naming the run, document and new revision. Setrya searches before releasing any worker. Each handle's `search(probe)` invokes the real read route as the declared caller, honors the question and depth, and returns a `SearchResult` with the actual route and caller. For a failed read, return an unidentified result or raise an exception. An empty list represents a successful read.
 4. `release()` resumes only that handle’s worker. `receipt()` polls for its terminal write result. Setrya samples the read path again. `close()` stops outstanding workers and removes the disposable state, including after an error.
 
-For your own scenario TOML, use Setrya’s drill format. For a deletion or revocation, the primary probe sets `absence = true`, `require = []`, and lists the original passage markers in both `before` and `forbid`. A separate probe must name a passage retained before and after the change on the same route and caller. For revocation, add a probe for the same former passage on that route as a still-authorized caller. Set the new revision to your identifiable deletion or ACL revision. Acknowledgment of the mutation and successful search evidence are both required.
+For your own scenario TOML, use Setrya’s drill format. For a deletion or revocation, the primary probe sets `absence = true`, `require = []`, and lists the original passage markers in both `before` and `forbid`. A separate probe must name a passage retained before and after the change on the same route and caller. For revocation, every marker in the revoked caller’s baseline needs a positive control on that route. Record it in both `before` and `require` for a still-authorized caller. Multiple controls may cover different markers. Set the new revision to your identifiable deletion or ACL revision. Acknowledgment of the mutation and successful search evidence are both required.
 
 ```sh
 setrya scenario revoke --drill permission.toml --adapter myapp.drills:factory \
@@ -56,7 +60,7 @@ A suite publishes its manifest before the first schedule. It adds a digest for e
 
 ### Compare the base and candidate in CI
 
-To try the handoff first, unpack the [two-commit review bundle](https://github.com/davidahma/setrya/releases/download/v0.9.0/scenario-review.zip) and run the command printed in `review-command.txt` from that directory. The base and candidate contain the saved observations from two revisions of the SQLite worker.
+To try the handoff first, unpack the [two-commit review bundle](https://github.com/davidahma/setrya/releases/download/v0.9.1/scenario-review.zip) and run the command printed in `review-command.txt` from that directory. The base and candidate contain the saved observations from two revisions of the SQLite worker.
 
 In each checkout, use the same Setrya release, adapter entry point, options, drill, and schedule. Capture the scenario’s exit even when it fails. Supply the full commit ID for the checkout that actually runs the worker.
 
@@ -80,4 +84,4 @@ setrya review "$BASE_REPORT" "$CANDIDATE_REPORT" \
 
 The Markdown shows the verdict for each schedule, the decisive delivery or cross-worker observation, and the weakest passing evidence tier across paired deliveries. An intact candidate FAIL can still be reported alongside incomplete coverage. A verified fix requires complete matching schedules and candidate proof for the affected delivery, probe and phase. A base failure that depends on an ordering across workers needs more evidence than two independently passing delivery reports can supply. In this case the review is inconclusive. A passing result that relies on a refresh acknowledgment says write visibility is unverified.
 
-New scenario manifests use v2. The configuration fingerprint covers the factory, its options and the drill. Each delivery separately records the tested Git revision, which the manifest binds. Manifest digests protect against accidental substitution. Your CI checkout, artifact permissions and provenance establish who produced the evidence. Existing v1 scenario directories replay under their original rules. To compare their runs across commits, collect v2 evidence in both checkouts. Individual delivery reports continue to use the [frozen search v1 format](evidence.md#frozen-search-report-v1).
+New scenario manifests use v2. The configuration fingerprint covers the factory, its options and the drill. Each delivery separately records the tested Git revision, which the manifest binds. Manifest digests protect against accidental substitution. Your CI checkout, artifact permissions and provenance establish who produced the evidence. Existing v1 scenario directories replay under their original rules. A v2 revocation recorded with an unrelated or partial authorized control remains readable. It now replays as NOT TESTED unless a recorded read establishes a failure. Earlier verifiers could treat deletion for all callers as a passing revocation. To compare their runs across commits, collect v2 evidence in both checkouts. Individual delivery reports continue to use the [frozen search v1 format](evidence.md#frozen-search-report-v1).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Read the pinned images as registry data. The package inventory includes Go build dependencies.
+# Inventory the two registry images and the actual API/worker binary built for the trial.
 set -euo pipefail
 
 arch=${1:?supply amd64 or arm64}
@@ -7,19 +7,33 @@ out=${2:?supply an output directory}
 case "$arch" in amd64|arm64) ;; *) exit 1 ;; esac
 mkdir -p "$out"
 grype db status
-docker compose -f setrya/examples/opendesk/compose.yaml config --no-interpolate --format json |
-  jq -er '.services | to_entries[] | if (.key | test("^[a-zA-Z0-9_-]+$")) and
-    (.value.image | test("^[^[:space:]]+@sha256:[0-9a-f]{64}$")) then
-    [.key,.value.image] | @tsv else error("every service needs a digest-pinned image") end' > "$out/images.tsv"
+context=setrya/examples/opendesk
+docker compose -f "$context/compose.yaml" config --no-interpolate --format json |
+  jq -er --arg context "$(cd "$context" && pwd)" '
+    .services | if keys != ["app","database","model"] or
+      .app.build != {context:$context, dockerfile:"Dockerfile.trial"} or .app.image != null then
+      error("unexpected trial image configuration") else . end |
+    del(.app) | to_entries[] | if (.value.image | test("^[^[:space:]]+@sha256:[0-9a-f]{64}$")) then
+      [.key,.value.image] | @tsv else error("every registry image needs a digest") end' > "$out/images.tsv"
 
-known_image='ghcr.io/useopendesk/opendesk:v0.4.14@sha256:cb60703a043dc2afa9fb3266e93079813be3e171ed70177e2d4ac47cb266f4d8'
+read -r binary brotli < <(python3 -c 'import sys
+from setrya.examples.opendesk.verify_report import TRIAL_BINARIES, TRIAL_BUILD
+print(TRIAL_BINARIES["linux/" + sys.argv[1]], TRIAL_BUILD["brotli"])' "$arch")
+tag="setrya-opendesk-audit:$arch-$$"
+trap 'docker image rm "$tag" >/dev/null 2>&1 || true' EXIT
+docker buildx build --platform "linux/$arch" --load -t "$tag" -f "$context/Dockerfile.trial" "$context"
+app_id=$(docker image inspect "$tag" --format '{{.Id}}')
+printf 'app\t%s\n' "$app_id" >> "$out/images.tsv"
+
 status=0
 while IFS=$'\t' read -r service image; do
   sbom="$out/$service.sbom.json"
   report="$out/$service.grype.json"
   findings="$out/$service.high-critical.tsv"
+  source="registry:$image"
+  if [[ "$service" == app ]]; then source="docker:$image"; fi
   printf '\n%s linux/%s %s\n' "$service" "$arch" "$image"
-  if ! syft scan --platform "linux/$arch" "registry:$image" -o "syft-json=$sbom" ||
+  if ! syft scan --platform "linux/$arch" "$source" -o "syft-json=$sbom" ||
      ! jq -e '(.artifacts | type == "array" and length > 0)' "$sbom" > /dev/null ||
      ! grype "sbom:$sbom" -o "json=$report"; then
     echo "Could not scan $service" >&2
@@ -34,20 +48,18 @@ while IFS=$'\t' read -r service image; do
     status=1
     continue
   fi
-
-  # Keep the previously identified OpenDesk module match visible in both the report and the job log.
-  jq -r --arg image "$image" --arg known "$known_image" --arg service "$service" '
-    .matches[] | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical") |
-    (if $service == "app" and $image == $known and .vulnerability.id == "GO-2026-6888" and
-        .vulnerability.namespace == "govulndb:language:go" and .vulnerability.severity == "Critical" and
-        .artifact.type == "go-module" and .artifact.name == "github.com/andybalholm/brotli" and
-        .artifact.version == "v1.2.2" and ([.artifact.locations[].path] | unique) == ["/opendesk"]
-      then "KNOWN" else "REVIEW" end) as $decision |
-    [$decision,.vulnerability.severity,.vulnerability.id,.artifact.name,.artifact.version] | @tsv' \
-    "$report" > "$findings"
+  if [[ "$service" == app ]] && ! jq -e --arg binary "$binary" --arg brotli "$brotli" '
+    [.artifacts[] | select(.name == "github.com/andybalholm/brotli") | [.version, .type, .locations[].path]]
+    == [[$brotli,"go-module","/opendesk"]] and
+    ([.files[] | select(.location.path == "/opendesk") | .digests[] | select(.algorithm == "sha256").value] == [$binary])' "$sbom" > /dev/null; then
+    echo "Executable digest or Brotli build evidence differs from the trial target" >&2
+    status=1
+  fi
+  jq -r '.matches[] | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical") |
+    [.vulnerability.severity,.vulnerability.id,.artifact.name,.artifact.version] | @tsv' "$report" > "$findings"
   if [[ -s "$findings" ]]; then
     cat "$findings"
-    if grep -q '^REVIEW' "$findings"; then status=1; fi
+    status=1
   else
     echo "No High or Critical matches."
   fi

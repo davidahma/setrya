@@ -281,8 +281,14 @@ def isolation():
             require(first.returncode == 2 and "interrupted" in stderr.lower(), f"interruption was not actionable: {stdout}{stderr}")
             stdout, stderr = second.communicate(timeout=8)
             require(second.returncode == 0 and "PASS" in stdout, f"other run failed: {stdout}{stderr}")
-            require(second_report.exists() and not first_report.exists() and not list(temp.glob("setrya-*")),
+            require(first_report.is_file() and second_report.is_file() and not list(temp.glob("setrya-*")),
                     "fixture cleanup or output isolation failed")
+            interrupted = json.loads(first_report.read_bytes())
+            require(any(e["kind"] == "adapter_error" and e["error"] == "KeyboardInterrupt"
+                        for e in interrupted["events"]), "missing interruption evidence")
+            require(any(e["kind"] == "probe" and e["stage"] == "baseline" for e in interrupted["events"]),
+                    "interrupted check lost its baseline reads")
+            outcome(command("-m", "setrya", "replay", str(first_report)), 2, "KeyboardInterrupt")
             restarted = start(fixed_path, first_report)
             try:
                 stdout, stderr = restarted.communicate(timeout=8)
@@ -291,8 +297,9 @@ def isolation():
                 if restarted.poll() is None:
                     restarted.kill()
                     restarted.communicate(timeout=3)
-            require(json.loads(first_report.read_text())["run_id"] != json.loads(second_report.read_text())["run_id"],
-                    "concurrent and restarted reports shared a run ID")
+            run_ids = {interrupted["run_id"], json.loads(first_report.read_bytes())["run_id"],
+                       json.loads(second_report.read_bytes())["run_id"]}
+            require(len(run_ids) == 3, "interrupted, concurrent and restarted reports shared a run ID")
         finally:
             for proc in (first, second):
                 if proc is not None and proc.poll() is None:
