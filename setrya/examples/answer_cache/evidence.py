@@ -8,6 +8,7 @@ from pathlib import Path
 from setrya.adapter import ReadView, SearchResult
 from setrya.checker import Status, Verdict, evaluate
 from setrya.drill import Drill, InputError, Probe, ProbeRules, Rules, label
+from setrya.endpoint import EndpointCase, _Contract, _HOOKS
 from setrya.evidence import Report, bind_inputs
 from setrya.offboarding.inputs import InvalidReport, read_json
 
@@ -23,19 +24,40 @@ PRIVATE_ANSWER = "private-answer"
 PUBLIC_ANSWER = "public-answer"
 PROTECTED = (PRIVATE_ANSWER, PRIVATE)
 CONTROL = (PUBLIC_ANSWER, PUBLIC)
-BODIES = ("private-and-public", "public-only", "contains-private", "unknown")
+KNOWN_BODIES = ("public-only", "contains-private", "unknown")
 
 
-def drill():
-    probes = (
-        ProbeRules("revoked-answer", "answer", "revoked", 8, PROTECTED, (), PROTECTED, True),
-        ProbeRules("public-answer", "answer", "revoked", 8, (*CONTROL, "cache-hit"), CONTROL, PROTECTED),
-        ProbeRules("retained-answer", "answer", "retained", 8, (*PROTECTED, "cache-hit"),
-                   (*PROTECTED, "cache-hit"), ()),
-    )
-    rules = Rules("late-answer-fill", "policy", "granted", "revoked", CHECKPOINT, "revoked-answer",
+FIXTURE_CASE = EndpointCase("answer", "revoked", "retained", QUESTION, PRIVATE, PUBLIC,
+                            PRIVATE_TEXT + " " + PUBLIC_TEXT, PUBLIC_TEXT)
+FIXTURE = FIXTURE_CASE._contract()
+ENDPOINT_VERSION = 4
+
+
+def contract_for(manifest):
+    return _Contract.load(manifest["case"]) if manifest.get("version") == ENDPOINT_VERSION else FIXTURE
+
+
+def drill(contract=FIXTURE, question=QUESTION):
+    if contract is FIXTURE:
+        # Archived v1-v3 runs used a separate absence probe and positive control.
+        probes = (
+            ProbeRules("revoked-answer", "answer", "revoked", 8, PROTECTED, (), PROTECTED, True),
+            ProbeRules("public-answer", "answer", "revoked", 8, (*CONTROL, "cache-hit"), CONTROL, PROTECTED),
+            ProbeRules("retained-answer", "answer", "retained", 8, (*PROTECTED, "cache-hit"), (*PROTECTED, "cache-hit"), ()),
+        )
+    else:
+        protected = (PRIVATE_ANSWER, contract.private_source)
+        # A protected answer can already cite the public source. The public-only
+        # marker binds both its exact answer and its one public source.
+        public = (PUBLIC_ANSWER,)
+        warm = (*protected, "cache-hit")
+        probes = (
+            ProbeRules("revoked-answer", contract.route, contract.revoked, 8, warm, public, protected),
+            ProbeRules("retained-answer", contract.route, contract.retained, 8, warm, warm, ()),
+        )
+    rules = Rules("late-answer-fill", contract.document, contract.old_revision, contract.new_revision, contract.checkpoint, "revoked-answer",
                   10000, 60000, 30000, 100, 3000, probes)
-    return Drill(rules, tuple(Probe(p, QUESTION) for p in probes), None, {})
+    return Drill(rules, tuple(Probe(p, question) for p in probes), None, {})
 
 
 def _label_or_none(value):
@@ -45,37 +67,52 @@ def _label_or_none(value):
         return None
 
 
-def _body(text):
-    if text == PRIVATE_TEXT + " " + PUBLIC_TEXT:
-        return "private-and-public"
-    if text == PUBLIC_TEXT:
+def private_body(contract):
+    return "private-and-public" if contract is FIXTURE else "private-answer"
+
+
+def _body(text, case, contract):
+    if text == case.private_answer:
+        return private_body(contract)
+    if text == case.public_answer:
         return "public-only"
-    if isinstance(text, str) and PRIVATE_TEXT in text:
+    private_marker = PRIVATE_TEXT if contract is FIXTURE else case.private_answer
+    if isinstance(text, str) and private_marker in text:
         return "contains-private"
     return "unknown"
 
 
-def _sources(value):
+def _sources(value, case):
     if not isinstance(value, (tuple, list)) or len(value) > 2:
         return [None]
-    return [s if s in (PUBLIC, PRIVATE) else None for s in value]
+    return [s if s in (case.public_source, case.private_source) else None for s in value]
 
 
-def worker_capture(captured):
+def worker_capture(captured, case=FIXTURE_CASE, contract=FIXTURE):
     if not isinstance(captured, dict):
         return None
     question = captured.get("question")
     return {
         **{k: _label_or_none(captured.get(k)) for k in ("run_id", "attempt", "caller", "revision")},
         "query_sha256": sha256(question.encode()).hexdigest() if isinstance(question, str) else None,
-        "body": _body(captured.get("answer")), "sources": _sources(captured.get("sources")),
+        "body": _body(captured.get("answer"), case, contract), "sources": _sources(captured.get("sources"), case),
     }
 
 
-def verified_capture(captured, run_id, attempt):
-    return captured == {"run_id": run_id, "attempt": attempt, "caller": "revoked", "revision": "granted",
-                        "query_sha256": QUESTION_DIGEST, "body": "private-and-public",
-                        "sources": [PRIVATE, PUBLIC]}
+def _private_sources(sources, contract):
+    if contract is FIXTURE:
+        return sources == [PRIVATE, PUBLIC]
+    return (isinstance(sources, list) and contract.private_source in sources
+            and len(sources) in (1, 2) and all(s in (contract.private_source, contract.public_source) for s in sources)
+            and len(set(sources)) == len(sources))
+
+
+def verified_capture(captured, run_id, attempt, contract=FIXTURE):
+    if not isinstance(captured, dict) or not _private_sources(captured.get("sources"), contract):
+        return False
+    return captured == {"run_id": run_id, "attempt": attempt, "caller": contract.revoked, "revision": contract.old_revision,
+                        "query_sha256": contract.question_sha256, "body": private_body(contract),
+                        "sources": captured["sources"]}
 
 
 def capture_digest(captured):
@@ -84,7 +121,7 @@ def capture_digest(captured):
     return sha256(json.dumps(captured, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def sample(probe_id, stage, response, captured=None):
+def sample(probe_id, stage, response, captured=None, case=FIXTURE_CASE, contract=FIXTURE):
     """Retain only synthetic answer classifications and whitelisted source markers."""
     response = response if isinstance(response, dict) else {}
     hit, status, position = (response.get(k) for k in ("cache_hit", "http_status", "commit"))
@@ -93,15 +130,15 @@ def sample(probe_id, stage, response, captured=None):
     # Preserve explicit exposure even when a response exceeds the two-source
     # fixture shape. Record its one-based position without copying a long list.
     private_rank = None
-    if isinstance(sources, (tuple, list)) and len(sources) > 2 and PRIVATE in sources:
-        private_rank = sources.index(PRIVATE) + 1
+    if isinstance(sources, (tuple, list)) and len(sources) > 2 and case.private_source in sources:
+        private_rank = sources.index(case.private_source) + 1
     return {
         "overflow_private_rank": private_rank,
         "query_sha256": query if isinstance(query, str) and re.fullmatch("[0-9a-f]{64}", query) else None,
         "probe": probe_id, "stage": stage, "route": _label_or_none(response.get("route")),
         "caller": _label_or_none(response.get("caller")), "status": status if type(status) is int else None,
         "capture_sha256": capture_digest(captured),
-        "body": _body(response.get("answer")), "sources": _sources(response.get("sources")), "cache_hit": hit if type(hit) is bool else None,
+        "body": _body(response.get("answer"), case, contract), "sources": _sources(response.get("sources"), case), "cache_hit": hit if type(hit) is bool else None,
         "generation_skipped": (response["generation_skipped"]
                                if type(response.get("generation_skipped")) is bool else None),
         "cache_writer": _label_or_none(response.get("cache_writer")),
@@ -110,12 +147,12 @@ def sample(probe_id, stage, response, captured=None):
     }
 
 
-def matches_question(row):
+def matches_question(row, contract=FIXTURE):
     # v1 and v2 are replayed under their original request contract.
-    return "query_sha256" not in row or row["query_sha256"] == QUESTION_DIGEST
+    return "query_sha256" not in row or row["query_sha256"] == contract.question_sha256
 
 
-def observation(row):
+def observation(row, contract=FIXTURE):
     """Encode the observed answer and its ranked sources into one Recorder read."""
     expected = {"capture_sha256", "probe", "stage", "route", "caller", "status", "body", "sources",
                  "cache_hit", "cache_writer", "generation", "commit"}
@@ -131,9 +168,9 @@ def observation(row):
         expected.add("generation_skipped")
         if row["generation_skipped"] is not None and type(row["generation_skipped"]) is not bool:
             raise InputError("invalid generation observation")
-    if (not isinstance(row, dict) or set(row) != expected or row["body"] not in BODIES
+    if (not isinstance(row, dict) or set(row) != expected or row["body"] not in (*KNOWN_BODIES, private_body(contract))
             or not isinstance(row["sources"], list) or len(row["sources"]) > 2
-            or any(s not in (None, PRIVATE, PUBLIC) for s in row["sources"])
+            or any(s not in (None, contract.private_source, contract.public_source) for s in row["sources"])
             or (row["status"] is not None and type(row["status"]) is not int)
             or (row["commit"] is not None and (type(row["commit"]) is not int or not 0 <= row["commit"] < 2**64))
             or (row["cache_hit"] is not None and type(row["cache_hit"]) is not bool)
@@ -141,25 +178,33 @@ def observation(row):
                    for k in ("route", "caller", "cache_writer", "generation"))):
         raise InputError("invalid answer endpoint observation")
     digest = sha256(json.dumps(row, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    if not matches_question(row):
+    if not matches_question(row, contract):
         return SearchResult((None,), origins=("sample-" + digest,), route=row["route"], scope=row["caller"])
     markers = []
     view = None
     if row["status"] == 200:
         markers.extend(row["sources"])
         if row.get("overflow_private_rank") is not None:
-            markers.append(PRIVATE)
-        if row["body"] in ("private-and-public", "contains-private"):
+            markers.append(contract.private_source)
+        if row["body"] in (private_body(contract), "contains-private"):
             markers.append(PRIVATE_ANSWER)
-        if row["body"] in ("private-and-public", "public-only"):
+        if ((contract is FIXTURE and row["body"] in ("private-and-public", "public-only"))
+                or (row["body"] == "public-only" and row["sources"] == [contract.public_source])):
             markers.append(PUBLIC_ANSWER)
-        sources = {"private-and-public": [PRIVATE, PUBLIC], "public-only": [PUBLIC]}
-        if (row["sources"] != sources.get(row["body"]) or row["cache_hit"] is None
-                or row["cache_hit"] != (row["cache_writer"] is not None)):
+        identified = ((row["body"] == private_body(contract) and _private_sources(row["sources"], contract))
+                      or (row["body"] == "public-only" and row["sources"] == [contract.public_source]))
+        if not identified or row["cache_hit"] is None or row["cache_hit"] != (row["cache_writer"] is not None):
             markers.append(None)
         if all(row[k] is not None for k in ("generation", "commit", "route", "caller")):
             view = ReadView(row["generation"], row["commit"], row["route"], row["caller"])
     else:
+        # A non-200 response cannot establish a clean read. It can still disclose
+        # the protected answer or source in its body.
+        if contract is not FIXTURE and row["status"] is not None and 200 <= row["status"] <= 599:
+            if row["body"] in (private_body(contract), "contains-private"):
+                markers.append(PRIVATE_ANSWER)
+            if contract.private_source in row["sources"] or row.get("overflow_private_rank") is not None:
+                markers.append(contract.private_source)
         markers.append(None)
     # The cache field's origin binds the lossless replay of the redacted HTTP row
     # to this event. The other origins identify the actual cache writer, if any.
@@ -167,6 +212,80 @@ def observation(row):
     markers.append({True: "cache-hit", False: "cache-miss"}.get(row["cache_hit"]))
     origins.append("sample-" + digest)
     return SearchResult(tuple(markers), view=view, origins=tuple(origins), route=row["route"], scope=row["caller"])
+
+
+def _endpoint_read_gap(event, row, probe, contract):
+    where = f"{event['stage']} read for {probe.scope}"
+    if (row["route"], row["caller"]) != (probe.route, probe.scope):
+        detail = "return the authenticated caller and route that served the response"
+    elif not matches_question(row, contract):
+        detail = "return query_sha256 for the question the endpoint served"
+    elif row["status"] != 200:
+        detail = "return the HTTP status and an identified 200 answer"
+    elif row["body"] == "unknown":
+        detail = "return the known synthetic answer text from the response"
+    elif row["cache_hit"] is None or row["cache_hit"] != (row["cache_writer"] is not None):
+        detail = "return cache_hit and the stored writer ID for a cache hit"
+    elif None in event["passages"]:
+        detail = "return the source IDs that supplied this answer"
+    else:
+        required = probe.before if event["stage"] == "baseline" else probe.require
+        missing = [marker for marker in required if marker not in event["passages"]]
+        if missing:
+            detail = "the response did not establish " + ", ".join(missing)
+        elif event["stage"] != "baseline" and set(event["passages"]) & set(probe.forbid):
+            detail = "the response still included protected content"
+        else:
+            return None
+    return Verdict(Status.NOT_TESTED, f"Check answer() at the {where}: {detail}.", event["seq"], probe.id)
+
+
+def _endpoint_verdict(verdict, report, manifest, contract):
+    events = {e["kind"]: e for e in report.events if e["kind"] != "probe"}
+    error = events.get("adapter_error")
+    hook = manifest["missing_hook"]
+    if bool(manifest["error_hook"]) != bool(error) or (hook and (not error or error["error"] != "MissingHook")):
+        raise InputError("endpoint hook error differs from the journal")
+    if verdict.status is Status.FAIL:
+        return verdict
+    if hook:
+        return Verdict(Status.NOT_TESTED, f"Connect {hook}() to {_HOOKS[hook]}.", error["seq"])
+    if verdict.status is Status.ERROR and manifest["error_hook"]:
+        operation = manifest["error_hook"]
+        return replace(verdict, detail=f"Check {operation}(): {_HOOKS[operation]}. The app raised {error['error']}.")
+    if verdict.status is not Status.NOT_TESTED:
+        return verdict
+
+    probe_rules = {p.id: p for p in report.rules.probes}
+    samples = (e for e in report.events if e["kind"] == "probe")
+    for event, row in zip(samples, manifest["observations"], strict=True):
+        reason = _endpoint_read_gap(event, row, probe_rules[event["probe_id"]], contract)
+        if reason:
+            return reason
+
+    attempt = events.get("started", {}).get("attempt")
+    identity = dict(run_id=report.run_id, attempt=attempt, document=contract.document)
+    held = {**identity, "revision": contract.old_revision, "name": contract.checkpoint}
+    if "started" not in events:
+        detail = "Check start_old(): return the ID of the worker dispatched for the revoked caller."
+    elif any(events.get("held", {}).get(k) != v for k, v in held.items()):
+        detail = "Check checkpoint(): observe the selected run and attempt held on the old revision."
+    elif manifest["receipt_before_release"] is True:
+        detail = "Check receipt(): the selected task already had a terminal receipt before release."
+    elif not verified_capture(manifest["worker_capture"], report.run_id, attempt, contract):
+        detail = "Check captured(): identify the private answer, sources, question and revoked caller on the held attempt."
+    elif events.get("published", {}).get("publication") != {
+            "run_id": report.run_id, "document": contract.document, "revision": contract.new_revision}:
+        detail = "Check revoke(): return the app's acknowledgment for the new access revision."
+    elif manifest["held_after_reads"] != held:
+        detail = "Check checkpoint(): confirm the same worker is still held after both users' reads."
+    elif "released" not in events:
+        detail = "Check release(): release the same held worker."
+    elif any(events.get("receipt", {}).get(k) != v for k, v in {**identity, "revision": contract.old_revision}.items()):
+        detail = "Check receipt(): return the terminal write outcome for the same run, attempt and revision."
+    else:
+        return verdict
+    return replace(verdict, detail=detail)
 
 
 def pending_before_release(manifest):
@@ -181,20 +300,27 @@ def _read_bundle(directory):
     except InvalidReport as error:
         raise InputError(str(error)) from None
     keys = {"format", "version", "mode", "run_id", "report_sha256", "held_after_reads", "worker_capture", "observations"}
-    if isinstance(manifest, dict) and manifest.get("version") in (2, VERSION):
+    if isinstance(manifest, dict) and manifest.get("version") == ENDPOINT_VERSION:
+        keys.update(("case", "missing_hook", "error_hook"))
+        for key in ("missing_hook", "error_hook"):
+            if manifest.get(key) is not None and manifest[key] not in tuple(_HOOKS):
+                raise InputError("invalid endpoint hook")
+    if isinstance(manifest, dict) and manifest.get("version") in (2, VERSION, ENDPOINT_VERSION):
         keys.add("receipt_before_release")
         before = manifest.get("receipt_before_release")
         if before is not None and type(before) is not bool:
             raise InputError("invalid pre-release terminal observation")
     if (not isinstance(manifest, dict) or set(manifest) != keys or manifest["format"] != FORMAT
-            or type(manifest["version"]) is not int or manifest["version"] not in (1, 2, VERSION)
-            or manifest["mode"] not in ("broken", "guarded") or not isinstance(manifest["observations"], list)
+            or type(manifest["version"]) is not int or manifest["version"] not in (1, 2, VERSION, ENDPOINT_VERSION)
+            or manifest["mode"] not in (("application",) if manifest["version"] == ENDPOINT_VERSION else ("broken", "guarded")) or not isinstance(manifest["observations"], list)
             or not isinstance(manifest["report_sha256"], str)):
         raise InputError("invalid answer cache manifest")
     report = Report.load(directory / JOURNAL, expected_sha256=manifest["report_sha256"])
-    expected = drill()
-    if (report.run_id != manifest["run_id"] or report.rules != expected.rules
-            or report.inputs != bind_inputs(expected, test_id=TEST_ID)):
+    contract = contract_for(manifest)
+    expected = drill(contract)
+    inputs = bind_inputs(expected, test_id=TEST_ID if contract is FIXTURE else contract.test_id())
+    inputs["questions"] = dict.fromkeys(inputs["questions"], contract.question_sha256)
+    if report.run_id != manifest["run_id"] or report.rules != expected.rules or report.inputs != inputs:
         raise InputError("answer cache trace does not match the declared run and drill")
     rows = manifest["observations"]
     probes = [e for e in report.events if e["kind"] == "probe"]
@@ -204,7 +330,7 @@ def _read_bundle(directory):
     receipt = next((e for e in report.events if e["kind"] == "receipt"), {})
     attempt = started.get("attempt")
     captured = manifest["worker_capture"]
-    verified = verified_capture(captured, report.run_id, attempt)
+    verified = verified_capture(captured, report.run_id, attempt, contract)
     lines = []
     private_from_task = set()
     if verified:
@@ -213,7 +339,7 @@ def _read_bundle(directory):
         if (not isinstance(row, dict) or ("generation_skipped" in row) != (manifest["version"] >= 2)
                 or ("query_sha256" in row) != (manifest["version"] >= 3)):
             raise InputError("answer response fields differ from the manifest version")
-        observed = observation(row)
+        observed = observation(row, contract)
         expected_capture = None if event["stage"] == "baseline" else capture_digest(captured)
         if (expected_capture != row["capture_sha256"] or (event["stage"], event["probe_id"], event["route"], event["scope"]) !=
                 (row["stage"], row["probe"], observed.route, observed.scope)
@@ -221,21 +347,24 @@ def _read_bundle(directory):
                 or event["view"] != (asdict(observed.view) if observed.view else None)):
             raise InputError("answer endpoint observation does not match its recorded event")
         cache = {True: "hit", False: "miss"}.get(row["cache_hit"], "unknown")
-        origin = "" if matches_question(row) else " · answer question unverified"
-        if (row["stage"] == "final" and row["cache_hit"] and attempt and row["cache_writer"] == attempt
+        origin = "" if matches_question(row, contract) else " · answer question unverified"
+        receipt_bound = (contract is FIXTURE or
+                         (verified and receipt.get("document") == contract.document
+                          and receipt.get("revision") == contract.old_revision))
+        if (receipt_bound and row["stage"] == "final" and row["cache_hit"] and attempt and row["cache_writer"] == attempt
                 and pending_before_release(manifest) and receipt.get("outcome") == "committed" and receipt["attempt"] == attempt
                 and receipt["run_id"] == report.run_id and event["seq"] > receipt["seq"] and observed.view
                 and observed.view.generation == receipt["generation"] and receipt["commit"] is not None
                 and observed.view.commit >= receipt["commit"]):
             origin = " · served the resumed task’s cached answer"
-            if row["caller"] == "revoked" and row["body"] in ("private-and-public", "contains-private"):
+            if row["caller"] == contract.revoked and row["body"] in (private_body(contract), "contains-private"):
                 private_from_task.add(event["seq"])
         lines.append(f"Event {event['seq']} · {row['stage']} · {row['caller']} · "
                      f"HTTP {row['status']} · cache {cache} · {row['body']}{origin}")
     verdict = evaluate(report)
     if verdict.status is Status.FAIL:
         for event, row in zip(probes, rows):
-            if event["seq"] == verdict.event and row.get("overflow_private_rank") is not None and row["caller"] == "revoked":
+            if event["seq"] == verdict.event and row.get("overflow_private_rank") is not None and row["caller"] == contract.revoked:
                 verdict = replace(verdict, detail="The revoked caller's answer listed the forbidden source at position "
                                   f"{row['overflow_private_rank']}.")
                 break
@@ -249,7 +378,7 @@ def _read_bundle(directory):
         for stage in ("baseline", "freshness", "final"):
             reads = {r["probe"]: r for r in rows if r["stage"] == stage}
             if (reads.keys() != required.keys() or any(
-                    r["status"] != 200 or None in observation(r).passages or
+                    r["status"] != 200 or None in observation(r, contract).passages or
                     (r["route"], r["caller"]) != (required[k].route, required[k].scope) for k, r in reads.items())):
                 verdict = Verdict(Status.NOT_TESTED, "Missing an identified HTTP answer for both callers at " + stage)
                 break
@@ -265,6 +394,8 @@ def _read_bundle(directory):
     elif verdict.status is Status.FAIL and verdict.event in private_from_task:
         verdict = replace(verdict, detail=f"At event {verdict.event} the revoked user received the private answer "
                           f"from the resumed task's cache write ({attempt}).")
+    if contract is not FIXTURE:
+        verdict = _endpoint_verdict(verdict, report, manifest, contract)
     summary = "\n".join([verdict.status.label + "  " + verdict.detail, *lines])
     return verdict, summary, report, manifest
 

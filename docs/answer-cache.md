@@ -55,6 +55,8 @@ The bundle pairs the normal Setrya worker journal (`run.json`) with the answer o
 
 ## Use the hooks in an existing application
 
+To check your own answer route with two users, generate the [endpoint pytest starter](endpoint.md). The helpers below supply observations when your app uses LangChain or Celery.
+
 **At ingestion**, tag chunks after splitting one immutable document revision. Existing metadata, content and LangChain document IDs survive. Persist the returned metadata with each vector.
 
 ```python

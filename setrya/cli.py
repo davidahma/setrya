@@ -197,16 +197,24 @@ def main(argv=None) -> int:
         from .offboarding.cli import main as offboarding_main
 
         return offboarding_main(argv[1:])
-    parser = argparse.ArgumentParser(prog="setrya", description="Test what an application can retrieve after a document update or tenant offboarding.")
+    parser = argparse.ArgumentParser(prog="setrya", description="Test what an AI assistant or search endpoint returns after access revocation, a document update, or tenant offboarding.")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
+    init = commands.add_parser("init", help="create a starter test in your application checkout")
+    starters = init.add_subparsers(dest="starter", required=True)
+    endpoint = starters.add_parser(
+        "endpoint", help="test your answer endpoint as a revoked user and a retained colleague",
+        description="Write a pytest starter that checks your answer endpoint before and after a revoked user's cache-fill task resumes.",
+    )
+    endpoint.add_argument("--output", type=Path, default=Path("tests/test_setrya_endpoint.py"),
+                          help="new pytest file (default: tests/test_setrya_endpoint.py)")
     commands.add_parser("scenario", help="drive update, deletion or access-revocation races and replay a schedule")
     commands.add_parser("offboarding", help="check tenant offboarding in CI or review one deletion request")
     commands.add_parser("cache-metrics", help="measure checked answers and cache outcomes from local evidence")
     commands.add_parser("answer-cache", help="test a late Celery cache fill against a real answer endpoint")
     commands.add_parser("coverage", help="find changed routes and jobs without matching candidate evidence")
     commands.add_parser("run-pr", help="run an existing test on two Git revisions and review its evidence")
-    demo_parser = commands.add_parser("demo", help="run three synthetic outcomes")
+    demo_parser = commands.add_parser("demo", help="run the offline refund-policy demo and see three verdicts")
     demo_parser.add_argument("--case", choices=DEMO_CASES)
     check = commands.add_parser("check", help="run a drill")
     check.add_argument("drill")
@@ -238,6 +246,13 @@ def main(argv=None) -> int:
     error_summary = None
 
     try:
+        if args.command == "init":
+            from .starter import write_endpoint_test
+
+            write_endpoint_test(args.output)
+            print(f"Created {args.output}")
+            print("Run  " + shlex.join(["python", "-m", "pytest", "-q", "-s", "--", str(args.output)]))
+            return 0
         if args.command in {"replay", "diagnose"}:
             directory = Path(args.report)
             manifest = bundle_manifest(directory) if directory.is_dir() else None

@@ -275,7 +275,14 @@ jobs:
           path: ${{ runner.temp }}/route-coverage-review/
           if-no-files-found: error
       - name: Run the full test suite with pytest
+        env:
+          SETRYA_ENDPOINT_EVIDENCE: ${{ runner.temp }}/endpoint-starter
         run: python3 -m pytest -q
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: endpoint-starter
+          path: ${{ runner.temp }}/endpoint-starter/
+          if-no-files-found: error
       - name: Run the installed example on two fixture revisions
         working-directory: ${{ runner.temp }}
         run: python3 -m setrya.examples.recorded_search.verify --output "$RUNNER_TEMP/recorded-review"

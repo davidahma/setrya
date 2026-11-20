@@ -37,6 +37,12 @@ Use a timer and retain the commit, verdict, and artifact with each observation. 
 
 Compare diagnosis and handoff quality alongside active time. If the plain test is equally usable, keep the recipes and reassess further tooling. A team using the check on a later release is the adoption signal. Across later releases, two teams reusing the check and an engineering owner willing to fund ongoing maintenance would justify testing the paid support hypothesis. Backfill cutover and permission changes are candidates when those teams can point to a recurring release problem. Human setup, reviewer timing, reuse, and willingness to pay still need observation.
 
+### Coding-agent trial of the endpoint starter
+
+One coding agent used the README, the endpoint guide, the generated test, and the public type signatures to connect a disposable Python HTTP app. It built a worker that paused before filling the answer cache. The guarded configuration passed on the first connected run. Disabling its revision check exposed the private answer to the revoked caller. After shutting down the app, the agent replayed both results and the untouched starter’s missing-`seed` result from a separate directory.
+
+The exercise took 107 seconds from setup through verification. The agent built the app for this trial and could give it the required worker and HTTP observations. A team adopting Setrya may have to add those observations to an existing app. The one-hour onboarding and two-minute review targets above still need human participants.
+
 ### Participant scorecard
 
 Use one copy per engineer and change. A coordinator records the commit IDs and expected observations before handing out the task. On the first change, ask the engineer to decide whether the late refund write was fixed. On the second, ask whether a re-upload still loses a required passage in the top three. Give the reviewer only the engineer’s normal handoff. Start the reviewer’s timer when they open it. Stop it when they name the affected caller and query, the decisive observation, and what remains unknown.
