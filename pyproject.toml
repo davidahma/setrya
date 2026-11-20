@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "setrya"
-version = "0.13.0"
+version = "0.14.0"
 description = "Test search results and cached answers after document updates, access revocation, and tenant deletion"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,6 +18,8 @@ Documentation = "https://github.com/davidahma/setrya#readme"
 Issues = "https://github.com/davidahma/setrya/issues"
 
 [project.optional-dependencies]
+redis = ["redis>=5,<9"]
+celery-langchain = ["pytest>=8", "celery[redis]>=5.7,<6", "langchain-core>=1.8.3,<2", "redis>=5,<9"]
 pytest = ["pytest>=8"]
 answer-cache = ["celery>=5.7,<6", "langchain-core>=1.8.3,<2", "psycopg[binary]>=3.3,<4"]
 pgvector = ["psycopg[binary]>=3.3,<4"]

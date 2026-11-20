@@ -171,6 +171,20 @@ def _write_summary(path: str | Path, title: str, text: str) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def _replay_answers(directory: Path):
+    from .endpoint_evidence import MANIFEST, replay
+    from .offboarding.inputs import InvalidReport, read_json
+
+    try:
+        manifest, _ = read_json(directory / MANIFEST, "answer cache manifest")
+        if isinstance(manifest, dict) and manifest.get("format") == "setrya.selective-cache":
+            from .examples.answer_cache.selective import replay as replay_selective
+            return replay_selective(directory)
+        return replay(directory)
+    except InvalidReport as error:
+        raise InputError(str(error)) from None
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["cache-metrics"]:
@@ -206,6 +220,8 @@ def main(argv=None) -> int:
         "endpoint", help="test your answer endpoint as a revoked user and a retained colleague",
         description="Write a pytest starter that checks your answer endpoint before and after a revoked user's cache-fill task resumes.",
     )
+    endpoint.add_argument("--framework", choices=("generic", "celery-langchain"), default="generic",
+                          help="choose native hooks or a Celery/LangChain worker coordinated by Redis")
     endpoint.add_argument("--output", type=Path, default=Path("tests/test_setrya_endpoint.py"),
                           help="new pytest file (default: tests/test_setrya_endpoint.py)")
     commands.add_parser("scenario", help="drive update, deletion or access-revocation races and replay a schedule")
@@ -249,7 +265,7 @@ def main(argv=None) -> int:
         if args.command == "init":
             from .starter import write_endpoint_test
 
-            write_endpoint_test(args.output)
+            write_endpoint_test(args.output, framework=args.framework)
             print(f"Created {args.output}")
             print("Run  " + shlex.join(["python", "-m", "pytest", "-q", "-s", "--", str(args.output)]))
             return 0
@@ -257,9 +273,9 @@ def main(argv=None) -> int:
             directory = Path(args.report)
             manifest = bundle_manifest(directory) if directory.is_dir() else None
             if manifest == "answer-cache.json":
-                from .examples.answer_cache.drill import main as answer_cache_main
-
-                return answer_cache_main(["--replay", args.report])
+                verdict, text = _replay_answers(directory)
+                print(text)
+                return verdict.status.exit_code
             if manifest == "scenario.json" or (directory.is_dir() and args.command == "replay"):
                 from .scenarios import main as scenario_main
 

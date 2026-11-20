@@ -9,7 +9,7 @@ from setrya.cache_metrics import CacheMetrics, serve_metrics
 from setrya.drill import InputError
 from setrya.offboarding.inputs import read_json
 
-from .evidence import (
+from setrya.endpoint_evidence import (
     FORMAT, MANIFEST, PRIVATE_ANSWER, _read_bundle, contract_for, matches_question,
     observation, pending_before_release, private_body, verified_capture,
 )

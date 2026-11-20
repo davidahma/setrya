@@ -71,7 +71,7 @@ def _saw_change(trace):
 
 
 def _exercise(app, trace, wait_seconds):
-    from .drill import _wait
+    from setrya.endpoint_runner import _wait
 
     def observe(stage):
         for scope, question in QUERIES.items():

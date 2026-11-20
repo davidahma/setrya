@@ -2,6 +2,8 @@
 
 Use this starter when you can run a disposable copy of your app, sign in as two synthetic users, and pause a cache-fill task after it reads a private answer. It exercises your app’s normal answer route. To try the bundled LangChain, pgvector, and Celery app first, follow the [live example](answer-cache.md).
 
+For a Celery worker and a LangChain retriever, use the [framework starter](endpoint-framework.md) to supply the worker hooks through Redis.
+
 ## Run the starter
 
 From your application checkout, run these commands in a Python 3.11+ virtual environment.

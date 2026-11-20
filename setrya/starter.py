@@ -8,10 +8,13 @@ from tempfile import NamedTemporaryFile
 from .drill import InputError
 
 
-def write_endpoint_test(target: Path) -> None:
+def write_endpoint_test(target: Path, *, framework: str = "generic") -> None:
     if target.suffix != ".py":
         raise InputError("--output needs a Python test filename such as tests/test_setrya_endpoint.py")
-    template = files("setrya.examples").joinpath("endpoint_starter.py").read_bytes()
+    templates = {"generic": "endpoint_starter.py", "celery-langchain": "celery_endpoint_starter.py"}
+    if framework not in templates:
+        raise InputError("unsupported endpoint starter framework")
+    template = files("setrya.examples").joinpath(templates[framework]).read_bytes()
     temporary = None
     try:
         target.parent.mkdir(parents=True, exist_ok=True)

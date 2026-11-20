@@ -1,40 +1,53 @@
-# A process-local answer cache
+# Cache an answer and invalidate it by document
 
-`LocalAnswerCache` stores answer text and the ordered chunk versions passed to generation. It uses the Python standard library. Use it to exercise invalidation in a local application or a regression test.
+`LocalAnswerCache` keeps an answer with the ordered chunk IDs used to generate it. On a miss, `fill()` reserves the key **before** calling your retrieval function. Concurrent misses for the same key wait for the owner’s answer.
 
 ```python
 from setrya.local_cache import CacheKey, LocalAnswerCache
 from setrya.store_signals import passage_metadata
 
-cache = LocalAnswerCache(max_entries=32)
-key = CacheKey("workspace-a", "alice", "refunds", "refund-ceiling-en-v1")
+cache = LocalAnswerCache(max_entries=256)
+key = CacheKey("workspace-a", "alice", "policies", "refund-ceiling-en-v1")
+rows = [{"text": "730 credits", "metadata": passage_metadata("refund-policy", "A", "0")}]
 
-# Reserve the fill before the application checks permissions and retrieves chunks.
-original = cache.begin(key)
-sources = [passage_metadata("refund-policy", "A", "0")]
+def retrieve():
+    # In an app, authorize this caller and query the store here on every miss.
+    return rows
 
-# A source change arrives while that generation is running.
-cache.invalidate_retrieval("workspace-a", "refunds")
-published = cache.publish(original, "730 credits", chunks=sources)
-assert published is False
-assert cache.get(key) is None
+def generate(chunks):
+    return chunks[0]["text"]
 
-fresh = cache.begin(key)
-sources = [passage_metadata("refund-policy", "B", "0")]
-published = cache.publish(fresh, "240 credits", chunks=sources)
-assert published is True
-hit = cache.get(key)
+hit = cache.fill(key, retrieve, generate, metadata=lambda chunk: chunk["metadata"])
+assert hit.answer == "730 credits"
+assert hit.dependencies.chunks[0].revision == "A"
+
+# The application publishes revision B and delivers its change notification.
+rows[:] = [{"text": "240 credits", "metadata": passage_metadata("refund-policy", "B", "0")}]
+assert cache.invalidate_document("workspace-a", "refund-policy") == 1
+hit = cache.fill(key, retrieve, generate, metadata=lambda chunk: chunk["metadata"])
 assert hit.answer == "240 credits"
-assert hit.dependencies.chunks[0].revision == "B"
-
-cache.invalidate_access("workspace-a", "alice")
-assert cache.get(key) is None
 ```
 
-Derive the tenant and access scope from the authenticated request. Give each distinct permission set its own scope. The request ID covers everything else that can change the answer, including the normalized question, model, prompt and settings. A digest of that input works as a short request ID.
+Pass a retrieval function that reads current sources under the caller’s permissions. Generating from a list retrieved before `fill()` loses the ordering guarantee. `generate` receives the retrieved items in order, as a tuple. For LangChain documents, use `metadata=lambda doc: doc.metadata`. The default accepts items containing the four passage metadata fields directly. Setrya snapshots those fields before calling the generator. [Dependency record format](answer-dependencies.md)
 
-On an insert, update or deletion, invalidate each retrieval scope whose results could change. A new higher-ranked source can displace an answer’s cited chunks. A move between scopes can be handled in one call, for example `cache.invalidate_retrieval("workspace-a", "refunds", "delivery")`. A revocation affects every retrieval scope for that caller. Invalidation returns the number of cached or pending slots removed.
+## Which change to report
 
-A fill can publish once. Invalidation, eviction, or starting a newer fill for the same key causes its publication to return `False`. Discard the generated answer on that path and repeat authorization and retrieval before serving a response. The cache holds at most `max_entries` slots, counting in-flight fills. Each stored answer defaults to a 65,536-byte limit. Dependency records use the same format as the PostgreSQL example. [Answer dependency records](answer-dependencies.md)
+| Change | Notification | Effect |
+| --- | --- | --- |
+| A cited document changed or was deleted | `invalidate_document(tenant, document)` | Drops every answer in the tenant that cites it across all access scopes, retrieval scopes and requests. An overlapping fill that cites the changed document cannot publish. Returns the number of cached answers removed. |
+| A new or newly relevant passage could change retrieval ranking | `invalidate_retrieval(tenant, *scopes)` | Drops cached answers and pending fills in the affected retrieval scopes, including answers that never cited the changed source. On a move, supply both old and new scopes. |
+| Someone lost access | `invalidate_access(tenant, *scopes)` | Drops cached answers and pending fills for those access scopes across the tenant’s retrieval routes. |
 
-Cache scope versions are opaque and local to one cache instance. A scope receives a new version when its last slot has been invalidated or evicted and a caller starts a new fill. Threads share the cache’s lock. The application owns change notification and must coordinate changes to its source of truth with invalidation. Separate processes have independent state. The PostgreSQL example places the version guard and cache write in a database transaction and checks the result through the answer endpoint. [PostgreSQL answer-cache drill](answer-cache.md)
+Authenticate and authorize every request before looking up its key. Derive the tenant and access scope from that authenticated state. A cache hit bypasses both callbacks, including any checks inside `retrieve()`. Give distinct permission sets distinct keys. Include the question, model, prompt, and settings that affect the answer in the request ID. The application must coordinate changes to its authoritative store and cache invalidation. Readers can reuse a previous answer until the change notification reaches the cache. A stale replica can still return an old revision to a fresh retrieval.
+
+## Upgrading from 0.13
+
+If your code calls `begin()` on every miss, switch to `fill()` to share the generation itself. Under 0.13 a later `begin()` superseded an earlier one. In 0.14 manual producers share the same admission and the first valid publication wins. Code using a bounded local cache can now receive `CacheCapacityError` when every slot is busy. Retry after an active fill finishes or return an unavailable result.
+
+## Concurrent requests and refreshes
+
+`fill()` returns a `CachedAnswer` on a hit or successful publication. It returns `None` if its admission was invalidated or cancelled, or the completed result was evicted before a waiter could read it. Discard that generation and repeat the full authorized retrieval on a subsequent attempt. An owner’s callback exception propagates to that request and releases the admission. Waiters return `None` when the admission disappears. A waiter that exceeds `wait_timeout` (default 30 seconds) raises `TimeoutError`; the owner continues. Work on other keys proceeds while retrieval and generation run.
+
+To refresh a warm key in the background, call `begin(key)` **before** authorization and retrieval, then `publish(token, answer, chunks=metadata)`. The previous answer remains readable until publication, invalidation, or eviction. Overlapping manual calls to `begin` share an admission. The first accepted publication wins. Use `fill()` to also avoid duplicate generation. Call `cancel(token)` if your manual producer abandons the fill. A producer that already retrieved stale chunks before calling `begin()` cannot use a new token to establish when it read them.
+
+The local cache holds at most `max_entries` slots, counting both warm answers and pending fills. When full, it evicts the least recently used idle answer. If every slot has an active fill, a request for a new key raises `CacheCapacityError` and the existing workers keep their admissions. The default maximum answer size is 65,536 UTF-8 bytes. If a pending fill spans more than 1,024 distinct document changes in its tenant, the local cache cancels it to bound its change history. Scope versions are opaque. Local instances share state only across threads using that same instance. For processes that share a cache, use the [Redis backend](redis-cache.md).

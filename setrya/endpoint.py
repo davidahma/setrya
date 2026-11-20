@@ -132,7 +132,7 @@ def check_endpoint(
     exit. The app supplies seed, answer, start_old, checkpoint, captured, revoke,
     release and receipt hooks. A pollable hook returns None while still pending.
     """
-    from .examples.answer_cache.drill import run_endpoint
+    from .endpoint_runner import run_endpoint
 
     if not isinstance(case, EndpointCase) or not callable(application):
         raise InputError("supply an EndpointCase and an application factory")

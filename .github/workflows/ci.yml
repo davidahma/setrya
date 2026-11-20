@@ -94,7 +94,7 @@ jobs:
             --log-opts="--all HEAD" .
 
   pgvector:
-    name: PostgreSQL and pgvector
+    name: PostgreSQL, pgvector, Redis and Celery
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -109,6 +109,13 @@ jobs:
         options: >-
           --health-cmd "pg_isready -h 127.0.0.1 -U setrya -d setrya_fixture"
           --health-interval 2s --health-timeout 2s --health-retries 20
+      redis:
+        image: redis:7.4-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
+        ports:
+          - 6379/tcp
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s --health-timeout 2s --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -122,7 +129,7 @@ jobs:
           python3 -m venv "$runtime"
           "$runtime/bin/python" -m pip install --upgrade pip
           python3 -c 'from pathlib import Path; import tomllib; print(*tomllib.loads(Path("pyproject.toml").read_text())["build-system"]["requires"], sep="\n")' > "$RUNNER_TEMP/build-requires.txt"
-          "$runtime/bin/python" -m pip install --upgrade -r "$RUNNER_TEMP/build-requires.txt" '.[answer-cache,pytest]'
+          "$runtime/bin/python" -m pip install --upgrade -r "$RUNNER_TEMP/build-requires.txt" '.[answer-cache,redis,celery-langchain]'
           echo "$runtime/bin" >> "$GITHUB_PATH"
       - name: Audit the installed integration and build packages
         run: |
@@ -131,6 +138,17 @@ jobs:
           "$tool/bin/python" -m pip install 'pip-audit==2.10.1'
           python3 -m pip list --format=freeze --exclude setrya > "$RUNNER_TEMP/installed.txt"
           "$tool/bin/pip-audit" --strict --no-deps --disable-pip -r "$RUNNER_TEMP/installed.txt"
+      - name: Check the shared cache and an independent Celery worker
+        env:
+          SETRYA_REDIS_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0
+          SETRYA_FRAMEWORK_EVIDENCE: ${{ runner.temp }}/celery-langchain-endpoint
+        run: python -m pytest -q tests/test_redis_cache.py tests/test_celery_langchain.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ !cancelled() }}
+        with:
+          name: celery-langchain-endpoint
+          path: ${{ runner.temp }}/celery-langchain-endpoint/
+          if-no-files-found: error
       - name: Enable pgvector in the disposable database
         env:
           SERVICE_ID: ${{ job.services.postgres.id }}

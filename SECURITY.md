@@ -2,7 +2,7 @@
 
 Report suspected vulnerabilities privately using [GitHub's vulnerability reporting form](https://github.com/davidahma/setrya/security/advisories/new). Include the affected Setrya version, what you observed, and a minimal synthetic reproduction. Keep credentials, customer queries, passages, and private system details out of public issues.
 
-The current 0.12 release series receives fixes. Setrya loads adapter code from the local Python environment, so review the drill and its dependencies before executing it. Use the installed `setrya replay` command or `python -I -m setrya replay` to inspect downloaded evidence. The installed console adds the working checkout to Python’s import path only for live adapter checks.
+The current release series receives fixes. Setrya loads adapter code from the local Python environment, so review the drill and its dependencies before executing it. Use the installed `setrya replay` command or `python -I -m setrya replay` to inspect downloaded evidence. The installed console adds the working checkout to Python’s import path only for live adapter checks.
 
 ## Tenant offboarding evidence
 
@@ -12,17 +12,17 @@ Setrya checks the files, request binding, and internal consistency. Someone who 
 
 ## Python dependency checks
 
-Core Setrya has no runtime dependencies. CI audits the resolved packages used by the PostgreSQL, LangChain, Celery and pytest integration job, including its Python packaging tools. The OpenDesk image audit separately checks the native executable and service images on amd64 and arm64. [Integration workflow](.github/workflows/ci.yml) · [Image audit](.github/workflows/offboarding-trial-images.yml)
+Core Setrya has no runtime dependencies. CI audits the resolved packages used by the PostgreSQL, Redis, LangChain, Celery and pytest integration job, including its Python packaging tools. The OpenDesk image audit separately checks the native executable and service images on amd64 and arm64. [Integration workflow](.github/workflows/ci.yml) · [Image audit](.github/workflows/offboarding-trial-images.yml)
 
 ## Verify the Python release
 
 Starting with 0.9.1, the offline qualification workflow attests the source archive after testing the checkout and its unpacked contents. Download the archive, set `EXPECTED_COMMIT` to the full Git commit from your approved release record, and verify the artifact before installing it.
 
 ```sh
-gh attestation verify setrya-0.12.1.tar.gz --repo davidahma/setrya \
+gh attestation verify setrya-0.14.0.tar.gz --repo davidahma/setrya \
   --signer-workflow davidahma/setrya/.github/workflows/qualification.yml \
   --source-ref refs/heads/main --source-digest "$EXPECTED_COMMIT" --deny-self-hosted-runners
-python -m pip install ./setrya-0.12.1.tar.gz
+python -m pip install ./setrya-0.14.0.tar.gz
 ```
 
 ## Verify a downloaded offboarding tool

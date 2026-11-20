@@ -48,3 +48,5 @@ The writer selects only those identity fields from source metadata. The reader r
 The answer dependency record and the worker drill report can be stored separately. The drill supplies the caller-visible observations needed for a release verdict. [Answer-cache drill](answer-cache.md) · [Passage metadata at ingestion](store-signals.md)
 
 Run the standard-library cache example to see the record checked at publication and reuse. [In-memory cache](local-cache.md)
+
+To evict answers that cite a changed document, call `invalidate_document(tenant, document)` on the [local cache](local-cache.md) or [Redis cache](redis-cache.md). Use retrieval-scope invalidation when a newly added source could change the ranking.

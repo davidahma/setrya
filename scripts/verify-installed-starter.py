@@ -16,9 +16,10 @@ def run(directory, command, expected_exit):
     return result.stdout
 
 
-def verify(project):
+def verify(project, framework, hook):
+    project.mkdir()
     cli = Path(sys.executable).with_name("setrya")
-    run(project, [cli, "init", "endpoint"], 0)
+    run(project, [cli, "init", "endpoint", "--framework", framework], 0)
     starter = project / "tests" / "test_setrya_endpoint.py"
     if not starter.is_file():
         raise RuntimeError("setrya init endpoint did not write tests/test_setrya_endpoint.py")
@@ -26,8 +27,8 @@ def verify(project):
     artifacts = project / "pytest-output"
     output = run(project, [sys.executable, "-I", "-m", "pytest", "-q", "--color=no",
                            "--basetemp", artifacts, starter], 1)
-    if "NOT TESTED" not in output or "seed" not in output:
-        raise RuntimeError(f"pytest did not identify the missing seed hook\n{output}")
+    if "NOT TESTED" not in output or hook not in output:
+        raise RuntimeError(f"pytest did not identify the missing {hook} hook\n{output}")
     handoff = re.search(r"\bReplay\s+(setrya replay [^\n]+)", output)
     if handoff is None:
         raise RuntimeError(f"The pytest failure did not print a replay command\n{output}")
@@ -38,11 +39,12 @@ def verify(project):
     if not report.is_dir() or not report.is_relative_to(artifacts.resolve()):
         raise RuntimeError(f"The replay command did not point into this test run: {report}")
     replayed = run(project, [cli, "replay", report], 3)
-    if "NOT TESTED" not in replayed or "seed" not in replayed:
-        raise RuntimeError(f"Offline replay did not identify the missing seed hook\n{replayed}")
-    print("Installed starter identified the missing seed hook in pytest and offline replay.")
+    if "NOT TESTED" not in replayed or hook not in replayed:
+        raise RuntimeError(f"Offline replay did not identify the missing {hook} hook\n{replayed}")
+    print(f"Installed {framework} starter identified the missing {hook} hook in pytest and offline replay.")
 
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="setrya consumer ") as directory:
-        verify(Path(directory))
+        verify(Path(directory) / "generic", "generic", "seed")
+        verify(Path(directory) / "framework", "celery-langchain", "application")

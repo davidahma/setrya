@@ -1,7 +1,7 @@
 """Test what two users receive after a delayed worker resumes.
 
 Connect these hooks to a disposable instance of your application.
-https://github.com/davidahma/setrya/blob/v0.13.0/docs/endpoint.md
+https://github.com/davidahma/setrya/blob/v0.14.0/docs/endpoint.md
 """
 
 from contextlib import AbstractContextManager
