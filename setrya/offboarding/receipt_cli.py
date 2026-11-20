@@ -16,6 +16,7 @@ from .inputs import InvalidReport, MAX_JSON_BYTES, read_json, regular_file_opene
 
 COMMANDS = ("request", "receipt", "verify-receipt")
 MAX_DOCUMENT_BYTES = 32 * 1024 * 1024
+MAX_TOTAL_DOCUMENT_BYTES = 64 * 1024 * 1024
 MAX_CLOCK_SKEW = timedelta(minutes=5)
 
 
@@ -60,20 +61,23 @@ def add_commands(jobs):
         )
 
 
-def document_digest(path):
+def document_digest(path, budget):
     digest = hashlib.sha256()
     with open(path, "rb", opener=regular_file_opener) as stream:
         if os.fstat(stream.fileno()).st_size > MAX_DOCUMENT_BYTES:
             raise InvalidReport("A record document exceeds the 32 MiB limit.")
-        remaining = MAX_DOCUMENT_BYTES
+        if os.fstat(stream.fileno()).st_size > budget:
+            raise InvalidReport("Record documents exceed the 64 MiB aggregate limit.")
+        limit = min(MAX_DOCUMENT_BYTES, budget)
+        remaining = limit
         while chunk := stream.read(min(128 * 1024, remaining + 1)):
             remaining -= len(chunk)
             if remaining < 0:
                 raise InvalidReport("A record document exceeds the 32 MiB limit.")
             digest.update(chunk)
-        if remaining == MAX_DOCUMENT_BYTES:
+        if remaining == limit:
             raise InvalidReport("A record document is empty.")
-    return digest.hexdigest()
+    return digest.hexdigest(), limit - remaining
 
 
 def publish_new(data, path):
@@ -153,10 +157,10 @@ def run(args):
             raise InvalidReport("Request digest does not match expected digest.")
         evidence, evidence_hash = read_json(args.evidence, "evidence")
         records = []
-        for descriptor_path, document_path in args.record:
+        for descriptor_path, _ in args.record:
             descriptor, descriptor_hash = read_json(descriptor_path, "descriptor")
             records.append(
-                (descriptor, descriptor_hash, document_digest(document_path))
+                (descriptor, descriptor_hash, descriptor.get("document_sha256") if isinstance(descriptor, dict) else None)
             )
 
         report = receipt.assess(
@@ -178,6 +182,12 @@ def run(args):
             )
         if args.expect_job is not None and args.expect_job != report["job_id"]:
             raise InvalidReport("Job identifier does not match the expected job.")
+        budget = MAX_TOTAL_DOCUMENT_BYTES
+        for (_, _, expected), (_, path) in zip(records, args.record):
+            actual, size = document_digest(path, budget)
+            if actual != expected:
+                raise InvalidReport("Document digest does not match.")
+            budget -= size
         verified = args.offboarding_action == "verify-receipt"
         if verified:
             supplied, _ = read_json(args.receipt, "receipt")

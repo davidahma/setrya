@@ -34,6 +34,12 @@ redis.close()
 
 A document update or deletion removes all cached answers that cite that document in the tenant. A fill that was already running can publish only if none of its inputs changed. A new document can change the top search result without appearing in an older answer. For that case, call `invalidate_retrieval(tenant, *affected_scopes)`. Use `invalidate_access(tenant, *affected_scopes)` when permissions change. Callers outside those scopes retain their cached answers.
 
+## Check the current document revision
+
+Construct the cache with `require_current_sources=True`. On each authoritative document write, register `cache.set_document_revision(tenant, document, revision)`. On deletion, pass `None` for the revision. These calls invalidate dependent answers and fence older fills. At publication the cache compares every cited revision to this registry. A deleted or unregistered source rejects the publication, including a stale replica read taken before the fill began. Repeated registration of the same revision leaves valid answers available.
+
+Deliver registrations in source commit order and bootstrap the registry before serving traffic. The registry lasts for the lifetime of the local cache or Redis namespace, independently of answer expiry. Use a fresh namespace after restoring a backup. With the compatibility default (`require_current_sources=False`), registered revisions and tombstones still apply. Sources that have never been registered use the existing document-invalidation fence.
+
 ## What happens to concurrent fills
 
 The first miss acquires a Redis lease before retrieval. Other processes that miss the same key wait for that admission. Redis checks the admission, document changes and publication together. A revoked owner, a crashed process returning after lease expiry, or an expired admission cannot overwrite a newer answer. A manual `begin(key)` can refresh a good answer while it remains readable. Overlapping manual producers may publish against the same admission. The first valid publication wins. Only the original producer can cancel the lease. Calling `cancel` on a joined token returns `False` and leaves the owner running. Use `fill` for automatic coalescing.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "setrya"
-version = "0.15.0"
+version = "0.16.0"
 description = "Test search results and cached answers after document updates, access revocation, and tenant deletion"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,6 +18,9 @@ Documentation = "https://github.com/davidahma/setrya#readme"
 Issues = "https://github.com/davidahma/setrya/issues"
 
 [project.optional-dependencies]
+erasure = ["langgraph>=1.2.24,<2", "langgraph-checkpoint-sqlite>=3.1.3,<4", "pytest>=8", "opentelemetry-api>=1,<2"]
+erasure-postgres = ["langgraph-checkpoint-postgres>=3.2.1,<4", "psycopg[binary]>=3.3,<4"]
+erasure-elasticsearch = ["elasticsearch>=8.19.3,<9"]
 redis = ["redis>=5,<9"]
 celery-langchain = ["pytest>=8", "celery[redis]>=5.7,<6", "langchain-core>=1.8.3,<2", "redis>=5,<9"]
 pytest = ["pytest>=8"]
@@ -32,6 +35,7 @@ include = ["setrya*"]
 
 [tool.setuptools.package-data]
 "setrya" = ["py.typed"]
+"setrya.erasure" = ["receipt-v2.schema.json"]
 "setrya.offboarding" = ["receipt-v1.schema.json"]
 "setrya.examples" = ["access-v0140/*/*.json", "recorded-search/*.toml", "support-search/*.toml", "pgvector-search/*.toml", "pgvector-search/compose.yml", "offboarding/sqlite/policy.json", "opendesk/*.json", "opendesk/compose.yaml", "opendesk/Dockerfile.trial"]
 

@@ -21,6 +21,7 @@ def tag_documents(
     document: str,
     revision: str,
     chunk_id: Callable[[Document, int], str] | None = None,
+    subject=None,
 ) -> list[Document]:
     """Return copies with Setrya metadata. Pass one immutable revision in split order.
 
@@ -33,7 +34,7 @@ def tag_documents(
     seen = set()
     for ordinal, chunk in enumerate(chunks):
         key = str(ordinal) if chunk_id is None else chunk_id(chunk, ordinal)
-        identity = passage_metadata(document, revision, key)
+        identity = passage_metadata(document, revision, key, subject=subject)
         if key in seen:
             raise InputError("each chunk in a revision needs a distinct ID")
         seen.add(key)

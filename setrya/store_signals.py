@@ -49,8 +49,14 @@ def elasticsearch_refresh(response, *, receipt: Receipt, generation: str, route:
     return Refresh(receipt.run_id, receipt.attempt, generation, route, scope)
 
 
-def passage_metadata(document: str, revision: str, chunk: str) -> dict[str, str]:
+def passage_metadata(document: str, revision: str, chunk: str, *, subject=None) -> dict[str, str]:
     """Attach a deterministic identity to a chunk at ingestion time."""
     identity = [label(v, k) for v, k in ((document, "document"), (revision, "revision"), (chunk, "chunk"))]
     marker = "chunk-" + sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
-    return {"document": document, "revision": revision, "chunk": chunk, "setrya_marker": marker}
+    metadata = {"document": document, "revision": revision, "chunk": chunk, "setrya_marker": marker}
+    if subject is not None:
+        from .erasure.subject import Subject
+        if not isinstance(subject, Subject):
+            raise InputError("expected a Subject")
+        metadata.update(subject.metadata())
+    return metadata

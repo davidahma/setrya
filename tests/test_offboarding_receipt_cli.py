@@ -77,6 +77,18 @@ class OffboardingReceiptCLITests(unittest.TestCase):
         (self.root / "provider.txt").write_bytes(b"different document")
         self.invoke(2, "verify-receipt", *self.inputs, "--receipt", LEGACY_RECEIPT)
 
+    def test_validate_all_descriptors_before_opening_exhibits_and_limit_total_bytes(self):
+        with patch("setrya.offboarding.receipt_cli.MAX_TOTAL_DOCUMENT_BYTES", 8):
+            diagnostic = self.invoke(2, "verify-receipt", *self.inputs, "--receipt", LEGACY_RECEIPT)
+        self.assertIn("aggregate limit", diagnostic)
+        descriptor = self.root / "archive.json"
+        item = json.loads(descriptor.read_bytes())
+        item["issuer"] = ""
+        self.store(descriptor.name, item)
+        with patch("setrya.offboarding.receipt_cli.document_digest") as digest:
+            self.invoke(2, "verify-receipt", *self.inputs, "--receipt", LEGACY_RECEIPT)
+        digest.assert_not_called()
+
     def test_replay_allows_only_the_declared_clock_skew(self):
         observed = datetime.fromisoformat(self.data["evidence"]["job"]["observed_at"])
         with patch("setrya.offboarding.receipt_cli.datetime", wraps=datetime) as clock:

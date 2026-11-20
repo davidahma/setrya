@@ -61,8 +61,8 @@ _ACQUIRE = """
 local id, refresh, owner = ARGV[1], ARGV[2], ARGV[3]
 local lease_ttl = tonumber(ARGV[6])
 if refresh == '0' then
-    local data = redis.call('HGET', prefix .. 'answer:' .. id, 'data')
-    if data then return {'hit', data} end
+    local item = redis.call('HMGET', prefix .. 'answer:' .. id, 'data', 'verified')
+    if item[1] and (ARGV[8] == '0' or item[2] == '1') then return {'hit', item[1]} end
 end
 local lease = prefix .. 'lease:' .. id
 local current = redis.call('GET', lease)
@@ -108,9 +108,14 @@ if ARGV[5] == 'cancel' then
     return 1
 end
 local docs = cjson.decode(ARGV[7])
-for _, doc in ipairs(docs) do
+local verified = '1'
+for _, chunk in ipairs(cjson.decode(ARGV[10])) do
+    local doc = chunk[1]
+    local revision = redis.call('HGET', prefix .. 'revisions', doc)
+    if not revision then verified = '0' end
+    local outdated = (revision and revision ~= chunk[2]) or (not revision and ARGV[11] == '1')
     local changed = redis.call('GET', prefix .. 'change:' .. doc)
-    if changed and tonumber(changed) > tonumber(fill[4]) then
+    if outdated or (changed and tonumber(changed) > tonumber(fill[4])) then
         if is_owner then
             redis.call('DEL', lease)
             unlink_scopes_if_empty(id)
@@ -123,7 +128,7 @@ remove_answer(id)
 local key = prefix .. 'answer:' .. id
 local ttl = tonumber(ARGV[9])
 local now = now_ms()
-redis.call('HSET', key, 'data', ARGV[8], 'id', fill[1], 'docs', ARGV[7])
+redis.call('HSET', key, 'data', ARGV[8], 'id', fill[1], 'docs', ARGV[7], 'verified', verified)
 redis.call('PEXPIRE', key, ttl)
 for _, doc in ipairs(docs) do index(prefix .. 'doc:' .. doc, id .. '/' .. fill[1], ttl, now) end
 index_scopes(id, ttl, now)
@@ -137,6 +142,7 @@ _WAIT = """
 local id = ARGV[1]
 local answer = prefix .. 'answer:' .. id
 if redis.call('HGET', answer, 'id') == ARGV[2] then
+    if ARGV[3] == '1' and redis.call('HGET', answer, 'verified') ~= '1' then return {'gone'} end
     return {'hit', redis.call('HGET', answer, 'data')}
 end
 local lease = redis.call('GET', prefix .. 'lease:' .. id)
@@ -146,6 +152,10 @@ return {'gone'}
 
 _INVALIDATE_DOCUMENT = """
 local doc, ttl = ARGV[1], tonumber(ARGV[2])
+if ARGV[3] then
+    if redis.call('HGET', prefix .. 'revisions', doc) == ARGV[3] then return 0 end
+    redis.call('HSET', prefix .. 'revisions', doc, ARGV[3])
+end
 local clock = prefix .. 'doc-clock'
 local epoch = redis.call('INCR', clock)
 redis.call('PEXPIRE', clock, ttl * 2)
@@ -192,7 +202,7 @@ class RedisAnswerCache(AnswerCache):
     """Share answers and cancellable admissions on one synchronous Redis primary."""
 
     def __init__(self, client, *, namespace: str = "default", ttl_seconds: int = 3600,
-                 lease_seconds: int = 60, max_answer_bytes: int = 65536):
+                 lease_seconds: int = 60, max_answer_bytes: int = 65536, require_current_sources: bool = False):
         self._namespace = label(namespace, "Redis cache namespace")
         if type(ttl_seconds) is not int or not 1 <= ttl_seconds <= 30 * 86400:
             raise InputError("ttl_seconds must be between 1 second and 30 days")
@@ -200,6 +210,9 @@ class RedisAnswerCache(AnswerCache):
             raise InputError("lease_seconds must be between 1 and 3600")
         if type(max_answer_bytes) is not int or max_answer_bytes < 1:
             raise InputError("max_answer_bytes must be a positive integer")
+        if type(require_current_sources) is not bool:
+            raise InputError("require_current_sources must be a boolean")
+        self._strict = require_current_sources
         self._client = client
         self._ttl = ttl_seconds * 1000
         self._lease = lease_seconds * 1000
@@ -221,14 +234,25 @@ class RedisAnswerCache(AnswerCache):
 
     def get(self, key: CacheKey) -> CachedAnswer | None:
         slot = self._slot(key)
-        item = self._client.hget(self._prefix(key.tenant) + "answer:" + slot, "data")
-        return _cached(item) if item is not None else None
+        data, verified = self._client.hmget(self._prefix(key.tenant) + "answer:" + slot, "data", "verified")
+        return _cached(data) if data is not None and (not self._strict or _text(verified) == "1") else None
+
+    def cached_keys(self, tenant: str, retrieval_scope: str) -> tuple[CacheKey, ...]:
+        prefix = self._prefix(label(tenant, "tenant")) + "answer:"
+        scope = label(retrieval_scope, "retrieval scope")
+        keys = set()
+        for raw in self._client.scan_iter(match=prefix + "*:" + scope + ":*"):
+            name = _text(raw)
+            access, retrieval, request = name.removeprefix(prefix).split(":")
+            if retrieval == scope and self._client.hexists(name, "data"):
+                keys.add(CacheKey(tenant, access, retrieval, request))
+        return tuple(keys)
 
     def _acquire(self, key, *, refresh):
         slot = self._slot(key)
         cancel_token = uuid4().hex
         reply = self._admit(keys=[self._prefix(key.tenant)], args=[
-            slot, int(refresh), uuid4().hex, uuid4().hex, uuid4().hex, self._lease, cancel_token,
+            slot, int(refresh), uuid4().hex, uuid4().hex, uuid4().hex, self._lease, cancel_token, int(self._strict),
         ])
         status = _text(reply[0])
         if status == "hit":
@@ -240,7 +264,7 @@ class RedisAnswerCache(AnswerCache):
     def _wait_for(self, fill, timeout):
         deadline = monotonic() + timeout
         while True:
-            reply = self._wait(keys=[self._prefix(fill.key.tenant)], args=[self._slot(fill.key), fill.answer_id])
+            reply = self._wait(keys=[self._prefix(fill.key.tenant)], args=[self._slot(fill.key), fill.answer_id, int(self._strict)])
             status = _text(reply[0])
             if status == "hit":
                 return _cached(reply[1])
@@ -265,7 +289,13 @@ class RedisAnswerCache(AnswerCache):
     def _publish_record(self, fill, answer, record):
         docs = sorted({chunk.document for chunk in record.chunks})
         data = json.dumps([answer, record.to_dict()], separators=(",", ":"), ensure_ascii=False)
-        return self._complete(fill, "publish", json.dumps(docs), data, self._ttl)
+        revisions = [(chunk.document, chunk.revision) for chunk in record.chunks]
+        return self._complete(fill, "publish", json.dumps(docs), data, self._ttl, json.dumps(revisions), int(self._strict))
+
+    def set_document_revision(self, tenant: str, document: str, revision: str | None) -> int:
+        return int(self._drop_doc(keys=[self._prefix(label(tenant, "tenant"))],
+                                  args=[label(document, "document"), 1000 * _MAX_LEASE_SECONDS,
+                                        "" if revision is None else label(revision, "revision")]))
 
     def invalidate_document(self, tenant: str, document: str) -> int:
         """Remove cached dependents; reject older pending fills that later cite this document."""

@@ -195,6 +195,10 @@ def main(argv=None) -> int:
         from .examples.answer_cache.drill import main as answer_cache_main
 
         return answer_cache_main(argv[1:])
+    if argv[:1] == ["erasure"]:
+        from .erasure.cli import main as erasure_main
+
+        return erasure_main(argv[1:])
     if argv[:1] == ["coverage"]:
         from .coverage import main as coverage_main
 
@@ -216,6 +220,9 @@ def main(argv=None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init", help="create a starter test in your application checkout")
     starters = init.add_subparsers(dest="starter", required=True)
+    erasure = starters.add_parser("erasure", help="test deletion through a LangGraph application")
+    erasure.add_argument("--output", type=Path, default=Path("setrya-erasure"))
+    commands.add_parser("erasure", help="sign or verify a subject erasure receipt")
     endpoint = starters.add_parser(
         "endpoint", help="test your answer endpoint as a revoked user and a retained colleague",
         description="Write a pytest starter to verify two authenticated endpoint reads, then exercise the delayed cache-fill worker.",
@@ -232,8 +239,9 @@ def main(argv=None) -> int:
     commands.add_parser("run-pr", help="run an existing test on two Git revisions and review its evidence")
     demo_parser = commands.add_parser("demo", help="replay access revocation or run the offline refund-policy demo")
     demos = demo_parser.add_mutually_exclusive_group()
-    demos.add_argument("example", nargs="?", choices=("access",), help="replay recorded two-user access checks")
+    demos.add_argument("example", nargs="?", choices=("access", "erasure"), help="run the access or subject erasure example")
     demos.add_argument("--case", choices=DEMO_CASES, help="run one case of the refund-policy search demo")
+    demo_parser.add_argument("--output", type=Path, help="new evidence directory for the erasure demo")
     check = commands.add_parser("check", help="run a drill")
     check.add_argument("drill")
     check.add_argument("--report", help="write a portable JSON report")
@@ -264,6 +272,12 @@ def main(argv=None) -> int:
     error_summary = None
 
     try:
+        if args.command == "init" and args.starter == "erasure":
+            from .erasure.starter import init_erasure
+
+            init_erasure(args.output)
+            print(f"Created {args.output}")
+            return 0
         if args.command == "init":
             from .starter import write_endpoint_test
 
@@ -276,6 +290,11 @@ def main(argv=None) -> int:
         if args.command in {"replay", "diagnose"}:
             directory = Path(args.report)
             manifest = bundle_manifest(directory) if directory.is_dir() else None
+            if manifest == "erasure-receipt.json":
+                from .erasure.cli import report as print_erasure
+                from .erasure.receipt import replay as replay_erasure
+
+                return print_erasure(replay_erasure(directory))
             if manifest == "endpoint-reads.json":
                 from .endpoint_reads import replay as replay_reads
 
@@ -374,6 +393,12 @@ def main(argv=None) -> int:
                 _write_summary(summary_path, result.report.rules.id, summary)
             return result.verdict.status.exit_code
         if args.command == "demo":
+            if args.example == "erasure":
+                from .erasure.demo import run_demo
+
+                return run_demo(args.output or Path("erasure-example"))
+            if args.output is not None:
+                raise InputError("--output requires demo erasure")
             if args.example == "access":
                 from .examples.access_demo import demo_access
 

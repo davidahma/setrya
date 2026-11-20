@@ -1,11 +1,29 @@
 # Setrya
 
-Setrya tests what search and AI applications return after someone loses access, a customer’s data is deleted, or a document changes. Engineers can replay a failure and verify a fix in CI. A deletion receipt shows the case owner which checks passed for a specific request and what still needs follow-up.
+Setrya tests whether a background job or a reopened AI chat can bring deleted data back. Run a deletion against a test subject in your LangGraph app, read the result as two users, and give a reviewer a receipt they can replay. Setrya also tests access revocation, tenant offboarding, and search updates.
 
 [![Tests](https://github.com/davidahma/setrya/actions/workflows/ci.yml/badge.svg)](https://github.com/davidahma/setrya/actions/workflows/ci.yml)
 [![Offline qualification](https://github.com/davidahma/setrya/actions/workflows/qualification.yml/badge.svg)](https://github.com/davidahma/setrya/actions/workflows/qualification.yml)
 
-[Replay an access change](#replay-an-access-change) · [Review a tenant deletion](#review-a-tenant-deletion) · [Test your own endpoint](#test-your-own-endpoint)
+[Erase a test subject](#erase-a-test-subject) · [Replay an access change](#replay-an-access-change) · [Review a tenant deletion](#review-a-tenant-deletion) · [Test your own endpoint](#test-your-own-endpoint)
+
+## Erase a test subject
+
+Alice’s chart was deleted. A worker still holds an old snapshot. When two care-team members reopen the saved handoff, can either of them see Alice again? Run the fictional example on a laptop with Python 3.11+.
+
+```sh
+python -m pip install 'setrya[erasure]'
+setrya demo erasure --output alice
+setrya replay alice/broken
+```
+
+| Run | What the two users see | Receipt |
+| --- | --- | --- |
+| Broken worker | Alice returns in the reopened chat. | `FAIL` |
+| Guarded worker | Alice stays gone. Both users can still read Bob’s chart. | `PASS` |
+| Provider copy | The app is clear. The provider’s storage cannot be inspected. | `NOT TESTED` · one unknown copy |
+
+Run `setrya init erasure` to connect your own fixture, worker and read path. The receipt lists the copies observed in the journal or discovered in declared stores. A reviewer can check the signature and replay it without your app. [Starter](https://github.com/davidahma/setrya/blob/v0.16.0/docs/erasure-starter.md) · [Evidence and signing](https://github.com/davidahma/setrya/blob/v0.16.0/docs/erasure.md) · [Download the signed example](https://github.com/davidahma/setrya/releases/download/v0.16.0/subject-erasure.zip)
 
 <a id="test-a-late-answer-cache-fill"></a>
 <a id="test-access-revocation-with-two-users"></a>

@@ -229,3 +229,48 @@ class RedisCacheTests(unittest.TestCase):
         while monotonic() < deadline and any(self.client.scan_iter(match=pattern)):
             sleep(0.02)
         self.assertEqual(list(self.client.scan_iter(match=pattern)), [])
+
+
+@unittest.skipUnless(URL, "set SETRYA_REDIS_URL to exercise the Redis integration")
+class RedisRevisionRegistryTests(unittest.TestCase):
+    def test_strict_cross_process_authority_and_scoped_erasure(self):
+        from redis import Redis
+        from setrya.erasure.cache import SubjectAnswerCacheAdapter
+        from setrya.erasure.subject import Subject
+
+        with Redis.from_url(URL) as client:
+            namespace = uuid4().hex
+            writer = RedisAnswerCache(client, namespace=namespace, require_current_sources=True)
+            reader = RedisAnswerCache(client, namespace=namespace, require_current_sources=True)
+            subject = Subject.derive(b"t" * 32, "tenant", "synthetic-a", "restricted")
+            control = Subject.derive(b"t" * 32, "tenant", "synthetic-b", "restricted")
+            first = CacheKey("tenant", "doctor", subject.ref, "chart")
+            second = CacheKey("tenant", "doctor", control.ref, "chart")
+            try:
+                legacy = RedisAnswerCache(client, namespace=namespace)
+                self.assertTrue(legacy.publish(legacy.begin(first), "unregistered", chunks=[POLICY]))
+                self.assertIsNone(reader.get(first))
+                self.assertIsNone(reader.fill(first, lambda: [POLICY], lambda _: "unregistered"))
+                self.assertFalse(reader.publish(reader.begin(first), "unknown", chunks=[POLICY]))
+                writer.set_document_revision("tenant", "policy", "A")
+                self.assertTrue(reader.publish(reader.begin(first), "first", chunks=[POLICY]))
+                writer.set_document_revision("tenant", "policy", "A")
+                self.assertEqual(reader.get(first).answer, "first")
+                self.assertEqual(writer.set_document_revision("tenant", "policy", "B"), 1)
+                self.assertFalse(reader.publish(reader.begin(first), "stale", chunks=[POLICY]))
+                fresh = passage_metadata("policy", "B", "one")
+                for key in (first, second):
+                    self.assertTrue(reader.publish(reader.begin(key), "current", chunks=[fresh]))
+                adapter = SubjectAnswerCacheAdapter(writer, tenant="tenant")
+                self.assertEqual(adapter.find(subject), {"tenant:doctor:chart"})
+                pending = reader.begin(first)
+                adapter.delete(subject)
+                self.assertEqual(adapter.verify_absent(subject), set())
+                self.assertFalse(reader.publish(pending, "revived", chunks=[fresh]))
+                self.assertTrue(adapter.find(control))
+                writer.set_document_revision("tenant", "policy", None)
+                self.assertFalse(reader.publish(reader.begin(second), "deleted", chunks=[fresh]))
+            finally:
+                keys = list(client.scan_iter(match=f"setrya:cache:v1:{namespace}:*"))
+                if keys:
+                    client.unlink(*keys)

@@ -10,6 +10,10 @@ Use the installed `setrya offboarding gate` or `setrya offboarding verify-receip
 
 Setrya checks the files, request binding, and internal consistency. Someone who controls the observer or job log could fabricate the recorded events. Review the identity and permissions of each evidence producer before relying on its readings. A passing technical result covers the declared reads and checkpoints. Provider statements identify their issuer, and scheduled retention stays an open item. [Receipt guide](docs/offboarding.md#review-one-deletion-request)
 
+## Subject erasure evidence
+
+Run destructive adapters against disposable test subjects. Only propagate subject headers, trace baggage and LangGraph configuration across trusted application boundaries. A tenant-keyed subject reference is linkable pseudonymous data. Store keys, labels, caller aliases, model names and source IDs must be safe to share before publishing a receipt. The observer, its inventory, and its credentials define the scope of a verified result. [Evidence and signature verification](docs/erasure.md)
+
 ## Python dependency checks
 
 Core Setrya has no runtime dependencies. CI audits the resolved packages used by the PostgreSQL, Redis, LangChain, Celery and pytest integration job, including its Python packaging tools. The OpenDesk image audit separately checks the native executable and service images on amd64 and arm64. [Integration workflow](.github/workflows/ci.yml) · [Image audit](.github/workflows/offboarding-trial-images.yml)
@@ -19,10 +23,10 @@ Core Setrya has no runtime dependencies. CI audits the resolved packages used by
 Starting with 0.9.1, the offline qualification workflow attests the source archive after testing the checkout and its unpacked contents. Download the archive, set `EXPECTED_COMMIT` to the full Git commit from your approved release record, and verify the artifact before installing it.
 
 ```sh
-gh attestation verify setrya-0.15.0.tar.gz --repo davidahma/setrya \
+gh attestation verify setrya-0.16.0.tar.gz --repo davidahma/setrya \
   --signer-workflow davidahma/setrya/.github/workflows/qualification.yml \
   --source-ref refs/heads/main --source-digest "$EXPECTED_COMMIT" --deny-self-hosted-runners
-python -m pip install ./setrya-0.15.0.tar.gz
+python -m pip install ./setrya-0.16.0.tar.gz
 ```
 
 ## Verify a downloaded offboarding tool

@@ -59,7 +59,15 @@ class AnswerCache:
     def get(self, key: CacheKey) -> CachedAnswer | None:
         raise NotImplementedError
 
+    def cached_keys(self, tenant: str, retrieval_scope: str) -> tuple[CacheKey, ...]:
+        """Enumerate stored answers visible in this tenant and exact retrieval scope."""
+        raise NotImplementedError
+
     def invalidate_document(self, tenant: str, document: str) -> int:
+        raise NotImplementedError
+
+    def set_document_revision(self, tenant: str, document: str, revision: str | None) -> int:
+        """Register the current revision, or None on deletion, at the write boundary."""
         raise NotImplementedError
 
     def invalidate_retrieval(self, tenant: str, *scopes: str) -> int:
@@ -174,9 +182,13 @@ class _Scope:
 class LocalAnswerCache(AnswerCache):
     """A process-local LRU of finished answers and outstanding admissions."""
 
-    def __init__(self, max_entries: int = 256, *, max_answer_bytes: int = 65536):
+    def __init__(self, max_entries: int = 256, *, max_answer_bytes: int = 65536, require_current_sources: bool = False):
         if any(type(n) is not int or n < 1 for n in (max_entries, max_answer_bytes)):
             raise InputError("cache capacity and answer size must be positive integers")
+        if type(require_current_sources) is not bool:
+            raise InputError("require_current_sources must be a boolean")
+        self._strict = require_current_sources
+        self._revisions: dict[tuple[str, str], str | None] = {}
         self._capacity = max_entries
         self._max_answer_bytes = max_answer_bytes
         self._slots: OrderedDict[CacheKey, _Slot] = OrderedDict()
@@ -194,6 +206,13 @@ class LocalAnswerCache(AnswerCache):
                 return None
             self._slots.move_to_end(key)
             return slot.answer
+
+    def cached_keys(self, tenant: str, retrieval_scope: str) -> tuple[CacheKey, ...]:
+        label(tenant, "tenant")
+        label(retrieval_scope, "retrieval scope")
+        with self._changed:
+            return tuple(key for key, slot in self._slots.items()
+                         if key.tenant == tenant and key.retrieval_scope == retrieval_scope and slot.answer is not None)
 
     def _unlink_answer(self, key, slot):
         if slot.answer is not None:
@@ -276,7 +295,11 @@ class LocalAnswerCache(AnswerCache):
             if slot is None or not slot.admits(fill):
                 return False
             documents = {chunk.document for chunk in record.chunks}
-            if not documents.isdisjoint(slot.changed_documents):
+            outdated = any(
+                self._revisions.get((fill.key.tenant, chunk.document), None if self._strict else chunk.revision)
+                != chunk.revision for chunk in record.chunks
+            )
+            if outdated or not documents.isdisjoint(slot.changed_documents):
                 if slot.pending is fill:
                     self._end_pending(fill.key, slot)
                 return False
@@ -287,6 +310,16 @@ class LocalAnswerCache(AnswerCache):
             self._slots.move_to_end(fill.key)
             self._end_pending(fill.key, slot)
             return True
+
+    def set_document_revision(self, tenant: str, document: str, revision: str | None) -> int:
+        key = label(tenant, "tenant"), label(document, "document")
+        if revision is not None:
+            label(revision, "revision")
+        with self._changed:
+            if key in self._revisions and self._revisions[key] == revision:
+                return 0
+            self._revisions[key] = revision
+            return self.invalidate_document(tenant, document)
 
     def invalidate_document(self, tenant: str, document: str) -> int:
         """Evict answers citing this document and fence those now in generation."""

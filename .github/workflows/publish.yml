@@ -83,6 +83,12 @@ jobs:
               "$envdir/bin/python" -m pip install "${distribution}[pytest]"
               "$envdir/bin/python" -I "$GITHUB_WORKSPACE/scripts/verify-installed-starter.py"
             fi
+            if test -f "$GITHUB_WORKSPACE/setrya/erasure/demo.py"; then
+              "$envdir/bin/python" -m pip install "${distribution}[erasure]"
+              "$envdir/bin/setrya" init erasure --output "$envdir/starter"
+              "$envdir/bin/setrya" demo erasure --output "$envdir/alice"
+              "$envdir/bin/setrya" replay "$envdir/alice/guarded"
+            fi
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -139,4 +145,10 @@ jobs:
           if test -f "$GITHUB_WORKSPACE/scripts/verify-installed-starter.py"; then
             public-install/bin/python -m pip --isolated install --no-cache-dir --index-url https://pypi.org/simple "setrya[pytest]==$VERSION"
             public-install/bin/python -I "$GITHUB_WORKSPACE/scripts/verify-installed-starter.py"
+          fi
+          if test -f "$GITHUB_WORKSPACE/setrya/erasure/demo.py"; then
+            public-install/bin/python -m pip --isolated install --index-url https://pypi.org/simple "setrya[erasure]==$VERSION"
+            public-install/bin/setrya init erasure
+            public-install/bin/setrya demo erasure --output alice
+            public-install/bin/setrya replay alice/guarded
           fi

@@ -43,7 +43,7 @@ _STAGES = {"seeded": "baseline", "published": "freshness", "released": "final"}
 
 def bundle_manifest(directory: Path) -> str | None:
     """Identify one replayable bundle; never silently choose between two verdicts."""
-    manifests = [name for name in ("answer-cache.json", "scenario.json", "endpoint-reads.json")
+    manifests = [name for name in ("answer-cache.json", "scenario.json", "endpoint-reads.json", "erasure-receipt.json")
                  if os.path.lexists(directory / name)]
     if len(manifests) > 1:
         raise InputError("ambiguous evidence directory: keep each evidence bundle in its own directory")

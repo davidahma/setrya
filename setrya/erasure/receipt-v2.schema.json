@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/davidahma/setrya/raw/v0.16.0/setrya/erasure/receipt-v2.schema.json",
+  "title": "Subject erasure receipt v2",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "run",
+    "subject",
+    "observed_at",
+    "case",
+    "verdict",
+    "copies",
+    "unknown_copies",
+    "time_to_first_verdict_ms",
+    "failures",
+    "gaps",
+    "errors",
+    "evidence"
+  ],
+  "properties": {
+    "format": {
+      "const": "setrya.erasure.receipt.v2"
+    },
+    "version": {
+      "const": 2
+    },
+    "run": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "subject": {
+      "type": "object",
+      "required": [
+        "ref",
+        "classification"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "classification": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "case": {
+      "type": "object",
+      "required": [
+        "route",
+        "callers",
+        "question_sha256"
+      ],
+      "properties": {
+        "route": {
+          "type": "string",
+          "minLength": 1
+        },
+        "callers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "question_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "verdict": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "ERROR",
+        "NOT TESTED"
+      ]
+    },
+    "copies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/copy"
+      }
+    },
+    "unknown_copies": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "time_to_first_verdict_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "operation",
+          "error"
+        ],
+        "properties": {
+          "operation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "error": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "file",
+        "sha256"
+      ],
+      "properties": {
+        "file": {
+          "const": "erasure-evidence.json"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "copy": {
+      "type": "object",
+      "required": [
+        "store",
+        "key",
+        "owner",
+        "classifications",
+        "status",
+        "evidence",
+        "disposition"
+      ],
+      "properties": {
+        "store": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "classifications": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "status": {
+          "enum": [
+            "verified gone",
+            "still present",
+            "attested",
+            "unknown",
+            "retained until"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "disposition": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "store",
+                "key",
+                "owner",
+                "evidence",
+                "subject_ref",
+                "until"
+              ],
+              "properties": {
+                "store": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "owner": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "evidence": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "subject_ref": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "until": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

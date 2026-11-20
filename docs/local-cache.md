@@ -30,6 +30,12 @@ assert hit.answer == "240 credits"
 
 Pass a retrieval function that reads current sources under the caller’s permissions. Generating from a list retrieved before `fill()` loses the ordering guarantee. `generate` receives the retrieved items in order, as a tuple. For LangChain documents, use `metadata=lambda doc: doc.metadata`. The default accepts items containing the four passage metadata fields directly. Setrya snapshots those fields before calling the generator. [Dependency record format](answer-dependencies.md)
 
+## Check the current document revision
+
+Construct the cache with `require_current_sources=True`. On each authoritative document write, register `cache.set_document_revision(tenant, document, revision)`. On deletion, pass `None` for the revision. These calls invalidate dependent answers and fence older fills. At publication the cache compares every cited revision to this registry. A deleted or unregistered source rejects the publication, including a stale replica read taken before the fill began. Repeated registration of the same revision leaves valid answers available.
+
+Deliver registrations in source commit order and bootstrap the registry before serving traffic. The registry lasts for the lifetime of the local cache or Redis namespace, independently of answer expiry. Use a fresh namespace after restoring a backup. With the compatibility default (`require_current_sources=False`), registered revisions and tombstones still apply. Sources that have never been registered use the existing document-invalidation fence.
+
 ## Which change to report
 
 | Change | Notification | Effect |
