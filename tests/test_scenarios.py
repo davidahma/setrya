@@ -1,8 +1,9 @@
 """Exercise the controlled worker, scoped probes and offline schedule verification."""
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import chdir, redirect_stderr, redirect_stdout
 from dataclasses import replace
 from io import StringIO
 import json
+import os
 from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -19,6 +20,27 @@ from setrya.scenarios import KINDS, SCHEDULES, main, preset, replay, run_scenari
 
 
 class ScenarioTests(unittest.TestCase):
+    def test_relative_artifacts_stay_in_the_callers_directory_after_adapter_teardown(self):
+        close = Application.close
+        for schedule in ("single", "all"):
+            with self.subTest(schedule=schedule), TemporaryDirectory() as tmp, chdir(tmp):
+                root = Path.cwd()
+                sibling = root / "app"
+                sibling_output = sibling / "results"
+                sibling_output.mkdir(parents=True)
+                marker = sibling_output / "scenario.json"
+                marker.write_text("existing application evidence")
+
+                def close_in_application(app):
+                    close(app)
+                    os.chdir(sibling)
+
+                with patch.object(Application, "close", close_in_application), redirect_stdout(StringIO()):
+                    self.assertEqual(main(["update", "--schedule", schedule, "--output", "results"]), 0)
+                self.assertIs(replay(root / "results").status, Status.PASS)
+                self.assertEqual(list(sibling_output.iterdir()), [marker])
+                self.assertEqual(marker.read_text(), "existing application evidence")
+
     def test_a_second_terminal_worker_cannot_qualify_as_still_held_at_the_first_release(self):
         class EarlyCompletion(Application):
             def publish(self):

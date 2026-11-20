@@ -1,4 +1,5 @@
 """Adapter authors can import the same suite that runs on the bundled stores and queue."""
+from contextlib import chdir
 from dataclasses import replace
 from importlib.util import find_spec
 import os
@@ -12,6 +13,7 @@ from setrya.adapter import Checkpoint, Publication, Receipt
 from setrya.cli import EXAMPLE, PGVECTOR
 from setrya.conformance import ContractError, assert_queue_contract, assert_store_contract
 from setrya.drill import Drill
+from setrya.examples.support_search.adapter import SupportAdapter
 from setrya.examples.support_search.app import App
 
 
@@ -25,6 +27,27 @@ def check_fixture(path):
 
 
 class AdapterContractTests(unittest.TestCase):
+    def test_adapter_cannot_redirect_saved_conformance_reports_by_changing_directory(self):
+        drill = Drill.load(EXAMPLE / "python.toml")
+        with TemporaryDirectory() as tmp, chdir(tmp):
+            expected = Path.cwd() / "results"
+            sibling = Path.cwd() / "app"
+            sibling_output = sibling / "results"
+            sibling_output.mkdir(parents=True)
+            close = SupportAdapter.close
+
+            def close_in_application(adapter):
+                close(adapter)
+                os.chdir(sibling)
+
+            # The bundled worker starts a separate Python process from the fixture's cwd.
+            with (patch.dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1])),
+                  patch.object(SupportAdapter, "close", close_in_application)):
+                assert_store_contract(guarded=drill, broken=replace(drill, options={"mode": "broken"}),
+                                      opaque=replace(drill, options={"mode": "opaque"}), output="results")
+            self.assertEqual({p.name for p in expected.iterdir()}, {"broken.json", "guarded.json", "opaque.json"})
+            self.assertEqual(list(sibling_output.iterdir()), [])
+
     def test_local_store(self):
         self.assertEqual(check_fixture(EXAMPLE / "python.toml"),
                          ({"broken", "guarded", "opaque"}, {"broken.json", "guarded.json", "opaque.json"}))

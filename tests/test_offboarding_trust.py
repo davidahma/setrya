@@ -12,6 +12,7 @@ from unittest.mock import patch
 from setrya.offboarding.cli import main
 from setrya.offboarding.gate import evaluate
 from setrya.offboarding.observer import open_reader, read_pair
+from setrya.offboarding.receipt_schema import validate_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT = ROOT / "tests/fixtures/offboarding-receipt-axiom-v0.3.2.json"
@@ -176,11 +177,20 @@ class TrustTests(unittest.TestCase):
 
     def test_signature_operations_require_an_internally_consistent_receipt(self):
         original = json.loads(RECEIPT.read_bytes())
+        probe = original["probes"][0]
         changes = (
             {"review_status": "READY_FOR_REVIEW"},
             {"technical_verdict": "INCONCLUSIVE"},
             {"probes": [dict(original["probes"][0], verdict="FAIL", reasons=["after_subject_present"])]},
             {"probes": [dict(original["probes"][0], reasons=["after_subject_present"])]},
+            {"probes": [dict(probe, verdict="FAIL", reasons=["missing_probe"])],
+             "technical_verdict": "FAIL", "review_status": "RESIDUAL_FOUND"},
+            {"probes": [dict(probe, verdict="INCONCLUSIVE", reasons=["after_subject_present"])],
+             "technical_verdict": "INCONCLUSIVE"},
+            {"probes": [dict(probe, verdict="FAIL", reasons=["missing_probe", "after_subject_present"])],
+             "technical_verdict": "FAIL", "review_status": "RESIDUAL_FOUND"},
+            {"probes": [probe, dict(probe, id="other", verdict="INCONCLUSIVE", reasons=["offboarding_unconfirmed"])],
+             "technical_verdict": "INCONCLUSIVE"},
             {"probes": original["probes"] * 2},
             {"items": original["items"] * 2},
             {"started_at": "2020-01-01T00:00:00Z"},
@@ -195,6 +205,22 @@ class TrustTests(unittest.TestCase):
                     self.assertEqual(main(["verify-signature", *flags, "--trusted-root", str(root),
                                            "--identity", "agent@example.com", "--issuer", "issuer"]), 2)
             runner.assert_not_called()
+
+    def test_standalone_receipt_preserves_v1_probe_reasons(self):
+        original = json.loads(RECEIPT.read_bytes())
+        probe = original["probes"][0]
+        for checkpoint, verdict, reasons in (
+            ("after_offboarding", "PASS", []),
+            ("after_offboarding", "FAIL", ["before_subject_unavailable", "after_subject_present"]),
+            ("after_offboarding", "INCONCLUSIVE", ["offboarding_unconfirmed", "after_subject_present"]),
+            ("after_offboarding", "INCONCLUSIVE", ["missing_probe"]),
+            ("after_worker", "INCONCLUSIVE", ["scope_mismatch", "observed_after_subject_present_outside_policy"]),
+            ("after_worker", "INCONCLUSIVE", ["worker_capture_unobserved", "worker_completion_unobserved"]),
+        ):
+            row = dict(probe, checkpoint=checkpoint, verdict=verdict, reasons=reasons)
+            status = "RESIDUAL_FOUND" if verdict == "FAIL" else "OPEN_ITEMS"
+            with self.subTest(row=row):
+                validate_receipt(dict(original, probes=[row], technical_verdict=verdict, review_status=status))
 
     def test_archived_receipt_has_frozen_schema_fields(self):
         schema = json.loads((ROOT / "setrya/offboarding/receipt-v1.schema.json").read_bytes())

@@ -51,7 +51,7 @@ def assert_store_contract(*, broken: Drill, guarded: Drill, opaque: Drill,
     with TemporaryDirectory(prefix="setrya-contract-") as scratch:
         out = Path(scratch)
         if output is not None:
-            out = Path(output)
+            out = Path(output).absolute()
             out.mkdir(parents=True, exist_ok=False)
         reports = {}
         for name, case in (("broken", broken), ("guarded", guarded), ("opaque", opaque)):

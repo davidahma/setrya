@@ -5,7 +5,7 @@ from importlib.resources import files
 import json
 import re
 
-from .gate import technical_verdict
+from .gate import PROBE_FIELDS, READ_CHECKS, STATES, assess_probe, technical_verdict
 from .inputs import InvalidReport, require
 from .receipt import review_status
 
@@ -20,11 +20,39 @@ def validate_receipt(value):
         require(len({row["id"] for row in rows}) == len(rows), "Duplicate receipt identifiers.")
     require(value["created_at"] <= value["started_at"] <= value["observed_at"],
             "Receipt timestamps contradict the request and job order.")
-    require(all((row["verdict"] == "PASS") == (not row["reasons"]) for row in probes),
-            "Receipt probe verdict disagrees with its reasons.")
+    completed = "offboarding_unconfirmed" not in probes[0]["reasons"]
+    for row in probes:
+        require(_consistent_probe(row, completed), "Receipt probe verdict disagrees with its reasons.")
     verdict = technical_verdict(probes)
     require(value["technical_verdict"] == verdict and value["review_status"] == review_status(verdict, items),
             "Receipt summary disagrees with its probes or exhibits.")
+
+
+def _consistent_probe(row, completed):
+    # Reconstruct a read consistent with the recorded reasons, then let the
+    # gate judge it. Comparing its reasons also rejects impossible combinations.
+    reasons = set(row["reasons"])
+    expected = {key: row[key] for key in PROBE_FIELDS}
+    observed = None
+    if "missing_probe" not in reasons:
+        observed = {**expected, "before": {}, "after": {}}
+        for phase, role, required in READ_CHECKS:
+            observed[phase][role] = next(
+                (state for state in STATES if f"{phase}_{role}_{state}" in reasons), required
+            )
+        for field in ("scope", "checkpoint"):
+            if f"{field}_mismatch" in reasons:
+                observed[field] = None
+        if "observed_after_subject_present_outside_policy" in reasons:
+            observed["after"]["subject"] = "present"
+        if expected["checkpoint"] == "after_worker":
+            observed["worker"] = {
+                "captured_before_offboarding": "worker_capture_unobserved" not in reasons,
+                "finished_after_offboarding": "worker_completion_unobserved" not in reasons,
+            }
+    assessed = assess_probe(expected, observed, completed)
+    return (row["verdict"] == assessed["verdict"] and len(row["reasons"]) == len(reasons)
+            and reasons == set(assessed["reasons"]))
 
 
 def _matches(value, rule, definitions):

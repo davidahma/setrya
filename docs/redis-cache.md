@@ -36,7 +36,7 @@ A document update or deletion removes all cached answers that cite that document
 
 ## What happens to concurrent fills
 
-The first miss acquires a Redis lease before retrieval. Other processes that miss the same key wait for that admission. Redis checks the owner, document changes and publication together. A revoked owner, a crashed process returning after lease expiry, or an expired admission cannot overwrite a newer answer. A manual `begin(key)` can refresh a good answer while it remains readable. Use `fill` for automatic coalescing and `cancel` to abandon a manual admission.
+The first miss acquires a Redis lease before retrieval. Other processes that miss the same key wait for that admission. Redis checks the admission, document changes and publication together. A revoked owner, a crashed process returning after lease expiry, or an expired admission cannot overwrite a newer answer. A manual `begin(key)` can refresh a good answer while it remains readable. Overlapping manual producers may publish against the same admission. The first valid publication wins. Only the original producer can cancel the lease. Calling `cancel` on a joined token returns `False` and leaves the owner running. Use `fill` for automatic coalescing.
 
 A waiter’s `wait_timeout` bounds its wait and leaves the owner running. When a lease expires, another request can start fresh. Set `lease_seconds` longer than the expected retrieval and generation time (up to one hour). If `fill` returns `None`, repeat authorization and retrieval or return an application-level unavailable result. Propagate Redis errors or use an independently authorized read path.
 

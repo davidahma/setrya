@@ -227,6 +227,7 @@ def run_scenario(kind: str, schedule: str, output: str | Path, *,
                  drill: Drill | None = None, factory: Callable[[RunContext], ScenarioApplication] | None = None,
                  revision: str | None = None) -> Verdict:
     """Run a reviewed application factory in a disposable directory, then replay the collected reports."""
+    output = Path(output).absolute()
     drill = drill or preset(kind)
     drill.validate()
     _check_kind(kind, drill.rules)
@@ -243,7 +244,6 @@ def run_scenario(kind: str, schedule: str, output: str | Path, *,
         name = _injected_entrypoint(factory)
     run_id = uuid4().hex
     config = _config_digest(drill, name, run_id)
-    output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     manifest = {
         "format": FORMAT, "version": 3, "kind": kind, "schedule": schedule, "config": config,
@@ -446,6 +446,7 @@ def _replay_lane_group(directory, meta):
 
 
 def _run_suite(kind, output, drill, revision):
+    output = Path(output).absolute()
     if revision is not None:
         git_revision(revision)
     drill.validate()

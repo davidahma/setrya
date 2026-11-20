@@ -63,15 +63,15 @@ class LocalCacheTests(unittest.TestCase):
         self.cache = LocalAnswerCache(max_entries=2, max_answer_bytes=3)
         old = self.cache.begin(self.primary)
         joined = self.cache.begin(self.primary)
-        self.assertIs(joined, old)
-        self.assertTrue(self.cache.publish(old, "old", chunks=self.sources))
-        self.assertFalse(self.cache.publish(joined, "dup", chunks=self.sources))
+        self.assertEqual(joined.answer_id, old.answer_id)
+        self.assertTrue(self.cache.publish(joined, "old", chunks=self.sources))
+        self.assertFalse(self.cache.publish(old, "dup", chunks=self.sources))
         active = self.cache.begin(self.delivery)
         self.cache.get(self.primary)
         other = self.cache.begin(self.other)
         self.assertIsNone(self.cache.get(self.primary))
         self.assertFalse(self.cache.publish(old, "old", chunks=self.sources))
-        self.assertIs(self.cache.begin(self.delivery), active)
+        self.assertEqual(self.cache.begin(self.delivery).answer_id, active.answer_id)
         with self.assertRaises(CacheCapacityError):
             self.cache.begin(self.colleague)
         with self.assertRaises(CacheCapacityError):
@@ -184,6 +184,18 @@ class LocalCacheTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "generation failed"):
             self.cache.fill(self.primary, lambda: self.sources, failed)
         self.assertEqual(self.cache.fill(self.primary, lambda: self.sources, lambda _: "fresh").answer, "fresh")
+
+    def test_joined_manual_producer_cannot_end_a_healthy_automatic_fill(self):
+        def retrieve():
+            joined = self.cache.begin(self.primary)
+            self.assertFalse(self.cache.cancel(joined))
+            self.cache.invalidate_document("t1", "refund")
+            self.assertFalse(self.cache.publish(joined, "outdated", chunks=self.sources))
+            return self.sources[:1]
+
+        hit = self.cache.fill(self.primary, retrieve, lambda _: "guide only")
+        self.assertEqual(hit.answer, "guide only")
+        self.assertEqual(self.cache.get(self.primary), hit)
 
 
 if __name__ == "__main__":

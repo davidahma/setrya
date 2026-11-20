@@ -2,7 +2,7 @@
 
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Set
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import islice
 from threading import Condition, TIMEOUT_MAX
 from typing import TypeVar
@@ -35,6 +35,7 @@ class PendingFill:
     access_version: str
     retrieval_version: str
     answer_id: str
+    _cancel_token: str | None = field(default=None, repr=False, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +78,7 @@ class AnswerCache:
         raise NotImplementedError
 
     def cancel(self, fill: PendingFill) -> bool:
-        """Relinquish this admission and wake its waiters."""
+        """Relinquish an owned admission and wake its waiters. A joiner returns False."""
         raise NotImplementedError
 
     def begin(self, key: CacheKey) -> PendingFill:
@@ -156,8 +157,12 @@ class AnswerCache:
 @dataclass(slots=True)
 class _Slot:
     pending: PendingFill | None = None
+    joined: PendingFill | None = None
     answer: CachedAnswer | None = None
     changed_documents: set[str] = field(default_factory=set)
+
+    def admits(self, fill: PendingFill) -> bool:
+        return fill is self.pending or fill is self.joined
 
 
 @dataclass(slots=True)
@@ -226,7 +231,9 @@ class LocalAnswerCache(AnswerCache):
             if not refresh and slot.answer is not None:
                 return slot.answer
             if slot.pending is not None:
-                return slot.pending, False
+                if slot.joined is None:
+                    slot.joined = replace(slot.pending)
+                return slot.joined, False
             access, retrieval = (self._scopes[scope_id].version for scope_id in key._scopes())
             slot.pending = PendingFill(key, access, retrieval, uuid4().hex)
             return slot.pending, True
@@ -234,7 +241,7 @@ class LocalAnswerCache(AnswerCache):
     def _wait_for(self, fill, timeout):
         def completed():
             slot = self._slots.get(fill.key)
-            return slot is None or slot.pending is not fill
+            return slot is None or not slot.admits(fill)
 
         with self._changed:
             if not self._changed.wait_for(completed, timeout=timeout):
@@ -247,6 +254,7 @@ class LocalAnswerCache(AnswerCache):
 
     def _end_pending(self, key, slot):
         slot.pending = None
+        slot.joined = None
         slot.changed_documents.clear()
         if slot.answer is None:
             self._discard(key)
@@ -265,11 +273,12 @@ class LocalAnswerCache(AnswerCache):
     def _publish_record(self, fill, answer, record):
         with self._changed:
             slot = self._slots.get(fill.key)
-            if slot is None or slot.pending is not fill:
+            if slot is None or not slot.admits(fill):
                 return False
             documents = {chunk.document for chunk in record.chunks}
             if not documents.isdisjoint(slot.changed_documents):
-                self._end_pending(fill.key, slot)
+                if slot.pending is fill:
+                    self._end_pending(fill.key, slot)
                 return False
             self._unlink_answer(fill.key, slot)
             slot.answer = CachedAnswer(answer, record)

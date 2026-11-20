@@ -123,8 +123,8 @@ class RedisCacheTests(unittest.TestCase):
         joined = self.cache.begin(other_key)
         self.assertEqual((b.answer_id, b.retrieval_version), (joined.answer_id, joined.retrieval_version))
         self.cache.invalidate_document("org", "policy")
-        self.assertTrue(self.cache.publish(b, "guide", chunks=[GUIDE]))
-        self.assertFalse(self.cache.publish(joined, "duplicate", chunks=[GUIDE]))
+        self.assertTrue(self.cache.publish(joined, "guide", chunks=[GUIDE]))
+        self.assertFalse(self.cache.publish(b, "duplicate", chunks=[GUIDE]))
         self.assertFalse(self.cache.publish(a, "old", chunks=[POLICY]))
         self.assertIsNone(self.cache.get(KEY))
         self.assertIsNotNone(self._warm(KEY, passage_metadata("policy", "B", "one")))
@@ -157,6 +157,22 @@ class RedisCacheTests(unittest.TestCase):
         self.assertEqual(self.cache.get(colleague), retained)
         self.assertEqual(self.cache.invalidate_retrieval("org", "policy", "policy"), 2)
         self.assertEqual(self.cache.invalidate_document("org", "policy"), 0)
+
+    def test_joined_manual_producer_cannot_end_a_healthy_automatic_fill(self):
+        from redis import Redis
+        with Redis.from_url(URL) as other_client:
+            other = RedisAnswerCache(other_client, namespace=self.namespace)
+
+            def retrieve():
+                joined = other.begin(KEY)
+                self.assertFalse(other.cancel(joined))
+                other.invalidate_document(KEY.tenant, "policy")
+                self.assertFalse(other.publish(joined, "outdated", chunks=[POLICY]))
+                return [GUIDE]
+
+            hit = self.cache.fill(KEY, retrieve, lambda _: "guide only")
+            self.assertEqual(hit.answer, "guide only")
+            self.assertEqual(other.get(KEY), hit)
 
     def test_lease_expiry_recovers_a_departed_owner_and_allows_retry(self):
         cache = RedisAnswerCache(self.client, namespace=self.namespace, lease_seconds=1)

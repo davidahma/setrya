@@ -15,6 +15,12 @@ MAX_PROBES = 256
 TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 CHECKPOINTS = ("after_offboarding", "after_worker")
 STATES = ("present", "absent", "unavailable", "not_tested")
+READ_CHECKS = (
+    ("before", "subject", "present"),
+    ("before", "control", "present"),
+    ("after", "subject", "absent"),
+    ("after", "control", "present"),
+)
 PROBE_FIELDS = {"id", "scope", "checkpoint"}
 EXIT_CODES = {v: Status.from_gate(v).exit_code for v in ("PASS", "FAIL", "INCONCLUSIVE")}
 
@@ -103,12 +109,7 @@ def assess_probe(expected, observed, completed):
             reasons.append("worker_capture_unobserved")
         if not observed["worker"]["finished_after_offboarding"]:
             reasons.append("worker_completion_unobserved")
-    for phase, role, required in (
-        ("before", "subject", "present"),
-        ("before", "control", "present"),
-        ("after", "subject", "absent"),
-        ("after", "control", "present"),
-    ):
+    for phase, role, required in READ_CHECKS:
         state = observed[phase][role]
         if state != required:
             reasons.append(f"{phase}_{role}_{state}")

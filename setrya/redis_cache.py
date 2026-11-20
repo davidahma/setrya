@@ -87,7 +87,7 @@ local clock = prefix .. 'doc-clock'
 local epoch = redis.call('GET', clock) or '0'
 -- An admission holding a nonzero epoch must expire before this counter resets.
 keep_for(clock, lease_ttl)
-redis.call('SET', lease, cjson.encode({owner, access, retrieval, epoch}), 'PX', lease_ttl)
+redis.call('SET', lease, cjson.encode({owner, access, retrieval, epoch, ARGV[7]}), 'PX', lease_ttl)
 index_scopes(id, lease_ttl, now_ms())
 return {'owner', owner, access, retrieval}
 """
@@ -99,24 +99,31 @@ local value = redis.call('GET', lease)
 if not value then return 0 end
 local fill = cjson.decode(value)
 if fill[1] ~= ARGV[2] or fill[2] ~= ARGV[3] or fill[3] ~= ARGV[4] then return 0 end
-redis.call('DEL', lease)
+-- All participants may publish. Only the original acquirer can abandon the lease.
+local is_owner = fill[5] == ARGV[6]
 if ARGV[5] == 'cancel' then
+    if not is_owner then return 0 end
+    redis.call('DEL', lease)
     unlink_scopes_if_empty(id)
     return 1
 end
-local docs = cjson.decode(ARGV[6])
+local docs = cjson.decode(ARGV[7])
 for _, doc in ipairs(docs) do
     local changed = redis.call('GET', prefix .. 'change:' .. doc)
     if changed and tonumber(changed) > tonumber(fill[4]) then
-        unlink_scopes_if_empty(id)
+        if is_owner then
+            redis.call('DEL', lease)
+            unlink_scopes_if_empty(id)
+        end
         return 0
     end
 end
+redis.call('DEL', lease)
 remove_answer(id)
 local key = prefix .. 'answer:' .. id
-local ttl = tonumber(ARGV[8])
+local ttl = tonumber(ARGV[9])
 local now = now_ms()
-redis.call('HSET', key, 'data', ARGV[7], 'id', fill[1], 'docs', ARGV[6])
+redis.call('HSET', key, 'data', ARGV[8], 'id', fill[1], 'docs', ARGV[7])
 redis.call('PEXPIRE', key, ttl)
 for _, doc in ipairs(docs) do index(prefix .. 'doc:' .. doc, id .. '/' .. fill[1], ttl, now) end
 index_scopes(id, ttl, now)
@@ -219,14 +226,16 @@ class RedisAnswerCache(AnswerCache):
 
     def _acquire(self, key, *, refresh):
         slot = self._slot(key)
+        cancel_token = uuid4().hex
         reply = self._admit(keys=[self._prefix(key.tenant)], args=[
-            slot, int(refresh), uuid4().hex, uuid4().hex, uuid4().hex, self._lease,
+            slot, int(refresh), uuid4().hex, uuid4().hex, uuid4().hex, self._lease, cancel_token,
         ])
         status = _text(reply[0])
         if status == "hit":
             return _cached(reply[1])
-        owner, access, retrieval = map(_text, reply[1:])
-        return PendingFill(key, access, retrieval, owner), status == "owner"
+        answer_id, access, retrieval = map(_text, reply[1:])
+        owner = status == "owner"
+        return PendingFill(key, access, retrieval, answer_id, _cancel_token=cancel_token if owner else None), owner
 
     def _wait_for(self, fill, timeout):
         deadline = monotonic() + timeout
@@ -242,9 +251,10 @@ class RedisAnswerCache(AnswerCache):
                 raise TimeoutError("timed out waiting for this cache fill")
             sleep(min(0.05, remaining))
 
-    def _complete(self, fill, *args):
+    def _complete(self, fill, operation, *args):
         return bool(self._finish(keys=[self._prefix(fill.key.tenant)], args=[
-            self._slot(fill.key), fill.answer_id, fill.access_version, fill.retrieval_version, *args,
+            self._slot(fill.key), fill.answer_id, fill.access_version, fill.retrieval_version,
+            operation, fill._cancel_token or "", *args,
         ]))
 
     def cancel(self, fill: PendingFill) -> bool:
