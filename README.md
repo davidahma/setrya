@@ -1,97 +1,92 @@
 # Setrya
 
-Two colleagues ask an internal AI assistant about a private policy. You revoke one user’s access and clear their cached answer. The assistant now gives that user only public information. Then a background job that started before the revocation puts the private answer back in the cache.
-
-Setrya is an open-source Python SDK and CLI for testing that race before you ship. It records what the worker did and what your app served each user. A teammate can replay the result after the app shuts down.
+Setrya tests what search and AI applications return after someone loses access, a customer’s data is deleted, or a document changes. Engineers can replay a failure and verify a fix in CI. A deletion receipt shows the case owner which checks passed for a specific request and what still needs follow-up.
 
 [![Tests](https://github.com/davidahma/setrya/actions/workflows/ci.yml/badge.svg)](https://github.com/davidahma/setrya/actions/workflows/ci.yml)
 [![Offline qualification](https://github.com/davidahma/setrya/actions/workflows/qualification.yml/badge.svg)](https://github.com/davidahma/setrya/actions/workflows/qualification.yml)
 
-[Test your own endpoint](https://github.com/davidahma/setrya/blob/v0.15.0/docs/endpoint.md) · [Record a pytest test](https://github.com/davidahma/setrya/blob/v0.15.0/docs/recording.md) · [Test tenant offboarding](https://github.com/davidahma/setrya/blob/v0.15.0/docs/offboarding.md)
+[Replay an access change](#replay-an-access-change) · [Review a tenant deletion](#review-a-tenant-deletion) · [Test your own endpoint](#test-your-own-endpoint)
 
 <a id="test-a-late-answer-cache-fill"></a>
+<a id="test-access-revocation-with-two-users"></a>
 
-## Test access revocation with two users
+## Replay an access change
 
-Install Setrya in a Python 3.11+ environment and replay a recorded access change. The package includes the evidence from a real Celery worker and HTTP endpoint using two synthetic accounts. You can run this offline after installation.
+Two colleagues ask an internal AI assistant about the staff refund policy. You revoke one person’s access and clear their cached answer. They ask again and get the public policy. Then a background job that read the private policy before revocation finishes.
+
+In a Python 3.11+ environment, install the SDK and CLI and replay the recorded responses. The demo uses two synthetic accounts and runs offline after installation.
 
 ```sh
 python -m pip install setrya
 setrya demo access
 ```
 
-| What the endpoint served | User who lost access | Colleague who kept access |
+| What happened | Person who lost access | Colleague who kept access |
 | --- | --- | --- |
-| While the task was paused | Public answer | Private answer from cache |
-| After the broken worker wrote · **FAIL** | Private answer from the resumed task | Private answer from cache |
-| After the guarded worker rejected the write · **PASS** | Public answer | Private answer from cache |
+| The worker was still paused | Public policy · 14 days | Staff policy · 45 days |
+| The worker wrote its old answer · **FAIL** | Staff policy · 45 days | Staff policy · 45 days |
+| The guarded worker rejected the write · **PASS** | Public policy · 14 days | Staff policy · 45 days |
 
-A third replay shows `NOT TESTED` when the serving path supplies too little evidence to identify the caller. To run a live drill against a disposable app, start with your own endpoint below or use the [pgvector example](https://github.com/davidahma/setrya/blob/v0.15.0/docs/answer-cache.md#run-the-worker).
+A third recording returns `NOT TESTED` because the endpoint evidence doesn’t identify who made the request. A pass covers the callers, question, and timing the test exercised. [See what a reviewer gets in a pull request](#review-the-result-in-a-pull-request).
 
-### Test your own endpoint
+<a id="test-tenant-offboarding"></a>
 
-From your application checkout, generate the pytest test and connect its `answer(caller, question)` hook to your real HTTP route. Start with two signed-in synthetic users who can both read the private answer.
+## Review a tenant deletion
+
+A customer leaves. Your app deletes their ticket and summary, but a worker still has the ticket it was summarizing. Run the live example against a local SQLite app with fictional tenants. Choose a fresh output directory.
+
+```sh
+setrya offboarding demo --output offboarding-run
+```
+
+The broken worker puts the summary back where a support agent can read it. The fixed worker discards the stale write. The test also checks that the agent can still read the other tenant’s summary.
+
+The demo also creates a receipt for a separate staging deletion request. It checks the source, stored summary, and support endpoint after deletion and again after the worker finishes. All six checks pass. A provider reports deletion, but a backup is still on a retention schedule. You can see both results in `offboarding-run/receipt/receipt.json`.
+
+```text
+Technical verdict PASS
+Review status OPEN_ITEMS
+```
+
+A reviewer can verify the receipt against the original request, job evidence, and attachments offline. [Offboarding guide](https://github.com/davidahma/setrya/blob/v0.15.0/docs/offboarding.md) · [Download the example receipt and evidence](https://github.com/davidahma/setrya/releases/download/v0.15.0/offboarding-example.zip)
+
+## Test your own endpoint
+
+Start in a disposable checkout of your application with two signed-in synthetic users.
 
 ```sh
 python -m pip install 'setrya[pytest]'
 setrya init endpoint
+```
+
+Connect the generated `answer(caller, question)` hook to your HTTP route and set the expected answers. Run the first check with both sessions before wiring up the worker.
+
+```sh
 python -m pytest -q -s -p setrya.pytest_plugin --setrya-reads-only tests/test_setrya_endpoint.py
 ```
 
-That first run shows which caller, route, question and answer the app confirmed for each request. The race stays `NOT TESTED` until you connect the worker and run the test without `--setrya-reads-only`. If your app uses Celery and LangChain, install `setrya[celery-langchain]` and generate the test with `setrya init endpoint --framework celery-langchain`. [Connect an endpoint](https://github.com/davidahma/setrya/blob/v0.15.0/docs/endpoint.md) · [Connect a Celery worker](https://github.com/davidahma/setrya/blob/v0.15.0/docs/endpoint-framework.md)
-
-<a id="run-the-demo"></a>
-
-## Run the refund-policy demo
-
-Your team shortens the refund window from 30 days to 14. The support agent searches and gets the new policy. Then a worker resumes with the copy it read yesterday. The offline demo runs that race against a local SQLite FTS5 index.
-
-```sh
-python -m pip install setrya
-setrya demo
-```
-
-| Verdict | What the support agent sees | What the evidence shows |
-| --- | --- | --- |
-| FAIL | 30 days → 14 days → 30 days | The old worker committed. The next search returned the old policy at rank 1. |
-| PASS | 30 days → 14 days | The worker rejected its stale write. Final searches found the 14-day policy and the unrelated delivery policy. |
-| NOT TESTED | 30 days → 14 days | The old worker committed and search still returned 14 days. The response didn’t establish that the index had seen the write. |
-
-## Use the Python SDK in your tests
-
-A drill names the caller, route, query, and passages that must appear or disappear. Run the bundled refund drill from Python with the core package.
-
-```python
-from importlib.resources import as_file, files
-from setrya.runner import run
-
-drill = files("setrya.examples").joinpath("support-search", "drill.toml")
-with as_file(drill) as path:
-    result = run(path)
-print(result.verdict.status.label)  # PASS
-```
-
-For your own application, an adapter supplies the worker checkpoint, write receipt, and search results. If pytest already drives your worker, install `setrya[pytest]` and use the `setrya_record` fixture to save those observations alongside your assertions. A PASS covers the callers, queries, and schedule you tested. [Adapter guide](https://github.com/davidahma/setrya/blob/v0.15.0/docs/adapters.md) · [Record an existing pytest test](https://github.com/davidahma/setrya/blob/v0.15.0/docs/recording.md) · [Verdict rules](https://github.com/davidahma/setrya/blob/v0.15.0/docs/evidence.md)
+This first check exits 1 with `NOT TESTED`. Once you connect the worker and the access change, run the test without `--setrya-reads-only`. [Endpoint guide](https://github.com/davidahma/setrya/blob/v0.15.0/docs/endpoint.md) · [Celery and LangChain starter](https://github.com/davidahma/setrya/blob/v0.15.0/docs/endpoint-framework.md)
 
 ## Review the result in a pull request
 
-Run the endpoint test from an application checkout that has both Git revisions.
+Run the connected test on two Git revisions. Setrya reports `FIX VERIFIED` when the old worker exposed the private answer on the base commit and the same case passes for both users on the candidate. A teammate can replay either result after the app shuts down.
 
 ```sh
 setrya run-pr --endpoint --repo . --base origin/main --candidate HEAD \
   --output endpoint-review -- python -m pytest -q tests/test_setrya_endpoint.py
 ```
 
-The PR check shows what the revoked user and the retained colleague received on each revision, what the delayed worker did, and how to replay the result. A candidate earns `FIX VERIFIED` when its evidence accounts for the read that failed on base. Keep the artifact on failing checks so the reviewer can inspect either run after teardown. For search and indexing drills, pass `--drill` with the trusted drill file. [Endpoint CI recipe](https://github.com/davidahma/setrya/blob/v0.15.0/docs/pr-endpoint.md) · [Review an indexing change](https://github.com/davidahma/setrya/blob/v0.15.0/docs/recording.md#use-it-in-a-pull-request)
+The published example shows two passing commits. Open `review.md` in the bundle to see the answers, cache hits, and replay commands. [Download the PR example](https://github.com/davidahma/setrya/releases/download/v0.15.0/endpoint-review.zip) · [GitHub Actions recipe](https://github.com/davidahma/setrya/blob/v0.15.0/docs/pr-endpoint.md)
 
-## Test tenant offboarding
+<a id="run-the-demo"></a>
+<a id="run-the-refund-policy-demo"></a>
+<a id="use-the-python-sdk-in-your-tests"></a>
+<a id="more-drills-and-integrations"></a>
 
-A customer leaves, but a worker still holds a copy of their support summary. Run `setrya offboarding demo --output offboarding-run` to test whether the summary reappears and whether a retained tenant’s summary stays readable. The CI gate reports what the app served. A separate deletion receipt tracks one request and can still list open items, such as a backup awaiting expiry. [Offboarding guide](https://github.com/davidahma/setrya/blob/v0.15.0/docs/offboarding.md) · [Axiom migration](https://github.com/davidahma/setrya/blob/v0.15.0/docs/offboarding.md#migrate-from-axiom)
+## Search, caching, and the Python SDK
 
-## More drills and integrations
-
-- [Selective cache invalidation](https://github.com/davidahma/setrya/blob/v0.15.0/docs/answer-cache.md#invalidate-a-refund-answer-and-keep-a-delivery-hit) checks that a refund update leaves an unrelated delivery answer cached. [Cache answers by source in memory](https://github.com/davidahma/setrya/blob/v0.15.0/docs/local-cache.md) · [Share answers across processes with Redis](https://github.com/davidahma/setrya/blob/v0.15.0/docs/redis-cache.md) · [Answer dependencies](https://github.com/davidahma/setrya/blob/v0.15.0/docs/answer-dependencies.md) · [Cache metrics](https://github.com/davidahma/setrya/blob/v0.15.0/docs/cache-metrics.md)
-- [Worker schedules](https://github.com/davidahma/setrya/blob/v0.15.0/docs/scenarios.md) cover retries, duplicate deliveries, and reordered writes. [OpenDesk’s two-user revocation trial](https://github.com/davidahma/setrya/blob/v0.15.0/docs/opendesk-revocation.md) follows a real summary job across a team membership change.
-- [Store evidence](https://github.com/davidahma/setrya/blob/v0.15.0/docs/store-signals.md) explains how a search can establish that it saw a particular write. [Route coverage](https://github.com/davidahma/setrya/blob/v0.15.0/docs/coverage.md) identifies changed read paths that lack matching evidence.
+- **Search freshness.** Run `setrya demo` to see an old indexing job bring back a 30-day refund policy after its 14-day replacement was already searchable. The live demo uses SQLite FTS5. [Test other worker schedules](https://github.com/davidahma/setrya/blob/v0.15.0/docs/scenarios.md) · [Try pgvector](https://github.com/davidahma/setrya/blob/v0.15.0/docs/pgvector.md)
+- **Answer caching.** Track which source revisions went into an answer and invalidate affected entries in memory or Redis. [Local cache](https://github.com/davidahma/setrya/blob/v0.15.0/docs/local-cache.md) · [Redis cache](https://github.com/davidahma/setrya/blob/v0.15.0/docs/redis-cache.md)
+- **Existing tests.** Record a worker’s actions and search results with the `setrya_record` pytest fixture. A coverage map can flag changed routes and jobs that lack matching evidence. [Record a test](https://github.com/davidahma/setrya/blob/v0.15.0/docs/recording.md) · [Check route coverage](https://github.com/davidahma/setrya/blob/v0.15.0/docs/coverage.md)
 
 [Contributing](https://github.com/davidahma/setrya/blob/v0.15.0/CONTRIBUTING.md) · [Security policy](https://github.com/davidahma/setrya/blob/v0.15.0/SECURITY.md) · [Apache 2.0 license](https://github.com/davidahma/setrya/blob/v0.15.0/LICENSE)
