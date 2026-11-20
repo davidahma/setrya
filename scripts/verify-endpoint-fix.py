@@ -12,7 +12,7 @@ from zipfile import ZipFile
 
 def verify(archive, published_report, work):
     lanes = ("base", "candidate")
-    members = ["review.md", "run-pr.json", "fixture.bundle"]
+    members = ["review.md", "run-pr.json", "fixture.bundle", "check-pr-endpoint.py"]
     for lane in lanes:
         members.extend((f"{lane}/answer-cache.json", f"{lane}/run.json"))
     with ZipFile(archive) as bundle:

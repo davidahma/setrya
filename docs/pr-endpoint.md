@@ -49,7 +49,16 @@ setrya review base candidate \
   --base-exit 1 --candidate-exit 0 --exit-contract setrya
 ```
 
-The first line should say `FIX VERIFIED`. To inspect the worker change, run `git clone fixture.bundle fixture` in the extracted directory, then `git -C fixture diff base main`. These commit IDs belong to the bundled fixture repository. The [routine PR example](https://github.com/davidahma/setrya/releases/download/v0.15.0/endpoint-review.zip) records two passing Setrya revisions.
+The first line should say `FIX VERIFIED`. To inspect the one-line change or rerun the live HTTP test, use the fixture repository and test harness included in the download. These commit IDs belong to the fixture repository.
+
+```sh
+git clone fixture.bundle fixture
+git -C fixture diff base main
+setrya run-pr --endpoint --repo fixture --base base --candidate main \
+  --output live-review --exit-contract setrya -- python -I "$PWD/check-pr-endpoint.py"
+```
+
+The [routine PR example](https://github.com/davidahma/setrya/releases/download/v0.15.0/endpoint-review.zip) records two passing Setrya revisions.
 
 ## Wire the check into GitHub Actions
 
