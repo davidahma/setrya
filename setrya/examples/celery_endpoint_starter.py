@@ -1,6 +1,6 @@
 """Connect your disposable app's authenticated answer route and bound cache-fill task.
 
-https://github.com/davidahma/setrya/blob/v0.14.0/docs/endpoint-framework.md
+https://github.com/davidahma/setrya/blob/v0.15.0/docs/endpoint-framework.md
 """
 
 from contextlib import contextmanager
@@ -8,7 +8,7 @@ import shlex
 
 import pytest
 
-from setrya.endpoint import EndpointCase, MissingHook, check_endpoint
+from setrya.endpoint import EndpointCase, MissingHook, check_endpoint, check_endpoint_reads
 from setrya.integrations.celery_langchain import CeleryLangChainEndpoint
 from setrya.status import Status
 from setrya.store_signals import passage_metadata
@@ -25,24 +25,27 @@ CASE = EndpointCase(
 
 
 def open_test_app(run_id):
-    """Return your disposable app fixture as a context manager."""
+    """Return your disposable app fixture as a context manager.
+
+    For the first two reads it needs only answer(caller, question). Send each
+    request using the user's session and map the observed HTTP status, route,
+    authenticated caller, served question fingerprint, and answer text.
+    """
     raise MissingHook("application")
 
 
 @contextmanager
 def application(run_id):
     with open_test_app(run_id) as app:
-        with CeleryLangChainEndpoint(
-            app.test_redis, run_id, CASE,
-            task=app.fill_answer.s(CASE.revoked, CASE.question),
-            seed=app.seed, revoke=app.revoke, send=app.send_answer,
-        ) as endpoint:
+        with CeleryLangChainEndpoint.from_application(app, run_id, CASE) as endpoint:
             yield endpoint
 
 
-def test_access_revocation(tmp_path):
+def test_access_revocation(tmp_path, request):
     output = tmp_path / "endpoint-run"
-    verdict, text = check_endpoint(CASE, application, output)
+    reads_only = request.config.getoption("setrya_reads_only", default=False)
+    check = check_endpoint_reads if reads_only else check_endpoint
+    verdict, text = check(CASE, application, output)
     message = f"{text}\nReplay  " + shlex.join(["setrya", "replay", str(output)])
     if verdict.status is not Status.PASS:
         pytest.fail(message, pytrace=False)

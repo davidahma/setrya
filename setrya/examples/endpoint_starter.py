@@ -1,7 +1,7 @@
 """Test what two users receive after a delayed worker resumes.
 
 Connect these hooks to a disposable instance of your application.
-https://github.com/davidahma/setrya/blob/v0.14.0/docs/endpoint.md
+https://github.com/davidahma/setrya/blob/v0.15.0/docs/endpoint.md
 """
 
 from contextlib import AbstractContextManager
@@ -9,7 +9,7 @@ import shlex
 
 import pytest
 
-from setrya.endpoint import EndpointCase, MissingHook, check_endpoint
+from setrya.endpoint import EndpointCase, MissingHook, check_endpoint, check_endpoint_reads
 from setrya.status import Status
 
 
@@ -35,7 +35,10 @@ class Application(AbstractContextManager):
         raise MissingHook("seed")
 
     def answer(self, caller, question):
-        """Ask as this user. Map the served HTTP response and its cache metadata."""
+        """Call the endpoint using this fixture user's session. Return HTTP status,
+        route, effective caller, query_sha256 of the served question, and answer.
+        Use observations from the server. Add source and cache metadata for the race.
+        """
         raise MissingHook("answer")
 
     def start_old(self):
@@ -63,9 +66,11 @@ class Application(AbstractContextManager):
         raise MissingHook("receipt")
 
 
-def test_access_revocation(tmp_path):
+def test_access_revocation(tmp_path, request):
     output = tmp_path / "endpoint-run"
-    verdict, text = check_endpoint(CASE, Application, output)
+    reads_only = request.config.getoption("setrya_reads_only", default=False)
+    check = check_endpoint_reads if reads_only else check_endpoint
+    verdict, text = check(CASE, Application, output)
     message = f"{text}\nReplay  " + shlex.join(["setrya", "replay", str(output)])
     if verdict.status is not Status.PASS:
         pytest.fail(message, pytrace=False)

@@ -5,14 +5,19 @@ from typing import NotRequired, Protocol, TypedDict
 from .adapter import Checkpoint, Publication, Receipt
 
 
-class EndpointResponse(TypedDict):
-    """Map the served response. Use opaque IDs rather than authentication tokens."""
+class EndpointRead(TypedDict):
+    """Return observations from the serving path and the actual HTTP answer."""
 
     http_status: int
     route: str | None
     caller: str | None
     query_sha256: str | None
     answer: str | None
+
+
+class EndpointResponse(EndpointRead):
+    """Extend the served response with the cache and retrieval evidence for a race."""
+
     sources: list[str | None] | tuple[str | None, ...]
     cache_hit: bool | None
     cache_writer: str | None
@@ -31,6 +36,12 @@ class WorkerCapture(TypedDict):
     question: str
     answer: str
     sources: list[str] | tuple[str, ...]
+
+
+class EndpointReadApplication(Protocol):
+    """Two already prepared synthetic sessions on the application's own endpoint."""
+
+    def answer(self, caller: str, question: str) -> EndpointRead: ...
 
 
 class EndpointApplication(Protocol):

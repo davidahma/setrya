@@ -1,0 +1,158 @@
+{
+  "format": "setrya.answer-cache",
+  "version": 4,
+  "run_id": "e03f1e6563154802befc822b1ecc1409",
+  "mode": "application",
+  "worker_capture": {
+    "run_id": "e03f1e6563154802befc822b1ecc1409",
+    "attempt": "4f242129ac8d480f8c5bbb143e38e9fb",
+    "caller": "case-reader",
+    "revision": "granted",
+    "query_sha256": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605",
+    "body": "private-answer",
+    "sources": [
+      "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202"
+    ]
+  },
+  "held_after_reads": {
+    "run_id": "e03f1e6563154802befc822b1ecc1409",
+    "attempt": "4f242129ac8d480f8c5bbb143e38e9fb",
+    "document": "policy",
+    "revision": "granted",
+    "name": "after-retrieval"
+  },
+  "receipt_before_release": false,
+  "observations": [
+    {
+      "overflow_private_rank": null,
+      "query_sha256": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605",
+      "probe": "revoked-answer",
+      "stage": "baseline",
+      "route": "policy-answer",
+      "caller": "case-reader",
+      "status": 200,
+      "capture_sha256": null,
+      "body": "private-answer",
+      "sources": [
+        "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202"
+      ],
+      "cache_hit": true,
+      "generation_skipped": null,
+      "cache_writer": "seed",
+      "generation": "e03f1e6563154802befc822b1ecc1409",
+      "commit": 1
+    },
+    {
+      "overflow_private_rank": null,
+      "query_sha256": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605",
+      "probe": "retained-answer",
+      "stage": "baseline",
+      "route": "policy-answer",
+      "caller": "case-editor",
+      "status": 200,
+      "capture_sha256": null,
+      "body": "private-answer",
+      "sources": [
+        "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202"
+      ],
+      "cache_hit": true,
+      "generation_skipped": null,
+      "cache_writer": "seed",
+      "generation": "e03f1e6563154802befc822b1ecc1409",
+      "commit": 1
+    },
+    {
+      "overflow_private_rank": null,
+      "query_sha256": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605",
+      "probe": "revoked-answer",
+      "stage": "freshness",
+      "route": "policy-answer",
+      "caller": "case-reader",
+      "status": 200,
+      "capture_sha256": "93b6e32b19972533cf914c310428bb680bded9ccf61f81e0876618ac108b0b28",
+      "body": "public-only",
+      "sources": [
+        "chunk-5fc7ae765520e529671c0a33a6cdd86777229accf0db00193c7f5e7e9f6712cf"
+      ],
+      "cache_hit": false,
+      "generation_skipped": null,
+      "cache_writer": null,
+      "generation": "e03f1e6563154802befc822b1ecc1409",
+      "commit": 1
+    },
+    {
+      "overflow_private_rank": null,
+      "query_sha256": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605",
+      "probe": "retained-answer",
+      "stage": "freshness",
+      "route": "policy-answer",
+      "caller": "case-editor",
+      "status": 200,
+      "capture_sha256": "93b6e32b19972533cf914c310428bb680bded9ccf61f81e0876618ac108b0b28",
+      "body": "private-answer",
+      "sources": [
+        "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202"
+      ],
+      "cache_hit": true,
+      "generation_skipped": null,
+      "cache_writer": "seed",
+      "generation": "e03f1e6563154802befc822b1ecc1409",
+      "commit": 1
+    },
+    {
+      "overflow_private_rank": null,
+      "query_sha256": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605",
+      "probe": "revoked-answer",
+      "stage": "final",
+      "route": "policy-answer",
+      "caller": "case-reader",
+      "status": 200,
+      "capture_sha256": "93b6e32b19972533cf914c310428bb680bded9ccf61f81e0876618ac108b0b28",
+      "body": "private-answer",
+      "sources": [
+        "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202"
+      ],
+      "cache_hit": true,
+      "generation_skipped": null,
+      "cache_writer": "4f242129ac8d480f8c5bbb143e38e9fb",
+      "generation": "e03f1e6563154802befc822b1ecc1409",
+      "commit": 2
+    },
+    {
+      "overflow_private_rank": null,
+      "query_sha256": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605",
+      "probe": "retained-answer",
+      "stage": "final",
+      "route": "policy-answer",
+      "caller": "case-editor",
+      "status": 200,
+      "capture_sha256": "93b6e32b19972533cf914c310428bb680bded9ccf61f81e0876618ac108b0b28",
+      "body": "private-answer",
+      "sources": [
+        "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202"
+      ],
+      "cache_hit": true,
+      "generation_skipped": null,
+      "cache_writer": "seed",
+      "generation": "e03f1e6563154802befc822b1ecc1409",
+      "commit": 2
+    }
+  ],
+  "case": {
+    "route": "policy-answer",
+    "revoked": "case-reader",
+    "retained": "case-editor",
+    "private_source": "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202",
+    "public_source": "chunk-5fc7ae765520e529671c0a33a6cdd86777229accf0db00193c7f5e7e9f6712cf",
+    "document": "policy",
+    "old_revision": "granted",
+    "new_revision": "revoked",
+    "checkpoint": "after-retrieval",
+    "question_sha256": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605",
+    "private_answer_sha256": "535dc572f0fd405e00dff078279dc62fbec4ea7fc8af6cd907f989dd4606a453",
+    "public_answer_sha256": "3590ef46a40df81ec80120d3e6ccb0459282fd1d5634a807c05d02b18f839d52"
+  },
+  "missing_hook": null,
+  "error_hook": null,
+  "report_sha256": "cc18cfac89f192862aa0b695794ff02e421a41e4c616c961da79d565f944acce"
+}

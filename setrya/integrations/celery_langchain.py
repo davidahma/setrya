@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from setrya.adapter import Checkpoint, Receipt
 from setrya.drill import InputError, label
+from setrya.endpoint import MissingHook
 from .langchain import observe_documents
 
 
@@ -168,6 +169,24 @@ def record_served(client, request_id, *, route, caller, question, answer, source
     return bool(client.eval(_OBSERVE, 1, key, json.dumps(row, separators=(",", ":"))))
 
 
+def _read_served(client, send, caller, question):
+    request_id = uuid4().hex
+    key = "setrya:served:" + request_id
+    if not client.set(key, "waiting", nx=True, px=_TTL_MS):
+        raise InputError("could not reserve a fresh endpoint request")
+    try:
+        status, text = send(caller, question, request_id)
+        recorded = client.getdel(key)
+    finally:
+        client.delete(key)
+    observed = {"http_status": status, "answer": text}
+    if recorded is not None and _state(recorded) not in ("waiting", "ambiguous"):
+        row = json.loads(recorded)
+        if isinstance(text, str) and row.pop("body_sha256") == _hash(text):
+            observed.update(row)
+    return observed
+
+
 class CeleryLangChainEndpoint(AbstractContextManager):
     """Adapt a native task signature and three application callbacks to check_endpoint.
 
@@ -188,22 +207,13 @@ class CeleryLangChainEndpoint(AbstractContextManager):
     def __exit__(self, *exc):
         self.gate.close()
 
+    @classmethod
+    def from_application(cls, app, run_id, case):
+        """Adapt a fixture incrementally. Only dispatch needs a task signature and worker gate."""
+        return _ApplicationEndpoint(app, run_id, case)
+
     def answer(self, caller, question):
-        request_id = uuid4().hex
-        key = "setrya:served:" + request_id
-        if not self.client.set(key, "waiting", nx=True, px=_TTL_MS):
-            raise InputError("could not reserve a fresh endpoint request")
-        try:
-            status, text = self.send(caller, question, request_id)
-            recorded = self.client.getdel(key)
-        finally:
-            self.client.delete(key)
-        observed = {"http_status": status, "answer": text}
-        if recorded is not None and _state(recorded) not in ("waiting", "ambiguous"):
-            row = json.loads(recorded)
-            if isinstance(text, str) and row.pop("body_sha256") == _hash(text):
-                observed.update(row)
-        return observed
+        return _read_served(self.client, self.send, caller, question)
 
     def start_old(self):
         headers = dict(self.task.options.get("headers") or {})
@@ -222,3 +232,49 @@ class CeleryLangChainEndpoint(AbstractContextManager):
 
     def receipt(self):
         return self.gate.receipt()
+
+
+class _ApplicationEndpoint(CeleryLangChainEndpoint):
+    """Resolve each optional native hook only when the runner reaches it."""
+
+    def __init__(self, app, run_id, case):
+        self.app = app
+        self.run_id = run_id
+        self.case = case
+        self.gate = None
+
+    def __exit__(self, *exc):
+        if self.gate is not None:
+            self.gate.close()
+
+    def _hook(self, name):
+        hook = getattr(self.app, name, None)
+        if not callable(hook):
+            raise MissingHook(name)
+        return hook
+
+    def seed(self):
+        return self._hook("seed")()
+
+    def revoke(self):
+        return self._hook("revoke")()
+
+    def answer(self, caller, question):
+        # A serving observation from the real HTTP response works before Redis
+        # or task controls have been connected, and can also drive the full race.
+        observe = getattr(self.app, "answer", None)
+        if callable(observe):
+            return observe(caller, question)
+        send = getattr(self.app, "send_answer", None)
+        if not callable(send) or getattr(self.app, "test_redis", None) is None:
+            raise MissingHook("answer")
+        return _read_served(self.app.test_redis, send, caller, question)
+
+    def start_old(self):
+        task = getattr(self.app, "fill_answer", None)
+        client = getattr(self.app, "test_redis", None)
+        if task is None or client is None:
+            raise MissingHook("start_old")
+        self.task = task.s(self.case.revoked, self.case.question)
+        self.gate = RedisCeleryCheckpoint.create(client, self.run_id, uuid4().hex)
+        return super().start_old()

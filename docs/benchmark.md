@@ -16,14 +16,14 @@ The output directory contains machine timings, an environment record, the plain 
 
 Fixture-to-checkpoint time begins before starting the HTTP app and ends at its worker acknowledgment. Whole-command time includes interpreter startup, the check, and cleanup. The comparison time is the wall time for a separate process reading both reports after their fixtures close. These are machine timings on a warm database. See the **pgvector-benchmark** artifact on the [CI runs](https://github.com/davidahma/setrya/actions/workflows/ci.yml) for the recorded results.
 
-In a local run with PostgreSQL 17.12, pgvector 0.8.7 and Python 3.11.13, both implementations caught both defects and passed both fixes. These are median whole-command times over three runs per cell.
+In a local run with PostgreSQL 17.12, pgvector 0.8.7 and Python 3.13.7, both implementations caught both defects and passed both fixes. These are median whole-command times over three runs per cell.
 
 | Fixture | Setrya broken / fixed | Plain pytest broken / fixed |
 | --- | --- | --- |
-| Refund overwrite | 0.424 s / 0.413 s | 0.496 s / 0.486 s |
-| Delete and re-upload | 0.465 s / 0.440 s | 0.470 s / 0.511 s |
+| Refund overwrite | 0.459 s / 0.449 s | 0.450 s / 0.494 s |
+| Delete and re-upload | 0.454 s / 0.456 s | 0.517 s / 0.512 s |
 
-Reading the saved Setrya evidence took a median 0.041 s. These numbers describe process runtime. The timed human handoff uses the separate scorecard below.
+Reading the saved Setrya evidence took a median 0.044 s. These numbers describe process runtime. The timed human handoff uses the separate scorecard below.
 
 ## Measure an unaided handoff
 
@@ -45,21 +45,21 @@ One coding agent used the README, the endpoint guide, the generated test, and th
 
 The exercise took 107 seconds from setup through verification. The agent built the app for this trial and could give it the required worker and HTTP observations. A team adopting Setrya may have to add those observations to an existing app. The one-hour onboarding and two-minute review targets above still need human participants.
 
-### Participant scorecard
+### Record the session
 
-Use one copy per engineer and change. A coordinator records the commit IDs and expected observations before handing out the task. On the first change, ask the engineer to decide whether the late refund write was fixed. On the second, ask whether a re-upload still loses a required passage in the top three. Give the reviewer only the engineer’s normal handoff. Start the reviewer’s timer when they open it. Stop it when they name the affected caller and query, the decisive observation, and what remains unknown.
+With Setrya installed, create a private scorecard outside Git. The study tool reads and writes local files.
 
-| Record | Setrya and pytest | Plain pytest |
-| --- | --- | --- |
-| Engineer / independent reviewer, trial date, task order | | |
-| App commits, fixture version, coding agent and tools available | | |
-| First change: active setup minutes / prerequisite wait | | |
-| First change: reviewer answer / elapsed seconds / correct? | | |
-| Second change: active minutes / files edited / reruns | | |
-| Second change: reviewer answer / elapsed seconds / correct? | | |
-| Help requested, who supplied it, and elapsed minutes | | |
-| Incorrect conclusions before correction; artifacts handed over | | |
+```sh
+python -m setrya.examples.handoff_study init ../handoff-session.json
+python -m setrya.examples.handoff_study report ../handoff-session.json
+```
 
-For the Setrya arm, use the [one-command PR handoff](recording.md#use-it-in-a-pull-request). For the plain arm, the engineer can keep ordinary pytest output, add equivalent assertions, and use the coding agent to improve the handoff. Count those edits and reruns in the corresponding arm. Compare time only for correct decisions and record incomplete decisions separately. If pytest matches Setrya on accurate review and the second change, investigate missing coverage with the team before investing in more handoff tooling.
+Use aliases for the engineer, reviewer and repository. Record the date, which arm ran first, and the coding agent, tools and time budget available equally to both arms. Mark `own_application` true only for a participating team's own app. Give the reviewer just the commit and ordinary handoff. Ask which caller got which answer, when it happened relative to the worker, and what the evidence leaves unknown. Keep the answer key with the coordinator.
 
-The automated comparison exercises both implementations. The one-hour setup and two-minute review targets remain unmeasured until an unfamiliar engineer and a separate reviewer complete this scorecard.
+For each arm and change, enter the application commit (the same revision in both arms), evidence location, active setup and review seconds, the reviewer's answer, whether it was correct, any help, and any earlier incorrect conclusions. For Setrya, use the [PR handoff](recording.md#use-it-in-a-pull-request). In the plain pytest arm, allow the engineer to improve the handoff with the same coding agent. Count that work. Compare time on correct decisions and keep incorrect and unfinished decisions visible.
+
+Count a repository as **activated** when a different human correctly reviews its first Setrya drill against the team's own endpoint. Count the assigned second exercise as a measure of maintenance effort. For evidence of **independent reuse**, follow up after a later release. Record the commit, artifact, and whether the team reran the drill or added a second route without the facilitator. Leave the follow-up blank until it happens. A green CI rerun on the same commit gives no new adoption evidence.
+
+If plain pytest is as easy to review and maintain, ask the team which changed routes still escape coverage. The [coverage command](coverage.md) lets a platform lead try that workflow in the repository. A funded request to track gaps across repositories would be evidence for a hosted product. The SDK, local checks, CI handoff and replay are available in the open-source package.
+
+The one-hour setup and two-minute review targets remain unmeasured until an unfamiliar engineer and a separate reviewer complete the exercise.

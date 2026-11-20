@@ -62,6 +62,8 @@ The example creates a disposable Git repository with a real change to the worker
 
 ## Use it in a pull request
 
+For a two-user answer endpoint using `check_endpoint`, follow the [endpoint PR check](pr-endpoint.md).
+
 From an application checkout, install its test dependencies and Setrya into a test environment outside the checkout. Keep both Git refs available locally. Select one existing test that uses `setrya_record` or `setrya_check`, then pass its native command after `--`.
 
 ```sh

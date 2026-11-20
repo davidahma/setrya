@@ -12,6 +12,8 @@ from tempfile import TemporaryDirectory
 from .cli import _write_summary
 from .drill import Drill, InputError
 from .evidence import Report, bind_inputs
+from .endpoint_evidence import JOURNAL, MANIFEST
+from .review_endpoint import EndpointEvidence
 from .git_refs import git_bytes, resolve_commit
 from .offboarding.inputs import read_regular_bytes, save
 from .review import EXIT_CONTRACTS, ReviewInput, review_inputs
@@ -53,10 +55,14 @@ def _lane(repo, root, name, commit, drill_bytes, expected, command, timeout):
     lane = root / name
     lane.mkdir()
     checkout, source, evidence = lane / "app", lane / "drill.toml", lane / "report.json"
-    source.write_bytes(drill_bytes)
     env = _environment()
-    env.update(SETRYA_RUN_PR="1", SETRYA_REVIEW_REPORT=str(evidence), SETRYA_REVIEW_DRILL=str(source),
-               SETRYA_REVIEW_REVISION=commit)
+    env["SETRYA_REVIEW_REVISION"] = commit
+    if expected is None:
+        evidence = lane / "endpoint"
+        env.update(SETRYA_RUN_PR="endpoint", SETRYA_REVIEW_ENDPOINT=str(evidence))
+    else:
+        source.write_bytes(drill_bytes)
+        env.update(SETRYA_RUN_PR="1", SETRYA_REVIEW_REPORT=str(evidence), SETRYA_REVIEW_DRILL=str(source))
     test_exit = None
     try:
         _checkout(repo, checkout, commit)
@@ -71,6 +77,15 @@ def _lane(repo, root, name, commit, drill_bytes, expected, command, timeout):
             raise InputError("the test did not produce its selected Setrya report")
         if evidence.is_symlink():
             raise InputError("the result must be a local report file")
+        if expected is None:
+            manifest = evidence / MANIFEST
+            executed = evidence.with_suffix(".executed")
+            if (not evidence.is_dir() or manifest.is_symlink() or (evidence / JOURNAL).is_symlink()
+                    or not executed.is_file() or executed.is_symlink()
+                    or read_regular_bytes(executed, "execution identity", 64)
+                    != sha256(read_regular_bytes(manifest, "endpoint manifest")).hexdigest().encode("ascii")):
+                raise InputError("the bundle does not match a live endpoint run")
+            return ReviewInput(EndpointEvidence.load(evidence), commit, test_exit, None)
         report = Report.load(evidence)
         if (report.rules != expected.rules or not report.inputs
                 or report.inputs.get("questions") != bind_inputs(expected, test_id="run-pr")["questions"]):
@@ -93,24 +108,38 @@ def _lane(repo, root, name, commit, drill_bytes, expected, command, timeout):
 
 
 def _handoff(output, inputs, drill_digest, exit_contract, *, publish=False):
+    endpoint = drill_digest is None
     base, candidate = inputs.values()
     code, summary = review_inputs(base, candidate, exit_contract=exit_contract)
-    lanes = {}
+    metadata = {"format": "setrya.endpoint-pr" if endpoint else "setrya.run-pr", "version": 1,
+                "exit_contract": exit_contract}
+    if not endpoint:
+        metadata["drill_sha256"] = drill_digest
+
+    replay_lines = []
     for name, lane in inputs.items():
         digest = None
         if lane.report is not None:
-            path = output / f"{name}.json"
+            path = output / (name if endpoint else f"{name}.json")
             lane.report.save(path)
-            digest = sha256(path.read_bytes()).hexdigest()
-            summary += f"\nReplay {name}  setrya replay {name}.json"
-        lanes[name] = {"commit": lane.commit, "test_exit": lane.test_exit, "report_sha256": digest}
+            digest = sha256(((path / MANIFEST) if endpoint else path).read_bytes()).hexdigest()
+            replay_lines.append(f"Replay {name}  setrya replay {path.name}")
+        digest_field = "manifest_sha256" if endpoint else "report_sha256"
+        metadata[name] = {"commit": lane.commit, "test_exit": lane.test_exit, digest_field: digest}
+    if endpoint:
+        headline, _, detail = summary.partition("\n")
+        if base.report is None or candidate.report is None:
+            replay_lines.append("Weakest evidence · incomplete")
+        summary = "\n".join((headline, *replay_lines, detail))
+    elif replay_lines:
+        summary += "\n" + "\n".join(replay_lines)
     if base.report is not None and candidate.report is not None:
-        summary += (f"\nReview again  setrya review base.json candidate.json --base-commit {base.commit}"
+        paths = "base candidate" if endpoint else "base.json candidate.json"
+        summary += (f"\nReview again  setrya review {paths} --base-commit {base.commit}"
                     f" --candidate-commit {candidate.commit} --base-exit {base.test_exit}"
                     f" --candidate-exit {candidate.test_exit} --exit-contract {exit_contract}")
-    save({"format": "setrya.run-pr", "version": 1, "drill_sha256": drill_digest, "exit_contract": exit_contract, **lanes},
-         output / "run-pr.json")
-    _write_summary(output / "review.md", "release review", summary)
+    save(metadata, output / "run-pr.json")
+    _write_summary(output / "review.md", "two-user endpoint review" if endpoint else "release review", summary)
     if publish:
         print(summary)
     return code
@@ -121,7 +150,9 @@ def main(argv=None):
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="local application repository")
     parser.add_argument("--base", required=True, help="local base Git ref or commit")
     parser.add_argument("--candidate", required=True, help="local candidate Git ref or commit")
-    parser.add_argument("--drill", required=True, type=Path, help="shared local drill TOML")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--drill", type=Path, help="shared local search drill TOML")
+    mode.add_argument("--endpoint", action="store_true", help="review a two-user test that calls check_endpoint once")
     parser.add_argument("--output", required=True, type=Path, help="new directory for the reviewer handoff")
     parser.add_argument("--exit-contract", choices=EXIT_CONTRACTS, default="pytest",
                         help="interpret native exits as pytest (default) or Setrya verdicts")
@@ -139,18 +170,20 @@ def main(argv=None):
         repo = Path(os.fsdecode(common_dir).removesuffix("\n"))
         if commits["base"] == commits["candidate"]:
             raise InputError("select two different application commits")
-        drill_bytes = read_regular_bytes(args.drill, "drill")
+        drill_bytes = None if args.endpoint else read_regular_bytes(args.drill, "drill")
         with TemporaryDirectory(prefix="setrya-run-pr-") as scratch:
             root = Path(scratch).resolve()
-            template = root / "drill.toml"
-            template.write_bytes(drill_bytes)
-            expected = Drill.load(template)
+            expected = digest = None
+            if drill_bytes is not None:
+                template = root / "drill.toml"
+                template.write_bytes(drill_bytes)
+                expected = Drill.load(template)
+                digest = sha256(drill_bytes).hexdigest()
             # Reserve the artifact directory before executing either test. An
             # interrupted or skipped test can never pick up an older PASS.
             output = args.output.absolute()
             output.mkdir(parents=True, exist_ok=False)
             inputs = {name: ReviewInput(None, commit, None, "was not run") for name, commit in commits.items()}
-            digest = sha256(drill_bytes).hexdigest()
             try:
                 for name, commit in commits.items():
                     _handoff(output, inputs, digest, args.exit_contract)

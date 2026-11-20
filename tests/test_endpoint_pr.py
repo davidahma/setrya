@@ -1,0 +1,152 @@
+"""Two real fixture commits, one trusted harness, and an offline reviewer."""
+from contextlib import redirect_stderr, redirect_stdout
+from hashlib import sha256
+from io import StringIO
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+from tempfile import TemporaryDirectory
+import unittest
+from unittest.mock import patch
+
+from setrya.cli import main
+from setrya.endpoint_evidence import JOURNAL, MANIFEST
+
+
+ROOT = Path(__file__).resolve().parents[1]
+FIXTURE = ROOT / "tests/fixtures/endpoint_app.py"
+HARNESS = ROOT / "scripts/check-pr-endpoint.py"
+
+
+def git(folder, *args):
+    return subprocess.check_output(["git", "-C", str(folder), *args], text=True).strip()
+
+
+class EndpointPrTests(unittest.TestCase):
+    def setUp(self):
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.repo = self.root / "app"
+        self.app = self.repo / "tests/fixtures/endpoint_app.py"
+        self.app.parent.mkdir(parents=True)
+        git(self.repo, "init", "-q")
+        git(self.repo, "config", "user.name", "Test")
+        git(self.repo, "config", "user.email", "fixture@example.invalid")
+        git(self.repo, "config", "commit.gpgsign", "false")
+        self.out = self.root / "review"
+        self.source = FIXTURE.read_text()
+
+    def commit(self, source):
+        self.app.write_text(source)
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "--allow-empty", "-qm", "fixture change")
+        return git(self.repo, "rev-parse", "HEAD")
+
+    def cli(self, *args):
+        capture = StringIO()
+        with redirect_stdout(capture), redirect_stderr(capture):
+            code = main(list(args))
+        return code, capture.getvalue()
+
+    def compare(self, before, after, harness=HARNESS):
+        self.base, self.candidate = self.commit(before), self.commit(after)
+        with patch.dict(os.environ, {"PYTHONPATH": str(ROOT)}):
+            code, _ = self.cli("run-pr", "--endpoint", "--repo", str(self.repo), "--base", self.base,
+                               "--candidate", self.candidate, "--output", str(self.out), "--exit-contract", "setrya",
+                               "--", sys.executable, str(harness))
+        return code, (self.out / "review.md").read_text()
+
+    def test_verified_fix_shows_both_callers_and_replays_without_checkout(self):
+        broken = self.source.replace('if self.granted or self.mode == "broken":', "if True:")
+        code, text = self.compare(broken, self.source)
+        self.assertEqual(code, 0, text)
+        self.assertIn("FIX VERIFIED", text)
+        self.assertIn("FIX VERIFIED", text.splitlines()[3])
+        self.assertIn("Replay base  setrya replay base", text.splitlines()[4])
+        self.assertIn("Replay candidate  setrya replay candidate", text.splitlines()[5])
+        self.assertIn("Weakest evidence · write-confirmed", text)
+        self.assertIn("revoked reviewer · final event", text)
+        self.assertIn("retained owner · final event", text)
+        self.assertIn("limits@2", text)
+        self.assertNotIn("Which approval level applies?", text)
+        self.assertNotIn(str(self.root), text)
+        shutil.rmtree(self.repo)
+        for name, expected in (("base", 1), ("candidate", 0)):
+            self.assertEqual(self.cli("replay", str(self.out / name))[0], expected)
+        metadata = json.loads((self.out / "run-pr.json").read_bytes())
+        for name in ("base", "candidate"):
+            manifest = json.loads((self.out / name / MANIFEST).read_bytes())
+            journal = json.loads((self.out / name / JOURNAL).read_bytes())
+            self.assertEqual(manifest["revision"], metadata[name]["commit"])
+            self.assertEqual(journal["inputs"]["revision"], metadata[name]["commit"])
+        args = ["review", str(self.out / "base"), str(self.out / "candidate"), "--base-commit", self.base,
+                "--candidate-commit", self.candidate, "--base-exit", "1", "--candidate-exit", "0"]
+        self.assertIn("FIX VERIFIED", self.cli(*args)[1])
+        args[4] = "f" * 40
+        self.assertTrue(self.cli(*args)[1].startswith("NOT TESTED"))
+        args[4] = self.base
+        args[-1] = "5"
+        self.assertTrue(self.cli(*args)[1].startswith("ERROR"))
+
+    def test_both_pass_and_changed_case_and_wrong_principal(self):
+        for candidate, expected, headline in (
+                (self.source, 0, "PASS  Both endpoint revisions passed"),
+                (self.source.replace("Which approval level applies?", "New question?"), 3, "NOT TESTED  The two endpoint cases"),
+                (self.source.replace('app.mode == "wrong-principal"', "True"), 3, "NOT TESTED  Check answer()"),
+                (self.source.replace('if self.granted or self.mode == "broken":', "if True:"), 1, "FAIL  At event")):
+            with self.subTest(headline=headline):
+                code, text = self.compare(self.source, candidate)
+                self.assertEqual(code, expected, text)
+                self.assertIn(headline, text)
+                self.assertNotIn("FIX VERIFIED", text)
+                shutil.rmtree(self.out)
+
+    def test_partial_base_evidence_cannot_verify_a_late_worker_fix(self):
+        broken = self.source.replace('if self.granted or self.mode == "broken":', "if True:")
+        hook = "if app.mode == \"wrong-principal\" and app.finished.is_set():"
+        for fault in ('answer["query_sha256"] = "f" * 64', 'answer["caller"] = "somebody-else"',
+                      'answer["commit"] = 0', 'answer["cache_hit"] = False', None):
+            with self.subTest(fault=fault):
+                if fault:
+                    before = broken.replace(hook, 'if principal == "owner" and app.finished.is_set():\n            ' + fault
+                                            + "\n        " + hook)
+                else:
+                    before = broken.replace('(body, sources, "job-73")', '(body, sources, "unknown-writer")')
+                code, text = self.compare(before, self.source)
+                self.assertEqual(code, 0, text)
+                self.assertIn("PASS  Both candidate callers passed", text)
+                self.assertIn("Weakest evidence · response observed", text)
+                self.assertNotIn("FIX VERIFIED", text)
+                shutil.rmtree(self.out)
+
+    def test_late_retained_read_cannot_verify_fix(self):
+        broken = self.source.replace('if self.granted or self.mode == "broken":', "if True:")
+        self.assertEqual(self.compare(broken, self.source)[0], 0)
+        journal = self.out / "base" / JOURNAL
+        trace = json.loads(journal.read_bytes())
+        final = trace["events"][-1]
+        self.assertEqual(final["probe_id"], "retained-answer")
+        final["ns"] += (trace["rules"]["settle_ms"] + 1) * 1_000_000
+        journal.write_text(json.dumps(trace))
+        path = self.out / "base" / MANIFEST
+        manifest = json.loads(path.read_bytes())
+        manifest["report_sha256"] = sha256(journal.read_bytes()).hexdigest()
+        path.write_text(json.dumps(manifest))
+        code, text = self.cli("review", str(self.out / "base"), str(self.out / "candidate"),
+                              "--base-commit", self.base, "--candidate-commit", self.candidate,
+                              "--base-exit", "1", "--candidate-exit", "0")
+        self.assertEqual(code, 0, text)
+        self.assertIn("Weakest evidence · response observed", text)
+        self.assertNotIn("FIX VERIFIED", text)
+
+    def test_two_selected_tests_are_ambiguous(self):
+        driver = self.root / "twice.py"
+        driver.write_text(HARNESS.read_text().replace("raise SystemExit(main())", "main()\n    main()"))
+        code, text = self.compare(self.source, self.source, harness=driver)
+        self.assertEqual(code, 2)
+        self.assertIn("exactly one Setrya recording", text)
+        self.assertFalse((self.out / "candidate").exists())

@@ -11,9 +11,10 @@ import re
 
 from .checker import Verdict
 from .drill import InputError, label, mapping
-from .endpoint_types import EndpointApplication, EndpointResponse, WorkerCapture
+from .endpoint_types import EndpointApplication, EndpointRead, EndpointReadApplication, EndpointResponse, WorkerCapture
 
-__all__ = ["EndpointApplication", "EndpointCase", "EndpointResponse", "MissingHook", "WorkerCapture", "check_endpoint"]
+__all__ = ["EndpointApplication", "EndpointCase", "EndpointRead", "EndpointReadApplication",
+           "EndpointResponse", "MissingHook", "WorkerCapture", "check_endpoint", "check_endpoint_reads"]
 
 
 def _digest(text):
@@ -82,6 +83,10 @@ class _Contract:
     def load(cls, data):
         return cls(**mapping(data, "endpoint case", {f.name for f in fields(cls)}))
 
+    def known_caller(self, value):
+        """Keep the observed role when it matches a configured fixture principal."""
+        return next((caller for caller in (self.revoked, self.retained) if value == caller), None)
+
     def test_id(self):
         content = json.dumps(asdict(self), sort_keys=True, separators=(",", ":"))
         return "endpoint-" + _digest(content)
@@ -139,3 +144,16 @@ def check_endpoint(
     if type(wait_seconds) not in (int, float) or not 0 <= wait_seconds <= 120 or not math.isfinite(wait_seconds):
         raise InputError("wait_seconds must be a finite number from 0 to 120")
     return run_endpoint(case, application, output, wait_seconds)
+
+
+def check_endpoint_reads(
+    case: EndpointCase,
+    application: Callable[[str], AbstractContextManager[EndpointReadApplication]],
+    output: str | Path,
+) -> tuple[Verdict, str]:
+    """Inspect one read per prepared session and return the incomplete race verdict."""
+    from .endpoint_reads import run_reads
+
+    if not isinstance(case, EndpointCase) or not callable(application):
+        raise InputError("supply an EndpointCase and an application factory")
+    return run_reads(case, application, output)

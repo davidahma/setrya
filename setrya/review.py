@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .checker import Status, evaluate
+from .status import exit_agrees
 from .comparison import compare
-from .evidence import Report, git_revision
+from .evidence import Report, bundle_manifest, git_revision
+from .review_endpoint import EndpointEvidence, review_endpoints
 from .drill import InputError
 from .scenarios import ScenarioEvidence, inspect_scenario
 
@@ -28,13 +30,7 @@ def review(before: Report, after: Report, *, base_commit: str, candidate_commit:
         verdict = evaluate(report)
         if (report.inputs or {}).get("revision") != revision:
             return 3, f"INCOMPARABLE  The {lane} report does not identify its expected commit.\n{header}"
-        if exit_contract == "setrya":
-            agrees = test_exit == verdict.status.exit_code
-        else:
-            agrees = test_exit in {0, 1} and (
-                verdict.status is Status.NOT_TESTED or test_exit == verdict.status.exit_code
-            )
-        if not agrees or verdict.status is Status.ERROR:
+        if not exit_agrees(test_exit, verdict.status, exit_contract) or verdict.status is Status.ERROR:
             return 2, (f"ERROR  The {lane} test exit and evidence do not establish a completed result.\n"
                        f"{header}\n{lane.capitalize()} evidence {verdict.status.label} · {verdict.detail}")
     result, comparison = compare(before, after, allow_passing_pair=True)
@@ -46,7 +42,7 @@ def review(before: Report, after: Report, *, base_commit: str, candidate_commit:
 class ReviewInput:
     """One CI lane, including the evidence available when setup or pytest failed."""
 
-    report: Report | ScenarioEvidence | None
+    report: Report | ScenarioEvidence | EndpointEvidence | None
     commit: str | None
     test_exit: int | None
     report_error: str | None
@@ -62,7 +58,10 @@ class ReviewInput:
         except (TypeError, ValueError):
             exit_code = None
         try:
-            artifact = inspect_scenario(path) if Path(path).is_dir() else Report.load(path)
+            if Path(path).is_dir() and bundle_manifest(Path(path)) == "answer-cache.json":
+                artifact = EndpointEvidence.load(path)
+            else:
+                artifact = inspect_scenario(path) if Path(path).is_dir() else Report.load(path)
             return cls(artifact, revision, exit_code, None)
         except (OSError, TypeError, ValueError):
             # Report.load also rejects malformed JSON integers. Error strings and
@@ -81,6 +80,8 @@ class ReviewInput:
         context += str(self.test_exit) if self.test_exit is not None else "(invalid)"
         if self.report is None:
             return f"{context}\n{name} report {self.report_error}."
+        if isinstance(self.report, EndpointEvidence):
+            return f"{context}\n{self.report.describe()}"
         if isinstance(self.report, ScenarioEvidence):
             verdict = self.report.verdict
             return (f"{context}\n{name} recorded {verdict.status.label} · {self.report.kind} / "
@@ -102,6 +103,9 @@ def review_inputs(base: ReviewInput, candidate: ReviewInput, *,
         problem = "Review requires two different Git commits."
     elif base.test_exit is None or candidate.test_exit is None:
         problem = "Both lanes need a numeric test exit."
+    elif isinstance(base.report, EndpointEvidence) and isinstance(candidate.report, EndpointEvidence):
+        code, decision, weakest = review_endpoints(base, candidate, exit_contract or "pytest")
+        return code, "\n".join((decision, f"Weakest evidence · {weakest}", base.describe("Base"), candidate.describe("Candidate")))
     elif isinstance(base.report, Report) and isinstance(candidate.report, Report):
         return review(base.report, candidate.report, base_commit=base.commit, candidate_commit=candidate.commit,
                       base_exit=base.test_exit, candidate_exit=candidate.test_exit, exit_contract=exit_contract or "pytest")
@@ -114,6 +118,6 @@ def review_inputs(base: ReviewInput, candidate: ReviewInput, *,
                                        base.test_exit, candidate.test_exit, named_directories=named_directories)
         return code, f"{text}\n{base.describe('Base')}\n{candidate.describe('Candidate')}"
     else:
-        return 3, (f"INCOMPARABLE  Review needs two report files or two scenario directories.\n"
+        return 3, (f"INCOMPARABLE  Review needs two report files, two endpoint bundles, or two scenario directories.\n"
                    f"{base.describe('Base')}\n{candidate.describe('Candidate')}")
     return 2, f"ERROR  {problem}\n{base.describe('Base')}\n{candidate.describe('Candidate')}"

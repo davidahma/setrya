@@ -16,7 +16,7 @@ def run(directory, command, expected_exit):
     return result.stdout
 
 
-def verify(project, framework, hook):
+def verify(project, framework, full_hook):
     project.mkdir()
     cli = Path(sys.executable).with_name("setrya")
     run(project, [cli, "init", "endpoint", "--framework", framework], 0)
@@ -24,10 +24,16 @@ def verify(project, framework, hook):
     if not starter.is_file():
         raise RuntimeError("setrya init endpoint did not write tests/test_setrya_endpoint.py")
 
-    artifacts = project / "pytest-output"
+    check(project, cli, starter, [], full_hook)
+    read_hook = "answer(" if framework == "generic" else "application()"
+    check(project, cli, starter, ["-p", "setrya.pytest_plugin", "--setrya-reads-only"], read_hook)
+
+
+def check(project, cli, starter, options, hook):
+    artifacts = project / ("pytest-reads" if options else "pytest-full")
     output = run(project, [sys.executable, "-I", "-m", "pytest", "-q", "--color=no",
-                           "--basetemp", artifacts, starter], 1)
-    if "NOT TESTED" not in output or hook not in output:
+                           *options, "--basetemp", artifacts, starter], 1)
+    if "Traceback (most recent call last)" in output or "NOT TESTED" not in output or hook not in output:
         raise RuntimeError(f"pytest did not identify the missing {hook} hook\n{output}")
     handoff = re.search(r"\bReplay\s+(setrya replay [^\n]+)", output)
     if handoff is None:
@@ -41,7 +47,7 @@ def verify(project, framework, hook):
     replayed = run(project, [cli, "replay", report], 3)
     if "NOT TESTED" not in replayed or hook not in replayed:
         raise RuntimeError(f"Offline replay did not identify the missing {hook} hook\n{replayed}")
-    print(f"Installed {framework} starter identified the missing {hook} hook in pytest and offline replay.")
+    print(f"Installed starter identified the missing {hook} hook in pytest and offline replay.")
 
 
 if __name__ == "__main__":

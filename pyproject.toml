@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "setrya"
-version = "0.14.0"
+version = "0.15.0"
 description = "Test search results and cached answers after document updates, access revocation, and tenant deletion"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,7 +33,7 @@ include = ["setrya*"]
 [tool.setuptools.package-data]
 "setrya" = ["py.typed"]
 "setrya.offboarding" = ["receipt-v1.schema.json"]
-"setrya.examples" = ["recorded-search/*.toml", "support-search/*.toml", "pgvector-search/*.toml", "pgvector-search/compose.yml", "offboarding/sqlite/policy.json", "opendesk/*.json", "opendesk/compose.yaml", "opendesk/Dockerfile.trial"]
+"setrya.examples" = ["access-v0140/*/*.json", "recorded-search/*.toml", "support-search/*.toml", "pgvector-search/*.toml", "pgvector-search/compose.yml", "offboarding/sqlite/policy.json", "opendesk/*.json", "opendesk/compose.yaml", "opendesk/Dockerfile.trial"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

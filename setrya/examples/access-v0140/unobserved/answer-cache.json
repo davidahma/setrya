@@ -1,0 +1,47 @@
+{
+  "format": "setrya.answer-cache",
+  "version": 4,
+  "run_id": "e9c7e852ceb045d98e7ca2d2fa31b1f4",
+  "mode": "application",
+  "worker_capture": null,
+  "held_after_reads": null,
+  "receipt_before_release": null,
+  "observations": [
+    {
+      "overflow_private_rank": null,
+      "query_sha256": null,
+      "probe": "revoked-answer",
+      "stage": "baseline",
+      "route": null,
+      "caller": null,
+      "status": 200,
+      "capture_sha256": null,
+      "body": "private-answer",
+      "sources": [
+        null
+      ],
+      "cache_hit": null,
+      "generation_skipped": null,
+      "cache_writer": null,
+      "generation": null,
+      "commit": null
+    }
+  ],
+  "case": {
+    "route": "policy-answer",
+    "revoked": "case-reader",
+    "retained": "case-editor",
+    "private_source": "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202",
+    "public_source": "chunk-5fc7ae765520e529671c0a33a6cdd86777229accf0db00193c7f5e7e9f6712cf",
+    "document": "policy",
+    "old_revision": "granted",
+    "new_revision": "revoked",
+    "checkpoint": "after-retrieval",
+    "question_sha256": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605",
+    "private_answer_sha256": "535dc572f0fd405e00dff078279dc62fbec4ea7fc8af6cd907f989dd4606a453",
+    "public_answer_sha256": "3590ef46a40df81ec80120d3e6ccb0459282fd1d5634a807c05d02b18f839d52"
+  },
+  "missing_hook": null,
+  "error_hook": null,
+  "report_sha256": "8f7d429dc89ef716a1e1acb87573f93cd0a3efe61dc2872269de921426f3f379"
+}

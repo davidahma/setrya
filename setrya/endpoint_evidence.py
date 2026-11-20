@@ -9,7 +9,7 @@ from setrya.adapter import ReadView, SearchResult
 from setrya.checker import Status, Verdict, evaluate
 from setrya.drill import Drill, InputError, Probe, ProbeRules, Rules, label
 from setrya.endpoint import EndpointCase, _Contract, _HOOKS
-from setrya.evidence import Report, bind_inputs
+from setrya.evidence import Report, bind_inputs, git_revision
 from setrya.offboarding.inputs import InvalidReport, read_json
 
 from .store_signals import passage_metadata
@@ -39,10 +39,12 @@ FIXTURE_CASE = EndpointCase("answer", "revoked", "retained", QUESTION, PRIVATE, 
                             PRIVATE_TEXT + " " + PUBLIC_TEXT, PUBLIC_TEXT)
 FIXTURE = FIXTURE_CASE._contract()
 ENDPOINT_VERSION = 4
+BOUND_ENDPOINT_VERSION = 5
+APPLICATION_VERSIONS = (ENDPOINT_VERSION, BOUND_ENDPOINT_VERSION)
 
 
 def contract_for(manifest):
-    return _Contract.load(manifest["case"]) if manifest.get("version") == ENDPOINT_VERSION else FIXTURE
+    return _Contract.load(manifest["case"]) if manifest.get("version") in APPLICATION_VERSIONS else FIXTURE
 
 
 def drill(contract=FIXTURE, question=QUESTION):
@@ -101,7 +103,8 @@ def worker_capture(captured, case=FIXTURE_CASE, contract=FIXTURE):
         return None
     question = captured.get("question")
     return {
-        **{k: _label_or_none(captured.get(k)) for k in ("run_id", "attempt", "caller", "revision")},
+        **{k: _label_or_none(captured.get(k)) for k in ("run_id", "attempt", "revision")},
+        "caller": contract.known_caller(captured.get("caller")),
         "query_sha256": sha256(question.encode()).hexdigest() if isinstance(question, str) else None,
         "body": _body(captured.get("answer"), case, contract), "sources": _sources(captured.get("sources"), case),
     }
@@ -143,8 +146,8 @@ def sample(probe_id, stage, response, captured=None, case=FIXTURE_CASE, contract
     return {
         "overflow_private_rank": private_rank,
         "query_sha256": query if isinstance(query, str) and re.fullmatch("[0-9a-f]{64}", query) else None,
-        "probe": probe_id, "stage": stage, "route": _label_or_none(response.get("route")),
-        "caller": _label_or_none(response.get("caller")), "status": status if type(status) is int else None,
+        "probe": probe_id, "stage": stage, "route": contract.route if response.get("route") == contract.route else None,
+        "caller": contract.known_caller(response.get("caller")), "status": status if type(status) is int else None,
         "capture_sha256": capture_digest(captured),
         "body": _body(response.get("answer"), case, contract), "sources": _sources(response.get("sources"), case), "cache_hit": hit if type(hit) is bool else None,
         "generation_skipped": (response["generation_skipped"]
@@ -308,25 +311,28 @@ def _read_bundle(directory):
     except InvalidReport as error:
         raise InputError(str(error)) from None
     keys = {"format", "version", "mode", "run_id", "report_sha256", "held_after_reads", "worker_capture", "observations"}
-    if isinstance(manifest, dict) and manifest.get("version") == ENDPOINT_VERSION:
+    if isinstance(manifest, dict) and manifest.get("version") in APPLICATION_VERSIONS:
         keys.update(("case", "missing_hook", "error_hook"))
+        if manifest["version"] == BOUND_ENDPOINT_VERSION:
+            keys.add("revision")
+            git_revision(manifest.get("revision"))
         for key in ("missing_hook", "error_hook"):
             if manifest.get(key) is not None and manifest[key] not in tuple(_HOOKS):
                 raise InputError("invalid endpoint hook")
-    if isinstance(manifest, dict) and manifest.get("version") in (2, VERSION, ENDPOINT_VERSION):
+    if isinstance(manifest, dict) and manifest.get("version") in (2, VERSION, *APPLICATION_VERSIONS):
         keys.add("receipt_before_release")
         before = manifest.get("receipt_before_release")
         if before is not None and type(before) is not bool:
             raise InputError("invalid pre-release terminal observation")
     if (not isinstance(manifest, dict) or set(manifest) != keys or manifest["format"] != FORMAT
-            or type(manifest["version"]) is not int or manifest["version"] not in (1, 2, VERSION, ENDPOINT_VERSION)
-            or manifest["mode"] not in (("application",) if manifest["version"] == ENDPOINT_VERSION else ("broken", "guarded")) or not isinstance(manifest["observations"], list)
+            or type(manifest["version"]) is not int or manifest["version"] not in (1, 2, VERSION, *APPLICATION_VERSIONS)
+            or manifest["mode"] not in (("application",) if manifest["version"] in APPLICATION_VERSIONS else ("broken", "guarded")) or not isinstance(manifest["observations"], list)
             or not isinstance(manifest["report_sha256"], str)):
         raise InputError("invalid answer cache manifest")
     report = Report.load(directory / JOURNAL, expected_sha256=manifest["report_sha256"])
     contract = contract_for(manifest)
     expected = drill(contract)
-    inputs = bind_inputs(expected, test_id=TEST_ID if contract is FIXTURE else contract.test_id())
+    inputs = bind_inputs(expected, test_id=TEST_ID if contract is FIXTURE else contract.test_id(), revision=manifest.get("revision"))
     inputs["questions"] = dict.fromkeys(inputs["questions"], contract.question_sha256)
     if report.run_id != manifest["run_id"] or report.rules != expected.rules or report.inputs != inputs:
         raise InputError("answer cache trace does not match the declared run and drill")
@@ -343,6 +349,7 @@ def _read_bundle(directory):
     private_from_task = set()
     if verified:
         lines.append(f"Task {attempt} captured the private answer for the revoked user before release.")
+    callers = {probe.rules.id: probe.rules.scope for probe in expected.probes}
     for event, row in zip(probes, rows):
         if (not isinstance(row, dict) or ("generation_skipped" in row) != (manifest["version"] >= 2)
                 or ("query_sha256" in row) != (manifest["version"] >= 3)):
@@ -356,6 +363,10 @@ def _read_bundle(directory):
             raise InputError("answer endpoint observation does not match its recorded event")
         cache = {True: "hit", False: "miss"}.get(row["cache_hit"], "unknown")
         origin = "" if matches_question(row, contract) else " · answer question unverified"
+        if (contract is not FIXTURE and row["stage"] == "baseline" and row["status"] == 200
+                and (observed.scope, observed.route) == (callers[row["probe"]], contract.route)
+                and matches_question(row, contract) and row["body"] == private_body(contract)):
+            origin = f" · authenticated caller, route {contract.route}, question and expected private answer confirmed"
         receipt_bound = (contract is FIXTURE or
                          (verified and receipt.get("document") == contract.document
                           and receipt.get("revision") == contract.old_revision))
@@ -401,7 +412,7 @@ def _read_bundle(directory):
                           "and the retained user received a private cache hit.")
     elif verdict.status is Status.FAIL and verdict.event in private_from_task:
         verdict = replace(verdict, detail=f"At event {verdict.event} the revoked user received the private answer "
-                          f"from the resumed task's cache write ({attempt}).")
+                          f"from the resumed task's cache write ({attempt}).", evidence_tier="write-confirmed")
     if contract is not FIXTURE:
         verdict = _endpoint_verdict(verdict, report, manifest, contract)
     summary = "\n".join([verdict.status.label + "  " + verdict.detail, *lines])

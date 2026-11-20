@@ -1,20 +1,36 @@
 # Test a Celery and LangChain answer endpoint
 
-The framework starter controls a bound Celery task through Redis. The test can run on a developer’s laptop while the worker runs in Docker. Both need network access to the same disposable Redis database. The broker may use a different service. The generated test runs the same two-user checks and produces the same offline evidence as the [generic endpoint starter](endpoint.md).
+Use the framework starter to verify two signed-in sessions before connecting Celery or Redis. Create the test in your application checkout.
+
+```sh
+python -m pip install 'setrya[pytest]'
+setrya init endpoint --framework celery-langchain
+python -m pytest -q -s -p setrya.pytest_plugin --setrya-reads-only tests/test_setrya_endpoint.py
+```
+
+Connect `open_test_app(run_id)` to a disposable fixture containing two already signed-in users with private access. Give that object an `answer(caller, question)` method that makes the HTTP request and returns its observed status, authenticated caller, route, served question fingerprint and answer text. The [response mapping](endpoint.md#connect-the-worker) shows an example. Configure the expected fixture values in `CASE`. This stage needs neither a worker nor any Redis connection. When both expected answers return, the read check confirms each caller independently and keeps the race verdict at `NOT TESTED`. The printed replay command works after teardown.
+
+### Connect the full race
+
+Install the framework extras and use the same generated test without the reads-only flag.
 
 ```sh
 python -m pip install 'setrya[celery-langchain]'
-setrya init endpoint --framework celery-langchain
 python -m pytest -q -s tests/test_setrya_endpoint.py
 ```
 
-On the first run, pytest reports `NOT TESTED` and identifies `application()`. Connect `open_test_app(run_id)` to your disposable fixture. Supply a Redis client, the app’s normal bound cache-fill task signature, and three callbacks.
+The fixture supplies these hooks as you advance. The controller allocates a Redis worker checkpoint when it reaches task dispatch.
 
-| Callback | What the application does |
+| Fixture member | What the application supplies |
 | --- | --- |
 | `seed()` | Give both synthetic callers access and warm both private cache entries. |
+| `answer(caller, question)` | Extend the two HTTP observations with source and cache metadata. A hit identifies the task that wrote the entry. |
+| `test_redis`, `fill_answer` | The disposable Redis client and the bound Celery task for the stale fill. The generated adapter constructs `fill_answer.s(CASE.revoked, CASE.question)`. |
 | `revoke()` | Remove the selected caller’s access, evict their entry and return the app’s `Publication` acknowledgment. |
-| `send_answer(caller, question, request_id)` | Send the question as that caller through the real HTTP endpoint. Pass the opaque test request ID in a header. Return the observed HTTP status and answer text. |
+
+A fixture with Redis serving telemetry can supply `send_answer(caller, question, request_id)` in place of `answer()`. It sends the question through the authenticated HTTP endpoint, includes the opaque request ID in a header and returns the actual HTTP status and answer text. The serving path records the same request as shown below. This integration also works for reads-only startup when Redis is available. To customize the task signature or queue options, the existing `CeleryLangChainEndpoint(client, run_id, case, task=..., seed=..., revoke=..., send=...)` interface remains available in the generated file's `application()` context.
+
+The controller and worker need network access to the same disposable Redis database for the full race. The broker may use a different service. A worker can run in Docker while pytest runs on the developer’s laptop.
 
 Set `CASE` in the generated file to the two callers, route, question, expected answers, and source markers used by the fixture. Use the existing [LangChain tagging helper](answer-cache.md#use-the-hooks-in-an-existing-application) to attach document, revision and chunk identity at ingestion. Select the same task Celery normally dispatches with your application’s arguments and queue options. Setrya reserves a task ID and sends the run ID in the `setrya_test_run` message header.
 

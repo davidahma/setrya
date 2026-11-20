@@ -1,13 +1,17 @@
 """Drive the endpoint race and persist its replayable evidence."""
 from dataclasses import asdict
 from hashlib import sha256
+import os
 from pathlib import Path
+import shutil
 import time
 
 from .adapter import Checkpoint, Publication
+from .drill import InputError
 from .endpoint import MissingHook
+from .git_refs import resolve_commit
 from .endpoint_evidence import (
-    ENDPOINT_VERSION, FIXTURE, FORMAT, JOURNAL, MANIFEST, TEST_ID, VERSION, drill,
+    BOUND_ENDPOINT_VERSION, ENDPOINT_VERSION, FIXTURE, FORMAT, JOURNAL, MANIFEST, TEST_ID, VERSION, drill,
     observation, replay, sample, verified_capture, worker_capture,
 )
 from .offboarding.inputs import save
@@ -54,7 +58,7 @@ def _exercise(app, recorder, spec, manifest, wait_seconds, case, contract):
             results[rules.id] = ((result.route, result.scope) == (rules.route, rules.scope)
                                  and None not in result.passages and set(required) <= set(result.passages)
                                  and (stage == "baseline" or set(rules.forbid).isdisjoint(result.passages)))
-            if contract is not FIXTURE and not results[rules.id] and stage != "final":
+            if contract is not FIXTURE and not results[rules.id] and stage == "freshness":
                 return False
         return all(results.values())
 
@@ -97,19 +101,40 @@ def _exercise(app, recorder, spec, manifest, wait_seconds, case, contract):
 
 
 def run_endpoint(case, application, directory, wait_seconds):
-    return record_endpoint(directory, "application", case, case._contract(), application, wait_seconds)
+    contract = case._contract()
+    if os.environ.get("SETRYA_RUN_PR") != "endpoint":
+        return record_endpoint(directory, "application", case, contract, application, wait_seconds)
+
+    # Keep the native test's own output path. Publish only this live call's
+    # manifest and journal to the parent, never the whole pytest temp directory.
+    stage = Path(os.environ["SETRYA_REVIEW_ENDPOINT"])
+    revision = resolve_commit(Path.cwd(), "HEAD")
+    if revision != os.environ["SETRYA_REVIEW_REVISION"]:
+        raise InputError("the endpoint test must run in the selected application checkout")
+    try:
+        stage.mkdir()
+    except FileExistsError:
+        stage.with_suffix(".ambiguous").touch()
+        raise InputError("select a single endpoint test for the PR check") from None
+    result = record_endpoint(directory, "application", case, contract, application, wait_seconds, revision=revision)
+    for name in (MANIFEST, JOURNAL):
+        shutil.copyfile(Path(directory) / name, stage / name)
+    stage.with_suffix(".executed").write_text(sha256((stage / MANIFEST).read_bytes()).hexdigest(), encoding="ascii")
+    return result
 
 
-def record_endpoint(directory, mode, case, contract, application, wait_seconds):
+def record_endpoint(directory, mode, case, contract, application, wait_seconds, *, revision=None):
     out = Path(directory).absolute()
     out.mkdir(parents=True, exist_ok=False)
     spec = drill(contract, case.question)
     test_id = TEST_ID if contract is FIXTURE else contract.test_id()
-    recorder = Recorder(spec, test_id=test_id, report=out / JOURNAL)
+    recorder = Recorder(spec, test_id=test_id, report=out / JOURNAL, revision=revision)
     manifest = {"format": FORMAT, "version": VERSION, "run_id": recorder.run_id, "mode": mode,
                 "worker_capture": None, "held_after_reads": None, "receipt_before_release": None, "observations": []}
     if contract is not FIXTURE:
         manifest.update(version=ENDPOINT_VERSION, case=asdict(contract), missing_hook=None, error_hook=None)
+        if revision is not None:
+            manifest.update(version=BOUND_ENDPOINT_VERSION, revision=revision)
     body_error = None
     interrupted = None
     try:

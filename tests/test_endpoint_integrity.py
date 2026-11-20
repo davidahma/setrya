@@ -37,6 +37,29 @@ class EndpointIntegrityTests(unittest.TestCase):
                           for caller in (FIXTURE_CASE.revoked, FIXTURE_CASE.retained)])
         self.assertEqual(bundle_metrics([directory]).snapshot().rejected_fills, 1)
 
+    def test_unexpected_serving_and_worker_identities_stay_out_of_exported_evidence(self):
+        unexpected_caller = "other-person@example.test"
+        unexpected_route = "internal-service"
+
+        class WrongSession(SyntheticAnswers):
+            def answer(self, caller, question):
+                row = super().answer(caller, question)
+                if caller == FIXTURE_CASE.revoked:
+                    row.update(caller=unexpected_caller, route=unexpected_route)
+                return row
+
+        class WrongWorker(SyntheticAnswers):
+            def captured(self):
+                return {**super().captured(), "caller": unexpected_caller}
+
+        for app in (WrongSession, WrongWorker):
+            with self.subTest(app=app.__name__):
+                directory, (verdict, summary) = self.exercise(app.__name__, app)
+                self.assertIs(verdict.status, Status.NOT_TESTED)
+                raw = summary + (directory / MANIFEST).read_text() + (directory / "run.json").read_text()
+                self.assertNotIn(unexpected_caller, raw)
+                self.assertNotIn(unexpected_route, raw)
+
     def test_case_is_bound_to_portable_evidence_and_rejects_ambiguous_inputs(self):
         for change in ({"retained": FIXTURE_CASE.revoked}, {"private_source": "cache-hit"},
                        {"private_source": FIXTURE_CASE.public_source}, {"public_answer": FIXTURE_CASE.private_answer}):

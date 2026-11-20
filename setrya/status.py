@@ -20,3 +20,9 @@ class Status(Enum):
     def from_gate(cls, verdict: str) -> "Status":
         """Translate the frozen offboarding evidence vocabulary."""
         return {"PASS": cls.PASS, "FAIL": cls.FAIL, "INCONCLUSIVE": cls.NOT_TESTED}[verdict]
+
+
+def exit_agrees(code, status, contract):
+    if contract == "setrya":
+        return code == status.exit_code
+    return code in {0, 1} and (status is Status.NOT_TESTED or code == status.exit_code)

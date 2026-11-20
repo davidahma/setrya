@@ -1,0 +1,53 @@
+name: Endpoint review
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  endpoint:
+    name: Two-user endpoint review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+      - run: python -m pip install .
+      - name: Compare the checked-out HTTP app at both commits
+        working-directory: ${{ runner.temp }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          setrya run-pr --endpoint --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --candidate "$HEAD_SHA" \
+            --output endpoint-review --exit-contract setrya -- \
+            python -I "$GITHUB_WORKSPACE/scripts/check-pr-endpoint.py"
+      - name: Show the endpoint decision in Checks
+        if: ${{ !cancelled() }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          if [ -f endpoint-review/review.md ]; then
+            cat endpoint-review/review.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            mkdir -p endpoint-review
+            echo '### Setrya · ERROR' > endpoint-review/review.md
+            echo 'The endpoint comparison could not start. See the failed step log.' >> endpoint-review/review.md
+            cat endpoint-review/review.md >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ !cancelled() }}
+        with:
+          name: endpoint-review
+          path: ${{ runner.temp }}/endpoint-review/
+          if-no-files-found: error

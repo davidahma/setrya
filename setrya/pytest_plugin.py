@@ -14,6 +14,11 @@ from .recorder import Recorder
 from .runner import run
 
 
+def pytest_addoption(parser):
+    parser.addoption("--setrya-reads-only", action="store_true",
+                     help="run only the two authenticated requests in a generated endpoint test")
+
+
 def _pr_context(drill, report, revision):
     if os.environ.get("SETRYA_RUN_PR") != "1":
         if drill is None:

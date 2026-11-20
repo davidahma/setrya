@@ -218,7 +218,7 @@ def main(argv=None) -> int:
     starters = init.add_subparsers(dest="starter", required=True)
     endpoint = starters.add_parser(
         "endpoint", help="test your answer endpoint as a revoked user and a retained colleague",
-        description="Write a pytest starter that checks your answer endpoint before and after a revoked user's cache-fill task resumes.",
+        description="Write a pytest starter to verify two authenticated endpoint reads, then exercise the delayed cache-fill worker.",
     )
     endpoint.add_argument("--framework", choices=("generic", "celery-langchain"), default="generic",
                           help="choose native hooks or a Celery/LangChain worker coordinated by Redis")
@@ -230,8 +230,10 @@ def main(argv=None) -> int:
     commands.add_parser("answer-cache", help="test a late Celery cache fill against a real answer endpoint")
     commands.add_parser("coverage", help="find changed routes and jobs without matching candidate evidence")
     commands.add_parser("run-pr", help="run an existing test on two Git revisions and review its evidence")
-    demo_parser = commands.add_parser("demo", help="run the offline refund-policy demo and see three verdicts")
-    demo_parser.add_argument("--case", choices=DEMO_CASES)
+    demo_parser = commands.add_parser("demo", help="replay access revocation or run the offline refund-policy demo")
+    demos = demo_parser.add_mutually_exclusive_group()
+    demos.add_argument("example", nargs="?", choices=("access",), help="replay recorded two-user access checks")
+    demos.add_argument("--case", choices=DEMO_CASES, help="run one case of the refund-policy search demo")
     check = commands.add_parser("check", help="run a drill")
     check.add_argument("drill")
     check.add_argument("--report", help="write a portable JSON report")
@@ -245,7 +247,7 @@ def main(argv=None) -> int:
     comparison.add_argument("before")
     comparison.add_argument("after")
     comparison.add_argument("--summary", help="write a Markdown summary")
-    review_parser = commands.add_parser("review", help="review two CI reports or two scenario directories")
+    review_parser = commands.add_parser("review", help="review two CI reports, endpoint bundles, or scenario directories")
     review_parser.add_argument("before")
     review_parser.add_argument("after")
     review_parser.add_argument("--base-commit", help="expected full base Git commit ID (required)")
@@ -253,7 +255,7 @@ def main(argv=None) -> int:
     review_parser.add_argument("--base-exit", help="native base test exit (required)")
     review_parser.add_argument("--candidate-exit", help="native candidate test exit (required)")
     review_parser.add_argument("--exit-contract", choices=("pytest", "setrya"),
-                               help="native exits (default: pytest for files, setrya for scenario directories)")
+                               help="native exits (default: pytest for search/endpoint, setrya for scenarios)")
     review_parser.add_argument("--summary", help="write a Markdown summary")
     qualify = commands.add_parser("qualify", help="run the shipped qualification cases")
     qualify.add_argument("--case")
@@ -267,11 +269,19 @@ def main(argv=None) -> int:
 
             write_endpoint_test(args.output, framework=args.framework)
             print(f"Created {args.output}")
+            print("Read the two prepared sessions first  " + shlex.join(
+                ["python", "-m", "pytest", "-q", "-s", "-p", "setrya.pytest_plugin", "--setrya-reads-only", "--", str(args.output)]))
             print("Run  " + shlex.join(["python", "-m", "pytest", "-q", "-s", "--", str(args.output)]))
             return 0
         if args.command in {"replay", "diagnose"}:
             directory = Path(args.report)
             manifest = bundle_manifest(directory) if directory.is_dir() else None
+            if manifest == "endpoint-reads.json":
+                from .endpoint_reads import replay as replay_reads
+
+                verdict, text = replay_reads(directory)
+                print(text)
+                return verdict.status.exit_code
             if manifest == "answer-cache.json":
                 verdict, text = _replay_answers(directory)
                 print(text)
@@ -308,6 +318,7 @@ def main(argv=None) -> int:
                 named_directories = frozenset(name for name, _, path in lanes if Path(path) == Path(name))
                 code, summary = review_inputs(base, candidate, named_directories=named_directories,
                                               exit_contract=args.exit_contract)
+                replay_lines = []
                 for name, lane, path in lanes:
                     if lane.report is not None:
                         variable = f"{name.upper()}_REPORT"
@@ -318,8 +329,15 @@ def main(argv=None) -> int:
 
                             command = replay_scenario_command(name, named_directories)
                             if name not in named_directories:
-                                summary += f"\nSet {variable} to the path of the downloaded {name} scenario directory."
-                        summary += f"\nReplay {name}  {command}"
+                                replay_lines.append(f"Set {variable} to the path of the downloaded {name} evidence directory.")
+                        replay_lines.append(f"Replay {name}  {command}")
+                from .review_endpoint import EndpointEvidence
+
+                if any(isinstance(lane.report, EndpointEvidence) for _, lane, _ in lanes):
+                    headline, _, detail = summary.partition("\n")
+                    summary = "\n".join((headline, *replay_lines, detail))
+                elif replay_lines:
+                    summary += "\n" + "\n".join(replay_lines)
                 title = f"{base.report.rules.id} release review" if isinstance(base.report, Report) else "release review"
             else:
                 before, after = Report.load(args.before), Report.load(args.after)
@@ -356,6 +374,10 @@ def main(argv=None) -> int:
                 _write_summary(summary_path, result.report.rules.id, summary)
             return result.verdict.status.exit_code
         if args.command == "demo":
+            if args.example == "access":
+                from .examples.access_demo import demo_access
+
+                return demo_access()
             preflight()
             return demo(args.case)
         if args.case not in {"pgvector", "offboarding", "offboarding-compatibility"}:

@@ -1,6 +1,6 @@
 # Test your own answer endpoint
 
-Use this starter when you can run a disposable copy of your app, sign in as two synthetic users, and pause a cache-fill task after it reads a private answer. It exercises your app’s normal answer route. To try the bundled LangChain, pgvector, and Celery app first, follow the [live example](answer-cache.md).
+Start with a disposable copy of your app and two synthetic users who can see the same private answer. Verify their sessions through your normal answer route. Then connect the cache-fill task and check what each user receives after one loses access. To try the bundled LangChain, pgvector, and Celery app first, follow the [live example](answer-cache.md).
 
 For a Celery worker and a LangChain retriever, use the [framework starter](endpoint-framework.md) to supply the worker hooks through Redis.
 
@@ -11,12 +11,31 @@ From your application checkout, run these commands in a Python 3.11+ virtual env
 ```sh
 python -m pip install 'setrya[pytest]'
 setrya init endpoint
+python -m pytest -q -s -p setrya.pytest_plugin --setrya-reads-only tests/test_setrya_endpoint.py
+```
+
+Set `CASE` in the generated file to your synthetic question, route label, caller IDs and exact answers. Give the fixture two already signed-in sessions with private access. Implement only `Application.answer(caller, question)` and any fixture setup and cleanup those sessions need. The read check calls each session once and skips `seed()` and all worker controls. An untouched generic starter asks you to connect `answer()`. Use `--output tests/test_policy_access.py` at generation time to choose a different, new file.
+
+For each call, return `http_status`, `caller`, `route`, `query_sha256`, and `answer`. Use the authenticated principal and executed question from the application, plus the answer actually returned over HTTP. If your public response omits those fields, join the response to serving telemetry using a per-request identifier. Copying a requested caller ID or hashing the test's input would hide an authentication or routing mistake.
+
+Each caller gets a separate line identifying which fields matched. A failed first session still leaves an observation for the second. With both reads connected, output from the supplied example case includes these lines.
+
+```text
+case-reader · confirmed HTTP 200, authenticated caller, route policy-answer, question, expected private answer
+case-editor · confirmed HTTP 200, authenticated caller, route policy-answer, question, expected private answer
+```
+
+The race verdict stays `NOT TESTED` and pytest exits 1. Replay the printed directory with `setrya replay PATH` to inspect the two reads after the app shuts down. The read report keeps only configured fixture identifiers, fingerprints and status. It excludes response bodies, tokens and exception messages.
+
+## Connect the worker
+
+Run the full test as you connect the remaining hooks.
+
+```sh
 python -m pytest -q -s tests/test_setrya_endpoint.py
 ```
 
-The first run fails pytest with `NOT TESTED`, identifies `seed` as the first missing hook, and prints a replay command. Edit `tests/test_setrya_endpoint.py` and rerun the same test as you connect each hook. `-s` shows the evidence path even on a passing run. To generate the starter at a different path, pass `--output tests/test_policy_access.py` to `setrya init endpoint`. The destination must be a new file.
-
-## Connect the test
+The full test starts with `seed()`, then checks the private answer, sources and cache writer for both users. When both warm reads are verified, the next missing hook is `start_old()`. Each later run identifies the first missing observation and prints a replay command.
 
 Set `CASE` to your route label, two distinct caller IDs, one question, and the exact private and public answers you seeded. For this drill, the private answer cites the private source alone or both sources in the order the app returned them. The public answer cites only the public source. Use deterministic synthetic answers and keep both callers signed in for the entire test.
 

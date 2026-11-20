@@ -7,45 +7,38 @@ Setrya is an open-source Python SDK and CLI for testing that race before you shi
 [![Tests](https://github.com/davidahma/setrya/actions/workflows/ci.yml/badge.svg)](https://github.com/davidahma/setrya/actions/workflows/ci.yml)
 [![Offline qualification](https://github.com/davidahma/setrya/actions/workflows/qualification.yml/badge.svg)](https://github.com/davidahma/setrya/actions/workflows/qualification.yml)
 
-[Test your own endpoint](https://github.com/davidahma/setrya/blob/v0.14.0/docs/endpoint.md) · [Record a pytest test](https://github.com/davidahma/setrya/blob/v0.14.0/docs/recording.md) · [Test tenant offboarding](https://github.com/davidahma/setrya/blob/v0.14.0/docs/offboarding.md)
+[Test your own endpoint](https://github.com/davidahma/setrya/blob/v0.15.0/docs/endpoint.md) · [Record a pytest test](https://github.com/davidahma/setrya/blob/v0.15.0/docs/recording.md) · [Test tenant offboarding](https://github.com/davidahma/setrya/blob/v0.15.0/docs/offboarding.md)
 
 <a id="test-a-late-answer-cache-fill"></a>
 
 ## Test access revocation with two users
 
-A Celery task reads synthetic passages through LangChain and pgvector. Setrya pauses it before it writes to the cache. The app revokes access and evicts the user’s entry. Setrya asks the same question through the app’s authenticated HTTP endpoint as each user, first while the task is paused and again after it finishes.
-
-| What the endpoint served | User who lost access | Colleague who kept access |
-| --- | --- | --- |
-| While the task was paused, in both runs | Public answer only | Private answer from cache |
-| After the broken worker wrote its answer · **FAIL** | Private answer from the resumed worker’s cache entry | Private answer from cache |
-| After the guarded worker rejected the write · **PASS** | Public answer only | Private answer from cache |
-
-Replay both published runs in a Python 3.11+ virtual environment. The bundle records the task’s write outcome and whether each response contained private material. Replay needs no running services. [Setrya on PyPI](https://pypi.org/project/setrya/)
+Install Setrya in a Python 3.11+ environment and replay a recorded access change. The package includes the evidence from a real Celery worker and HTTP endpoint using two synthetic accounts. You can run this offline after installation.
 
 ```sh
 python -m pip install setrya
-curl -fL -o late-cache-fill.zip https://github.com/davidahma/setrya/releases/download/v0.12.1/late-cache-fill.zip
-unzip -q late-cache-fill.zip -d late-cache-fill
-setrya replay late-cache-fill/broken   # FAIL, exit 1
-setrya replay late-cache-fill/guarded  # PASS, exit 0
+setrya demo access
 ```
 
-To run the same drill live, start the bundled app with a disposable pgvector database. It builds answers without a model API key. [Run the Celery and pgvector example](https://github.com/davidahma/setrya/blob/v0.14.0/docs/answer-cache.md#run-the-worker)
+| What the endpoint served | User who lost access | Colleague who kept access |
+| --- | --- | --- |
+| While the task was paused | Public answer | Private answer from cache |
+| After the broken worker wrote · **FAIL** | Private answer from the resumed task | Private answer from cache |
+| After the guarded worker rejected the write · **PASS** | Public answer | Private answer from cache |
+
+A third replay shows `NOT TESTED` when the serving path supplies too little evidence to identify the caller. To run a live drill against a disposable app, start with your own endpoint below or use the [pgvector example](https://github.com/davidahma/setrya/blob/v0.15.0/docs/answer-cache.md#run-the-worker).
 
 ### Test your own endpoint
 
-From your application checkout, generate a pytest test for your authenticated answer route.
+From your application checkout, generate the pytest test and connect its `answer(caller, question)` hook to your real HTTP route. Start with two signed-in synthetic users who can both read the private answer.
 
 ```sh
 python -m pip install 'setrya[pytest]'
 setrya init endpoint
-python -m pytest -q -s tests/test_setrya_endpoint.py
+python -m pytest -q -s -p setrya.pytest_plugin --setrya-reads-only tests/test_setrya_endpoint.py
 ```
 
-The first run reports `NOT TESTED` and names the first hook to connect, `seed`. Fill in the generated file with two test users, a question, your endpoint call, and your worker controls. Each run prints a command to replay the evidence after teardown. [Connect the hooks and interpret the result](https://github.com/davidahma/setrya/blob/v0.14.0/docs/endpoint.md)
-
-If your app already uses Celery and LangChain, install `setrya[celery-langchain]` and run `setrya init endpoint --framework celery-langchain` in your checkout. This starter uses Redis to coordinate the worker and controller across processes or containers. [Connect a Celery worker](https://github.com/davidahma/setrya/blob/v0.14.0/docs/endpoint-framework.md)
+That first run shows which caller, route, question and answer the app confirmed for each request. The race stays `NOT TESTED` until you connect the worker and run the test without `--setrya-reads-only`. If your app uses Celery and LangChain, install `setrya[celery-langchain]` and generate the test with `setrya init endpoint --framework celery-langchain`. [Connect an endpoint](https://github.com/davidahma/setrya/blob/v0.15.0/docs/endpoint.md) · [Connect a Celery worker](https://github.com/davidahma/setrya/blob/v0.15.0/docs/endpoint-framework.md)
 
 <a id="run-the-demo"></a>
 
@@ -78,28 +71,27 @@ with as_file(drill) as path:
 print(result.verdict.status.label)  # PASS
 ```
 
-For your own application, an adapter supplies the worker checkpoint, write receipt, and search results. If pytest already drives your worker, install `setrya[pytest]` and use the `setrya_record` fixture to save those observations alongside your assertions. A PASS covers the callers, queries, and schedule you tested. [Adapter guide](https://github.com/davidahma/setrya/blob/v0.14.0/docs/adapters.md) · [Record an existing pytest test](https://github.com/davidahma/setrya/blob/v0.14.0/docs/recording.md) · [Verdict rules](https://github.com/davidahma/setrya/blob/v0.14.0/docs/evidence.md)
+For your own application, an adapter supplies the worker checkpoint, write receipt, and search results. If pytest already drives your worker, install `setrya[pytest]` and use the `setrya_record` fixture to save those observations alongside your assertions. A PASS covers the callers, queries, and schedule you tested. [Adapter guide](https://github.com/davidahma/setrya/blob/v0.15.0/docs/adapters.md) · [Record an existing pytest test](https://github.com/davidahma/setrya/blob/v0.15.0/docs/recording.md) · [Verdict rules](https://github.com/davidahma/setrya/blob/v0.15.0/docs/evidence.md)
 
-## Review an indexing change in a pull request
+## Review the result in a pull request
 
-Run your test on the base and candidate commits. From your application checkout, with both refs available and the pytest extra installed, use your own drill path and pytest test ID.
+Run the endpoint test from an application checkout that has both Git revisions.
 
 ```sh
-setrya run-pr --repo . --base origin/main --candidate HEAD \
-  --drill tests/refund.toml --output refund-review \
-  -- python -m pytest -p setrya.pytest_plugin -q tests/test_index.py::test_refund_update
+setrya run-pr --endpoint --repo . --base origin/main --candidate HEAD \
+  --output endpoint-review -- python -m pytest -q tests/test_setrya_endpoint.py
 ```
 
-In the refund example, the base returns the forbidden 30-day policy at rank 1. On the candidate, the worker rejects the write and the same caller gets 14 days. The reviewer sees `FIX VERIFIED` with both observations. Keep the output as a CI artifact even when the test fails. [Review the example evidence](https://github.com/davidahma/setrya/releases/download/v0.12.1/recorded-pytest-review.zip) · [CI recipe](https://github.com/davidahma/setrya/blob/v0.14.0/docs/recording.md#use-it-in-a-pull-request)
+The PR check shows what the revoked user and the retained colleague received on each revision, what the delayed worker did, and how to replay the result. A candidate earns `FIX VERIFIED` when its evidence accounts for the read that failed on base. Keep the artifact on failing checks so the reviewer can inspect either run after teardown. For search and indexing drills, pass `--drill` with the trusted drill file. [Endpoint CI recipe](https://github.com/davidahma/setrya/blob/v0.15.0/docs/pr-endpoint.md) · [Review an indexing change](https://github.com/davidahma/setrya/blob/v0.15.0/docs/recording.md#use-it-in-a-pull-request)
 
 ## Test tenant offboarding
 
-A customer leaves, but a worker still holds a copy of their support summary. Run `setrya offboarding demo --output offboarding-run` to test whether the summary reappears and whether a retained tenant’s summary stays readable. The CI gate reports what the app served. A separate deletion receipt tracks one request and can still list open items, such as a backup awaiting expiry. [Offboarding guide](https://github.com/davidahma/setrya/blob/v0.14.0/docs/offboarding.md) · [Axiom migration](https://github.com/davidahma/setrya/blob/v0.14.0/docs/offboarding.md#migrate-from-axiom)
+A customer leaves, but a worker still holds a copy of their support summary. Run `setrya offboarding demo --output offboarding-run` to test whether the summary reappears and whether a retained tenant’s summary stays readable. The CI gate reports what the app served. A separate deletion receipt tracks one request and can still list open items, such as a backup awaiting expiry. [Offboarding guide](https://github.com/davidahma/setrya/blob/v0.15.0/docs/offboarding.md) · [Axiom migration](https://github.com/davidahma/setrya/blob/v0.15.0/docs/offboarding.md#migrate-from-axiom)
 
 ## More drills and integrations
 
-- [Selective cache invalidation](https://github.com/davidahma/setrya/blob/v0.14.0/docs/answer-cache.md#invalidate-a-refund-answer-and-keep-a-delivery-hit) checks that a refund update leaves an unrelated delivery answer cached. [Cache answers by source in memory](https://github.com/davidahma/setrya/blob/v0.14.0/docs/local-cache.md) · [Share answers across processes with Redis](https://github.com/davidahma/setrya/blob/v0.14.0/docs/redis-cache.md) · [Answer dependencies](https://github.com/davidahma/setrya/blob/v0.14.0/docs/answer-dependencies.md) · [Cache metrics](https://github.com/davidahma/setrya/blob/v0.14.0/docs/cache-metrics.md)
-- [Worker schedules](https://github.com/davidahma/setrya/blob/v0.14.0/docs/scenarios.md) cover retries, duplicate deliveries, and reordered writes. [OpenDesk’s two-user revocation trial](https://github.com/davidahma/setrya/blob/v0.14.0/docs/opendesk-revocation.md) follows a real summary job across a team membership change.
-- [Store evidence](https://github.com/davidahma/setrya/blob/v0.14.0/docs/store-signals.md) explains how a search can establish that it saw a particular write. [Route coverage](https://github.com/davidahma/setrya/blob/v0.14.0/docs/coverage.md) identifies changed read paths that lack matching evidence.
+- [Selective cache invalidation](https://github.com/davidahma/setrya/blob/v0.15.0/docs/answer-cache.md#invalidate-a-refund-answer-and-keep-a-delivery-hit) checks that a refund update leaves an unrelated delivery answer cached. [Cache answers by source in memory](https://github.com/davidahma/setrya/blob/v0.15.0/docs/local-cache.md) · [Share answers across processes with Redis](https://github.com/davidahma/setrya/blob/v0.15.0/docs/redis-cache.md) · [Answer dependencies](https://github.com/davidahma/setrya/blob/v0.15.0/docs/answer-dependencies.md) · [Cache metrics](https://github.com/davidahma/setrya/blob/v0.15.0/docs/cache-metrics.md)
+- [Worker schedules](https://github.com/davidahma/setrya/blob/v0.15.0/docs/scenarios.md) cover retries, duplicate deliveries, and reordered writes. [OpenDesk’s two-user revocation trial](https://github.com/davidahma/setrya/blob/v0.15.0/docs/opendesk-revocation.md) follows a real summary job across a team membership change.
+- [Store evidence](https://github.com/davidahma/setrya/blob/v0.15.0/docs/store-signals.md) explains how a search can establish that it saw a particular write. [Route coverage](https://github.com/davidahma/setrya/blob/v0.15.0/docs/coverage.md) identifies changed read paths that lack matching evidence.
 
-[Contributing](https://github.com/davidahma/setrya/blob/v0.14.0/CONTRIBUTING.md) · [Security policy](https://github.com/davidahma/setrya/blob/v0.14.0/SECURITY.md) · [Apache 2.0 license](https://github.com/davidahma/setrya/blob/v0.14.0/LICENSE)
+[Contributing](https://github.com/davidahma/setrya/blob/v0.15.0/CONTRIBUTING.md) · [Security policy](https://github.com/davidahma/setrya/blob/v0.15.0/SECURITY.md) · [Apache 2.0 license](https://github.com/davidahma/setrya/blob/v0.15.0/LICENSE)

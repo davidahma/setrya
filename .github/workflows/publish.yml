@@ -75,6 +75,9 @@ jobs:
             "$envdir/bin/python" -m pip install --no-deps "$distribution"
             test "$("$envdir/bin/setrya" --version)" = "$VERSION"
             "$envdir/bin/setrya" demo
+            if test -f "$GITHUB_WORKSPACE/setrya/examples/access_demo.py"; then
+              "$envdir/bin/setrya" demo access
+            fi
             # Manual dispatch can select a historical tag that predates the starter.
             if test -f "$GITHUB_WORKSPACE/scripts/verify-installed-starter.py"; then
               "$envdir/bin/python" -m pip install "${distribution}[pytest]"
@@ -130,6 +133,9 @@ jobs:
           done
           test "$(public-install/bin/setrya --version)" = "$VERSION"
           public-install/bin/setrya demo
+          if test -f "$GITHUB_WORKSPACE/setrya/examples/access_demo.py"; then
+            public-install/bin/setrya demo access
+          fi
           if test -f "$GITHUB_WORKSPACE/scripts/verify-installed-starter.py"; then
             public-install/bin/python -m pip --isolated install --no-cache-dir --index-url https://pypi.org/simple "setrya[pytest]==$VERSION"
             public-install/bin/python -I "$GITHUB_WORKSPACE/scripts/verify-installed-starter.py"
