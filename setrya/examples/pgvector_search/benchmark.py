@@ -33,7 +33,9 @@ def verify_result(completed, expected, label, detail=None):
 
 
 def sample(output, number, scenario, filename, failure_detail, configurations):
-    settings = (EXAMPLES / filename).read_text()
+    settings = (EXAMPLES / filename).read_text().replace(
+        "[adapter.options]", '[adapter.options]\nfinal_reads = "after-receipt"'
+    )
     directory = output / scenario / f"trial-{number}"
     directory.mkdir(parents=True)
     lanes = ("setrya", "pytest") if number % 2 else ("pytest", "setrya")

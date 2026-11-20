@@ -38,9 +38,11 @@ def scenario(mode, filename="drill.toml"):
     return run(replace(drill, options={**drill.options, "mode": mode}))
 
 
-def configuration(directory, mode, filename="drill.toml", question=None, *, examples=EXAMPLE):
+def configuration(directory, mode, filename="drill.toml", question=None, *, examples=EXAMPLE, after_receipt=False):
     path = Path(directory) / f"{mode}.toml"
     contents = (examples / filename).read_text(encoding="utf-8").replace('mode = "fixed"', f'mode = "{mode}"')
+    if after_receipt:
+        contents = contents.replace("[adapter.options]", '[adapter.options]\nfinal_reads = "after-receipt"')
     if question is not None:
         contents = contents.replace("How long do I have to return an order?", question)
     path.write_text(contents, encoding="utf-8")
@@ -159,7 +161,7 @@ def report_comparison():
         target = Path(directory)
         reports = {}
         for mode, code in (("broken", 1), ("fixed", 0), ("opaque", 3)):
-            path = configuration(directory, mode)
+            path = configuration(directory, mode, after_receipt=True)
             report = target / f"{mode}.json"
             outcome(command("-m", "setrya", "check", str(path), "--report", str(report)), code, "")
             path.unlink()
@@ -174,7 +176,7 @@ def report_comparison():
         outcome(command("-m", "setrya", "diagnose", reports["opaque"]), 3, "Missing search visibility evidence")
         for old, new, detail in (("How long do I have to return an order?", "Can I return an order?", "Question changed"),
                                  ("top_k = 3", "top_k = 1", "Search depth changed")):
-            path = configuration(directory, "fixed")
+            path = configuration(directory, "fixed", after_receipt=True)
             path.write_text(path.read_text().replace(old, new, 1))
             report = target / "changed.json"
             outcome(command("-m", "setrya", "check", str(path), "--report", str(report)), 0, "PASS")
@@ -195,7 +197,7 @@ def pgvector():
         for filename, failure_text in (("drill.toml", "refund@A at rank"), ("reupload.toml", "refund@B.3 was absent")):
             for mode, code, detail in (("broken", 1, failure_text), ("fixed", 0, "PASS"),
                                        ("opaque", 3, "Missing search visibility evidence")):
-                path = configuration(directory, mode, filename, examples=PGVECTOR)
+                path = configuration(directory, mode, filename, examples=PGVECTOR, after_receipt=True)
                 report = Path(directory) / f"{filename}-{mode}.json"
                 outcome(command("-m", "setrya", "check", str(path), "--report", str(report)), code, detail)
                 reports[mode] = report

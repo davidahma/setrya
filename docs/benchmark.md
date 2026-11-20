@@ -1,5 +1,7 @@
 # Compare Setrya with plain pytest
 
+The pgvector benchmark schedules final queries after the worker returns its terminal receipt in both the Setrya and pytest runs. This makes the stale and guarded revisions comparable at the same observation. The ordinary live drill also samples while the worker is settling. [Comparison rules](evidence.md#compare-two-saved-runs)
+
 Both tools can catch the bundled defects. This comparison measures the work of getting to that result, handing it off, and making the next change. The fixtures cover a late refund overwrite and a delete-and-reupload that removes a good passage from the top three.
 
 ## Run the synthetic comparison

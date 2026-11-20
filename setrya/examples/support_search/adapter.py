@@ -8,8 +8,9 @@ from .client import Client
 
 
 class SupportAdapter:
-    def __init__(self, fixture):
+    def __init__(self, fixture, *, final_reads_after_receipt=False):
         self.fixture = fixture
+        self.final_reads_after_receipt = final_reads_after_receipt
 
     def seed(self):
         self.fixture.seed()
@@ -44,18 +45,27 @@ class SupportAdapter:
         self.fixture.close()
 
 
+def final_reads_after_receipt(context: RunContext) -> bool:
+    timing = context.drill.options.get("final_reads", "during-settle")
+    if timing not in ("during-settle", "after-receipt"):
+        raise InputError("unsupported final read schedule for the example fixture")
+    return timing == "after-receipt"
+
+
 def fixture_options(context: RunContext):
     options = context.drill.options
     mode = options.get("mode", "fixed")
     scenario = options.get("scenario", "refund")
-    if options.keys() - {"mode", "scenario"} or mode not in sorted(MODES) or scenario not in ("refund", "retired"):
+    if options.keys() - {"mode", "scenario", "final_reads"} or mode not in sorted(MODES) or scenario not in ("refund", "retired"):
         raise InputError("unsupported support fixture mode or scenario")
     return context.directory, context.run_id, mode, scenario
 
 
 def http_fixture(context: RunContext):
-    return SupportAdapter(Client(*fixture_options(context)))
+    after_receipt = final_reads_after_receipt(context)
+    return SupportAdapter(Client(*fixture_options(context)), final_reads_after_receipt=after_receipt)
 
 
 def python_fixture(context: RunContext):
-    return SupportAdapter(App(*fixture_options(context)))
+    after_receipt = final_reads_after_receipt(context)
+    return SupportAdapter(App(*fixture_options(context)), final_reads_after_receipt=after_receipt)

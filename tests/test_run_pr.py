@@ -29,7 +29,7 @@ def factory(context):
     mode = "broken" if Path("lane").read_text() == "base" else "fixed"
     if os.environ.get("TEST_OPAQUE") == "1":
         mode = "opaque"
-    return python_fixture(replace(context, drill=replace(context.drill, options={"mode": mode})))
+    return python_fixture(replace(context, drill=replace(context.drill, options={"mode": mode, "final_reads": "after-receipt"})))
 """
 
 DRIVER = """

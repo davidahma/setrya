@@ -70,3 +70,7 @@ The SQLite demo and its bundled adapters need FTS5. Other adapters use their own
 For chunk metadata, native PostgreSQL positions, Elasticsearch sequence numbers and refresh-only observations, see [Store evidence and ingestion](store-signals.md).
 
 Run the three store controls or verify a queue task's capture, hold, release and terminal receipt before relying on an adapter in CI. [Adapter conformance suite](adapter-conformance.md)
+
+## Schedule final reads after a receipt
+
+By default, Setrya samples the read path as soon as it releases the worker. To compare two revisions specifically after the worker finishes, an adapter can set `final_reads_after_receipt = True`. The runner keeps polling on its original settle deadline and starts final queries when it receives the terminal receipt. A missing receipt leaves the post-write phase untested. This schedule omits the interval between release and acknowledgment. Use the default when that interval is part of the test.

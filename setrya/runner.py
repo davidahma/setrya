@@ -168,15 +168,23 @@ class _Execution(_Journal):
         release = self.add("released", attempt=attempt)["ns"]
         final_cutoff = release + self.rules.settle_ms * NS_PER_MS
         receipt = None
+        after_receipt = getattr(self.adapter, "final_reads_after_receipt", False) is True
         while self.time() <= final_cutoff:
             sample_started = self.time()
             if receipt is None:
                 receipt = self.call("receipt")
                 if receipt is not None:
-                    self.add("receipt", **asdict(receipt))
+                    received = self.add("receipt", **asdict(receipt))
+                    if after_receipt and (received["ns"] > final_cutoff or (
+                        receipt.run_id, receipt.attempt, receipt.document, receipt.revision
+                    ) != (self.run_id, attempt, self.rules.document, self.rules.old_revision)):
+                        return
                     self.refresh_after_commit(receipt)
-            for probe in self.drill.probes:
-                self.probe(probe)
+            if receipt is not None or not after_receipt:
+                for probe in self.drill.probes:
+                    if after_receipt and self.time() > final_cutoff:
+                        return
+                    self.probe(probe)
             if receipt is not None and self.result().verdict.status in {Status.PASS, Status.FAIL}:
                 return
             if self.time() >= final_cutoff:
