@@ -1,0 +1,119 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published GitHub release tag to upload
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: pypi-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name == 'release' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Require a published GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git check-ref-format "refs/tags/$TAG"
+          [[ "$TAG" == v* ]]
+          test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+      - name: Match the tag to the package version on the release commit
+        id: version
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git merge-base --is-ancestor HEAD "refs/remotes/origin/$DEFAULT_BRANCH"
+          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
+            test "$(git rev-parse HEAD)" = "$(git rev-parse "$GITHUB_SHA^{commit}")"
+          fi
+          version=$(python -c 'import tomllib; from pathlib import Path; print(tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"])')
+          test "$TAG" = "v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build and check both distributions
+        run: |
+          python -m pip install build twine
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          export SOURCE_DATE_EPOCH
+          python -m build
+          python -m twine check --strict dist/*
+      - name: Test the wheel and source distribution outside the checkout
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          for distribution in "$GITHUB_WORKSPACE/dist/setrya-$VERSION-py3-none-any.whl" "$GITHUB_WORKSPACE/dist/setrya-$VERSION.tar.gz"; do
+            envdir=$(mktemp -d)
+            python -m venv "$envdir"
+            "$envdir/bin/python" -m pip install --no-deps "$distribution"
+            test "$("$envdir/bin/setrya" --version)" = "$VERSION"
+            "$envdir/bin/setrya" demo
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/setrya/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: python-distributions
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  verify:
+    needs: [build, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+      - name: Install the public release in a clean environment and run the demo
+        working-directory: ${{ runner.temp }}
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          python -m venv public-install
+          for attempt in {1..10}; do
+            if public-install/bin/python -m pip --isolated install --no-cache-dir --index-url https://pypi.org/simple "setrya==$VERSION"; then break; fi
+            if [[ "$attempt" == 10 ]]; then exit 1; fi
+            sleep 5
+          done
+          test "$(public-install/bin/setrya --version)" = "$VERSION"
+          public-install/bin/setrya demo

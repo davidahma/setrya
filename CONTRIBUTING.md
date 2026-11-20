@@ -14,3 +14,15 @@ Use a pull request for changes. Explain which search behavior or public contract
 For diagnostics, include the exact commit, Setrya and Python versions, platform, and a redacted report if you have one. Use the [security disclosure process](SECURITY.md) for vulnerabilities and follow the [code of conduct](CODE_OF_CONDUCT.md) in issues and pull requests.
 
 Tenant offboarding development, including the portable tool and OpenDesk trial, takes place in this repository. To reproduce their release checks, use the [portable build workflow](.github/workflows/offboarding-portable.yml) and [OpenDesk trial guide](setrya/examples/opendesk/README.md).
+
+## Publish a Python release
+
+When a GitHub release is published, the PyPI workflow builds the wheel and source distribution from its tag, checks both installs, and publishes the same files using the `pypi` GitHub environment. A final job installs the public release and runs `setrya demo`. The tag must match the version in the package, for example `v0.12.1` for version `0.12.1`.
+
+For an existing published GitHub release that has not reached PyPI, dispatch the workflow from the default branch with the release tag:
+
+```sh
+gh workflow run publish.yml --ref main -f tag=v0.12.1
+```
+
+If only the final install check fails, rerun that failed job. PyPI release files are immutable. [Publishing runs](https://github.com/davidahma/setrya/actions/workflows/publish.yml)
