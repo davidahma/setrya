@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 
@@ -18,7 +19,8 @@ def session():
         "repository": "", "own_application": None, "engineer": "", "independent_reviewer": "",
         "date": "", "first_arm": "", "agent_model_tools_and_budget_for_both": "",
         "arms": {name: {"first_change": change(), "assigned_second_change": change()} for name in ARMS},
-        "later_setrya_use": {"commit": "", "evidence": "", "use": "", "without_facilitator": None},
+        "later_setrya_use": {"commit": "", "evidence": "", "use": "", "without_facilitator": None,
+                             "team_chose_to_reuse": None},
     }
 
 
@@ -103,7 +105,8 @@ def summarize(data):
     if later_commit and later_commit in assigned:
         raise ValueError("later use needs a change outside both assigned exercises")
     independent = flag(later, "without_facilitator")
-    reused = bool(activated and independent and kind and later_commit and text(later, "evidence"))
+    team_choice = "team_chose_to_reuse" in later and flag(later, "team_chose_to_reuse")
+    reused = bool(activated and independent and team_choice and kind and later_commit and text(later, "evidence"))
     lines.append("Own-application activation: " + ("observed" if activated else "unmeasured"))
     lines.append("Independent use on a later change: " + (kind if reused else "unmeasured"))
     return "\n".join(lines)
@@ -116,7 +119,8 @@ def main():
     args = parser.parse_args()
     try:
         if args.action == "init":
-            with args.file.open("x", encoding="utf-8") as out:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            with os.fdopen(os.open(args.file, flags, 0o600), "w", encoding="utf-8") as out:
                 json.dump(session(), out, indent=2)
                 out.write("\n")
             print(f"Created a blank session in {args.file}")

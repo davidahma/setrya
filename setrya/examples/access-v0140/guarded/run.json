@@ -1,0 +1,274 @@
+{
+  "schema": 1,
+  "checker": 1,
+  "run_id": "689f55d35e4047358dd94cfdfb8b6ac9",
+  "rules": {
+    "id": "late-answer-fill",
+    "document": "policy",
+    "old_revision": "granted",
+    "new_revision": "revoked",
+    "checkpoint": "after-retrieval",
+    "freshness_probe": "revoked-answer",
+    "freshness_ms": 10000,
+    "checkpoint_ms": 60000,
+    "settle_ms": 30000,
+    "sample_ms": 100,
+    "max_gap_ms": 3000,
+    "probes": [
+      {
+        "id": "revoked-answer",
+        "route": "policy-answer",
+        "scope": "case-reader",
+        "top_k": 8,
+        "before": [
+          "private-answer",
+          "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202",
+          "cache-hit"
+        ],
+        "require": [
+          "public-answer"
+        ],
+        "forbid": [
+          "private-answer",
+          "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202"
+        ],
+        "absence": false
+      },
+      {
+        "id": "retained-answer",
+        "route": "policy-answer",
+        "scope": "case-editor",
+        "top_k": 8,
+        "before": [
+          "private-answer",
+          "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202",
+          "cache-hit"
+        ],
+        "require": [
+          "private-answer",
+          "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202",
+          "cache-hit"
+        ],
+        "forbid": [],
+        "absence": false
+      }
+    ],
+    "visibility": "strict"
+  },
+  "events": [
+    {
+      "kind": "seeded",
+      "seq": 1,
+      "ns": 5537478
+    },
+    {
+      "kind": "probe",
+      "seq": 2,
+      "ns": 7336473,
+      "probe_id": "revoked-answer",
+      "stage": "baseline",
+      "started_ns": 5552824,
+      "passages": [
+        "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202",
+        "private-answer",
+        "cache-hit"
+      ],
+      "origins": [
+        "seed",
+        "seed",
+        "sample-36f12e04b3fc0a1725ae284459bb76dbef390cdd0fb7fb624ca56074494ea359"
+      ],
+      "view": {
+        "generation": "689f55d35e4047358dd94cfdfb8b6ac9",
+        "commit": 1,
+        "route": "policy-answer",
+        "scope": "case-reader"
+      },
+      "route": "policy-answer",
+      "scope": "case-reader"
+    },
+    {
+      "kind": "probe",
+      "seq": 3,
+      "ns": 8778195,
+      "probe_id": "retained-answer",
+      "stage": "baseline",
+      "started_ns": 7361296,
+      "passages": [
+        "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202",
+        "private-answer",
+        "cache-hit"
+      ],
+      "origins": [
+        "seed",
+        "seed",
+        "sample-b8c5389e17203705b8552b3d87b1bc0f23ab901e5fdf3bcb65a59c45331ce09f"
+      ],
+      "view": {
+        "generation": "689f55d35e4047358dd94cfdfb8b6ac9",
+        "commit": 1,
+        "route": "policy-answer",
+        "scope": "case-editor"
+      },
+      "route": "policy-answer",
+      "scope": "case-editor"
+    },
+    {
+      "kind": "started",
+      "seq": 4,
+      "ns": 21101736,
+      "attempt": "9ab77019e92a4dbf842fdcc1607381fa"
+    },
+    {
+      "kind": "held",
+      "seq": 5,
+      "ns": 71594853,
+      "run_id": "689f55d35e4047358dd94cfdfb8b6ac9",
+      "attempt": "9ab77019e92a4dbf842fdcc1607381fa",
+      "document": "policy",
+      "revision": "granted",
+      "name": "after-retrieval"
+    },
+    {
+      "kind": "published",
+      "seq": 6,
+      "ns": 72097795,
+      "publication": {
+        "run_id": "689f55d35e4047358dd94cfdfb8b6ac9",
+        "document": "policy",
+        "revision": "revoked"
+      }
+    },
+    {
+      "kind": "probe",
+      "seq": 7,
+      "ns": 73948404,
+      "probe_id": "revoked-answer",
+      "stage": "freshness",
+      "started_ns": 72113851,
+      "passages": [
+        "chunk-5fc7ae765520e529671c0a33a6cdd86777229accf0db00193c7f5e7e9f6712cf",
+        "public-answer",
+        "cache-miss"
+      ],
+      "origins": [
+        null,
+        null,
+        "sample-8100c8852b584c0383036af60810a9e3e651523fcaac8aca5fa220676e99a9b4"
+      ],
+      "view": {
+        "generation": "689f55d35e4047358dd94cfdfb8b6ac9",
+        "commit": 1,
+        "route": "policy-answer",
+        "scope": "case-reader"
+      },
+      "route": "policy-answer",
+      "scope": "case-reader"
+    },
+    {
+      "kind": "probe",
+      "seq": 8,
+      "ns": 75475325,
+      "probe_id": "retained-answer",
+      "stage": "freshness",
+      "started_ns": 73971861,
+      "passages": [
+        "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202",
+        "private-answer",
+        "cache-hit"
+      ],
+      "origins": [
+        "seed",
+        "seed",
+        "sample-695d3b95030657107cb730e8045284bf5d5533abf8ba6511f4b1a55a2b5d03b1"
+      ],
+      "view": {
+        "generation": "689f55d35e4047358dd94cfdfb8b6ac9",
+        "commit": 1,
+        "route": "policy-answer",
+        "scope": "case-editor"
+      },
+      "route": "policy-answer",
+      "scope": "case-editor"
+    },
+    {
+      "kind": "released",
+      "seq": 9,
+      "ns": 75990403,
+      "attempt": "9ab77019e92a4dbf842fdcc1607381fa"
+    },
+    {
+      "kind": "receipt",
+      "seq": 10,
+      "ns": 126594258,
+      "run_id": "689f55d35e4047358dd94cfdfb8b6ac9",
+      "attempt": "9ab77019e92a4dbf842fdcc1607381fa",
+      "document": "policy",
+      "revision": "granted",
+      "outcome": "rejected",
+      "generation": null,
+      "commit": null
+    },
+    {
+      "kind": "probe",
+      "seq": 11,
+      "ns": 128097461,
+      "probe_id": "revoked-answer",
+      "stage": "final",
+      "started_ns": 126617459,
+      "passages": [
+        "chunk-5fc7ae765520e529671c0a33a6cdd86777229accf0db00193c7f5e7e9f6712cf",
+        "public-answer",
+        "cache-miss"
+      ],
+      "origins": [
+        null,
+        null,
+        "sample-7cca250ad9039efab024dd87fda1ca915c4189f4068537c0032a6eeee7167dc9"
+      ],
+      "view": {
+        "generation": "689f55d35e4047358dd94cfdfb8b6ac9",
+        "commit": 1,
+        "route": "policy-answer",
+        "scope": "case-reader"
+      },
+      "route": "policy-answer",
+      "scope": "case-reader"
+    },
+    {
+      "kind": "probe",
+      "seq": 12,
+      "ns": 129373151,
+      "probe_id": "retained-answer",
+      "stage": "final",
+      "started_ns": 128122217,
+      "passages": [
+        "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202",
+        "private-answer",
+        "cache-hit"
+      ],
+      "origins": [
+        "seed",
+        "seed",
+        "sample-c0ca10dc003d726f049e3e6874a750ca3eefbc8a2b497288e2bb9139874f14a5"
+      ],
+      "view": {
+        "generation": "689f55d35e4047358dd94cfdfb8b6ac9",
+        "commit": 1,
+        "route": "policy-answer",
+        "scope": "case-editor"
+      },
+      "route": "policy-answer",
+      "scope": "case-editor"
+    }
+  ],
+  "format": "setrya.search",
+  "inputs": {
+    "drill_version": 1,
+    "adapter": "be775c2b06b6deeb5414446a8583a7c37064d7b4a58cd9400b51c7f38c427388",
+    "questions": {
+      "revoked-answer": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605",
+      "retained-answer": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605"
+    }
+  }
+}

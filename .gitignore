@@ -6,5 +6,6 @@ __pycache__/
 dist/
 build/
 run.json
+!/setrya/examples/access-v0140/*/run.json
 run.failed.json
 /offboarding-run/

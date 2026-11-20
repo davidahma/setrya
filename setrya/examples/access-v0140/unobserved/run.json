@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "checker": 1,
+  "run_id": "e9c7e852ceb045d98e7ca2d2fa31b1f4",
+  "rules": {
+    "id": "late-answer-fill",
+    "document": "policy",
+    "old_revision": "granted",
+    "new_revision": "revoked",
+    "checkpoint": "after-retrieval",
+    "freshness_probe": "revoked-answer",
+    "freshness_ms": 10000,
+    "checkpoint_ms": 60000,
+    "settle_ms": 30000,
+    "sample_ms": 100,
+    "max_gap_ms": 3000,
+    "probes": [
+      {
+        "id": "revoked-answer",
+        "route": "policy-answer",
+        "scope": "case-reader",
+        "top_k": 8,
+        "before": [
+          "private-answer",
+          "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202",
+          "cache-hit"
+        ],
+        "require": [
+          "public-answer"
+        ],
+        "forbid": [
+          "private-answer",
+          "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202"
+        ],
+        "absence": false
+      },
+      {
+        "id": "retained-answer",
+        "route": "policy-answer",
+        "scope": "case-editor",
+        "top_k": 8,
+        "before": [
+          "private-answer",
+          "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202",
+          "cache-hit"
+        ],
+        "require": [
+          "private-answer",
+          "chunk-33e15be2ab33b302db24c65973f7611126bcbca23b60baed9db45c0735804202",
+          "cache-hit"
+        ],
+        "forbid": [],
+        "absence": false
+      }
+    ],
+    "visibility": "strict"
+  },
+  "events": [
+    {
+      "kind": "seeded",
+      "seq": 1,
+      "ns": 5624540
+    },
+    {
+      "kind": "probe",
+      "seq": 2,
+      "ns": 7217453,
+      "probe_id": "revoked-answer",
+      "stage": "baseline",
+      "started_ns": 5638913,
+      "passages": [
+        null
+      ],
+      "origins": [
+        "sample-f9cb6dae241a9b9d31eae949dd3f70ea170c727ea6b94386dc1f8fa88d4f045d"
+      ],
+      "view": null,
+      "route": null,
+      "scope": null
+    }
+  ],
+  "format": "setrya.search",
+  "inputs": {
+    "drill_version": 1,
+    "adapter": "be775c2b06b6deeb5414446a8583a7c37064d7b4a58cd9400b51c7f38c427388",
+    "questions": {
+      "revoked-answer": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605",
+      "retained-answer": "eeb7c397df9f7544406fc6e9a473a7803928fbc09d372abb6e3c563a3f1e5605"
+    }
+  }
+}

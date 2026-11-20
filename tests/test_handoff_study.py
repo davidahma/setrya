@@ -1,5 +1,11 @@
 """A scripted exercise or missing reviewer cannot count as independent reuse."""
 
+import os
+from pathlib import Path
+import stat
+import subprocess
+import sys
+from tempfile import TemporaryDirectory
 import unittest
 
 
@@ -7,6 +13,18 @@ from setrya.examples.handoff_study import session, summarize
 
 
 class HandoffStudyTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "POSIX file permissions")
+    def test_scorecard_is_private_at_creation_and_exclusive_on_retry(self):
+        with TemporaryDirectory() as directory:
+            scorecard = Path(directory) / "session.json"
+            command = [sys.executable, "-m", "setrya.examples.handoff_study", "init", str(scorecard)]
+            subprocess.run(command, check=True, capture_output=True, umask=0o022)
+            self.assertEqual(stat.S_IMODE(scorecard.stat().st_mode), 0o600)
+            scorecard.write_text("existing study")
+            repeated = subprocess.run(command, capture_output=True, umask=0o022)
+            self.assertEqual(repeated.returncode, 2)
+            self.assertEqual(scorecard.read_text(), "existing study")
+
     def setUp(self):
         self.data = session()
         self.data.update(repository="app", own_application=True, engineer="one", independent_reviewer="two",
@@ -25,6 +43,10 @@ class HandoffStudyTests(unittest.TestCase):
         self.assertIn("later change: unmeasured", self.report())
         self.assertIn("ready to compare", self.report())
         self.data["later_setrya_use"].update(commit="c", evidence="followup", use="second-route", without_facilitator=True)
+        self.assertIn("later change: unmeasured", self.report())
+        self.data["later_setrya_use"]["team_chose_to_reuse"] = False
+        self.assertIn("later change: unmeasured", self.report())
+        self.data["later_setrya_use"]["team_chose_to_reuse"] = True
         self.assertIn("later change: second-route", self.report())
         self.data["own_application"] = False
         self.assertIn("activation: unmeasured", self.report())
