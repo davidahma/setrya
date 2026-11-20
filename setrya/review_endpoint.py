@@ -6,7 +6,9 @@ from pathlib import Path
 from .checker import NS_PER_MS, Status, Verdict, _write_resolved
 from .comparison import _difference, compare_with_tier
 from .drill import InputError
-from .endpoint_evidence import APPLICATION_VERSIONS, JOURNAL, MANIFEST, _read_bundle, contract_for, matches_question
+from .endpoint_evidence import (
+    APPLICATION_VERSIONS, JOURNAL, MANIFEST, _read_bundle, contract_for, matches_question, stage_read_gap,
+)
 from .evidence import Report, matches_search
 from .offboarding.inputs import save
 from .status import exit_agrees
@@ -64,7 +66,9 @@ class EndpointEvidence:
         # Require a timely, visible final control for the retained user too.
         events = {e["kind"]: e for e in self.report.events if e["kind"] != "probe"}
         held = {k: events["held"][k] for k in ("run_id", "attempt", "document", "revision", "name")}
-        if self.manifest["held_after_reads"] != held:
+        case = contract_for(self.manifest)
+        if self.manifest["held_after_reads"] != held or any(
+                stage_read_gap(self.report, self.manifest, stage, case) for stage in ("baseline", "freshness")):
             return PARTIAL
         control = next(p for p in self.report.rules.probes if p.id == "retained-answer")
         final = next((e for e in reversed(self.report.events) if e.get("stage") == "final"

@@ -251,6 +251,28 @@ def _endpoint_read_gap(event, row, probe, contract):
     return Verdict(Status.NOT_TESTED, f"Check answer() at the {where}: {detail}.", event["seq"], probe.id)
 
 
+def stage_read_gap(report, manifest, stage, contract):
+    """Check each caller's recorded answer against the expectations for this stage."""
+    events = (event for event in report.events if event["kind"] == "probe")
+    samples = {row["probe"]: (event, row) for event, row in zip(events, manifest["observations"], strict=True)
+               if row["stage"] == stage}
+    missing = Verdict(Status.NOT_TESTED, "Missing an identified HTTP answer for both callers at " + stage)
+    for rule in report.rules.probes:
+        if rule.id not in samples:
+            return missing
+        event, row = samples[rule.id]
+        if contract is FIXTURE:
+            # Published fixture bundles retain their original per-stage read contract.
+            if (row["status"] != 200 or None in event["passages"]
+                    or (row["route"], row["caller"]) != (rule.route, rule.scope)):
+                return missing
+        else:
+            gap = _endpoint_read_gap(event, row, rule, contract)
+            if gap:
+                return gap
+    return None
+
+
 def _endpoint_verdict(verdict, report, manifest, contract):
     events = {e["kind"]: e for e in report.events if e["kind"] != "probe"}
     error = events.get("adapter_error")
@@ -393,13 +415,10 @@ def _read_bundle(directory):
             verdict = Verdict(Status.NOT_TESTED, "Missing confirmation that the captured task stayed held across both callers' reads.")
         if not verified:
             verdict = Verdict(Status.NOT_TESTED, "The old task did not demonstrate a private answer captured for the revoked caller.")
-        required = {p.rules.id: p.rules for p in expected.probes}
         for stage in ("baseline", "freshness", "final"):
-            reads = {r["probe"]: r for r in rows if r["stage"] == stage}
-            if (reads.keys() != required.keys() or any(
-                    r["status"] != 200 or None in observation(r, contract).passages or
-                    (r["route"], r["caller"]) != (required[k].route, required[k].scope) for k, r in reads.items())):
-                verdict = Verdict(Status.NOT_TESTED, "Missing an identified HTTP answer for both callers at " + stage)
+            gap = stage_read_gap(report, manifest, stage, contract)
+            if gap:
+                verdict = gap
                 break
     if verdict.status in (Status.PASS, Status.NOT_TESTED) and not pending_before_release(manifest):
         if manifest["receipt_before_release"] is True:

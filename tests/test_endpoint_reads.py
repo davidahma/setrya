@@ -125,6 +125,10 @@ class ReadOnboardingTests(unittest.TestCase):
 
                 full = run("pytest", "-q", "-s", str(test), code=1)
                 self.assertIn("Connect seed()", full)
-                warm = run("pytest", "-q", "-s", str(test), code=1, TEST_WARM_ENTRIES="1")
+                warm_output = app / "warm"
+                warm = run("pytest", "-q", "-s", "--basetemp", str(warm_output), str(test),
+                           code=1, TEST_WARM_ENTRIES="1")
                 self.assertIn("Connect start_old()", warm)
-                self.assertEqual(warm.count("question and expected private answer confirmed"), 2)
+                journal, = warm_output.rglob("answer-cache.json")
+                review = run("setrya", "replay", str(journal.parent), code=3)
+                self.assertEqual(review.count("question and expected private answer confirmed"), 2)

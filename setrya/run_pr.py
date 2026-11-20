@@ -64,10 +64,18 @@ def _lane(repo, root, name, commit, drill_bytes, expected, command, timeout):
         source.write_bytes(drill_bytes)
         env.update(SETRYA_RUN_PR="1", SETRYA_REVIEW_REPORT=str(evidence), SETRYA_REVIEW_DRILL=str(source))
     test_exit = None
+    command_problem = None
     try:
         _checkout(repo, checkout, commit)
         print(f"Running {name} {commit}", flush=True)
-        test_exit = _test(command, checkout, env, timeout)
+        try:
+            test_exit = _test(command, checkout, env, timeout)
+        except subprocess.TimeoutExpired:
+            # Teardown can outlive the completed endpoint recording. Validate
+            # that recording normally, but leave the missing native exit unset.
+            if expected is not None or not evidence.with_suffix(".executed").is_file():
+                raise
+            command_problem = "command timed out after recording"
         if (resolve_commit(checkout, "HEAD") != commit
                 or git_bytes(checkout, "status", "--porcelain", "--untracked-files=no")):
             raise InputError("the test changed its checked-out commit or tracked files")
@@ -85,7 +93,7 @@ def _lane(repo, root, name, commit, drill_bytes, expected, command, timeout):
                     or read_regular_bytes(executed, "execution identity", 64)
                     != sha256(read_regular_bytes(manifest, "endpoint manifest")).hexdigest().encode("ascii")):
                 raise InputError("the bundle does not match a live endpoint run")
-            return ReviewInput(EndpointEvidence.load(evidence), commit, test_exit, None)
+            return ReviewInput(EndpointEvidence.load(evidence), commit, test_exit, command_problem)
         report = Report.load(evidence)
         if (report.rules != expected.rules or not report.inputs
                 or report.inputs.get("questions") != bind_inputs(expected, test_id="run-pr")["questions"]):
@@ -128,12 +136,12 @@ def _handoff(output, inputs, drill_digest, exit_contract, *, publish=False):
         metadata[name] = {"commit": lane.commit, "test_exit": lane.test_exit, digest_field: digest}
     if endpoint:
         headline, _, detail = summary.partition("\n")
-        if base.report is None or candidate.report is None:
+        if any(lane.report is None or lane.test_exit is None for lane in inputs.values()):
             replay_lines.append("Weakest evidence · incomplete")
         summary = "\n".join((headline, *replay_lines, detail))
     elif replay_lines:
         summary += "\n" + "\n".join(replay_lines)
-    if base.report is not None and candidate.report is not None:
+    if all(lane.report is not None and lane.test_exit is not None for lane in inputs.values()):
         paths = "base candidate" if endpoint else "base.json candidate.json"
         summary += (f"\nReview again  setrya review {paths} --base-commit {base.commit}"
                     f" --candidate-commit {candidate.commit} --base-exit {base.test_exit}"

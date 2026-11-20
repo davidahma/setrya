@@ -45,4 +45,6 @@ Where legacy schemas differ from newer contracts, retain the original verifier t
 
 A release review requires reports for the expected base and candidate commits and consistent native test exit codes. It can pass when both comparable tests pass or when the candidate verifies a fix. `compare` continues to require a failing baseline to claim a fix. Questions stay in the trusted drill. Reports name the probe and its fingerprint. [Recording and CI](recording.md)
 
-Keep each scenario or answer-cache run in its own directory. Replay and diagnosis return exit 2 if an artifact directory contains manifests from both formats.
+Keep each run in its own directory. Replay and diagnosis return exit 2 if the directory contains more than one recognized manifest.
+
+The [endpoint starter](endpoint.md) writes `endpoint-reads.json` for its reads-only check. Each of the two rows records which identity, route, question and expected answer the serving path confirmed. Replay returns `NOT TESTED` for the worker race even when both reads are confirmed. The full race writes `answer-cache.json` and a bound `run.json`. A [two-commit endpoint review](pr-endpoint.md) retains each complete pair in its own lane alongside the native test exits and commit IDs.

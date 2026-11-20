@@ -31,7 +31,7 @@ setrya replay base
 setrya replay candidate
 ```
 
-The two directories contain the redacted endpoint manifests and search journals. The `Review again` command in the summary rechecks both complete bundles, commit IDs, and captured native exits. Replay uses the installed Setrya core and runs offline. `run-pr.json` records each manifest's SHA-256. An older endpoint bundle without a recorded Git revision still replays individually. A commit-bound PR review requires a fresh run of both revisions.
+The two directories contain the redacted endpoint manifests and search journals. The `Review again` command in the summary rechecks both complete bundles, commit IDs, and captured native exits. If the command times out after the endpoint check finishes, the job reports `ERROR` and retains the completed bundle for individual replay. Replay uses the installed Setrya core and runs offline. `run-pr.json` records each manifest's SHA-256. An older endpoint bundle without a recorded Git revision still replays individually. A commit-bound PR review requires a fresh run of both revisions.
 
 ## Wire the check into GitHub Actions
 

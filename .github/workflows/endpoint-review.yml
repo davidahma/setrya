@@ -30,7 +30,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           setrya run-pr --endpoint --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --candidate "$HEAD_SHA" \
-            --output endpoint-review --exit-contract setrya -- \
+            --output endpoint-review --timeout 60 --exit-contract setrya -- \
             python -I "$GITHUB_WORKSPACE/scripts/check-pr-endpoint.py"
       - name: Show the endpoint decision in Checks
         if: ${{ !cancelled() }}

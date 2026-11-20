@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from setrya.cli import main
-from setrya.endpoint_evidence import JOURNAL, MANIFEST
+from setrya.endpoint_evidence import JOURNAL, MANIFEST, contract_for, observation
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,11 +52,11 @@ class EndpointPrTests(unittest.TestCase):
             code = main(list(args))
         return code, capture.getvalue()
 
-    def compare(self, before, after, harness=HARNESS):
+    def compare(self, before, after, harness=HARNESS, *, timeout=30):
         self.base, self.candidate = self.commit(before), self.commit(after)
         with patch.dict(os.environ, {"PYTHONPATH": str(ROOT)}):
             code, _ = self.cli("run-pr", "--endpoint", "--repo", str(self.repo), "--base", self.base,
-                               "--candidate", self.candidate, "--output", str(self.out), "--exit-contract", "setrya",
+                               "--candidate", self.candidate, "--output", str(self.out), "--exit-contract", "setrya", "--timeout", str(timeout),
                                "--", sys.executable, str(harness))
         return code, (self.out / "review.md").read_text()
 
@@ -123,6 +123,48 @@ class EndpointPrTests(unittest.TestCase):
                 self.assertNotIn("FIX VERIFIED", text)
                 shutil.rmtree(self.out)
 
+    def test_base_needs_both_retained_reads_before_release_to_verify_a_fix(self):
+        broken = self.source.replace('if self.granted or self.mode == "broken":', "if True:")
+        self.assertEqual(self.compare(broken, self.source)[0], 0)
+        base = self.out / "base"
+        trace = json.loads((base / JOURNAL).read_bytes())
+        manifest = json.loads((base / MANIFEST).read_bytes())
+        for stage in ("baseline", "freshness"):
+            with self.subTest(stage=stage):
+                events = [dict(e) for e in trace["events"]
+                          if (e.get("stage"), e.get("probe_id")) != (stage, "retained-answer")]
+                rows = [r for r in manifest["observations"] if (r["stage"], r["probe"]) != (stage, "retained-answer")]
+                for seq, event in enumerate(events, 1):
+                    event["seq"] = seq
+                (base / JOURNAL).write_text(json.dumps({**trace, "events": events}))
+                digest = sha256((base / JOURNAL).read_bytes()).hexdigest()
+                (base / MANIFEST).write_text(json.dumps({**manifest, "observations": rows, "report_sha256": digest}))
+                code, summary = self.cli("review", str(base), str(self.out / "candidate"),
+                                         "--base-commit", self.base, "--candidate-commit", self.candidate,
+                                         "--base-exit", "1", "--candidate-exit", "0")
+                self.assertEqual(code, 0, summary)
+                self.assertIn("PASS  Both candidate callers passed", summary)
+                self.assertIn("Weakest evidence · response observed", summary)
+                self.assertNotIn("FIX VERIFIED", summary)
+
+    def test_replayed_candidate_needs_retained_cache_hit_while_worker_is_held(self):
+        self.assertEqual(self.compare(self.source, self.source)[0], 0)
+        candidate = self.out / "candidate"
+        trace = json.loads((candidate / JOURNAL).read_bytes())
+        manifest = json.loads((candidate / MANIFEST).read_bytes())
+        row = next(r for r in manifest["observations"] if (r["stage"], r["probe"]) == ("freshness", "retained-answer"))
+        row.update(cache_hit=False, cache_writer=None)
+        result = observation(row, contract_for(manifest))
+        event = next(e for e in trace["events"] if (e.get("stage"), e.get("probe_id")) == (row["stage"], row["probe"]))
+        event.update(passages=result.passages, origins=result.origins)
+        (candidate / JOURNAL).write_text(json.dumps(trace))
+        manifest["report_sha256"] = sha256((candidate / JOURNAL).read_bytes()).hexdigest()
+        (candidate / MANIFEST).write_text(json.dumps(manifest))
+        code, summary = self.cli("replay", str(candidate))
+        self.assertEqual(code, 3, summary)
+        self.assertIn("freshness read for owner", summary)
+        self.assertIn("cache-hit", summary)
+
     def test_late_retained_read_cannot_verify_fix(self):
         broken = self.source.replace('if self.granted or self.mode == "broken":', "if True:")
         self.assertEqual(self.compare(broken, self.source)[0], 0)
@@ -150,3 +192,27 @@ class EndpointPrTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("exactly one Setrya recording", text)
         self.assertFalse((self.out / "candidate").exists())
+
+    def test_timed_out_teardown_preserves_only_a_completed_endpoint_run(self):
+        driver = self.root / "timeout.py"
+        # Base hangs before recording anything. Candidate finishes the SDK
+        # check, then hangs during an unrelated part of the native command.
+        driver.write_text(HARNESS.read_text().replace("raise SystemExit(main())", """
+    import time
+    if Path('tests/fixtures/endpoint_app.py').read_text().endswith('# candidate\\n'):
+        main()
+    time.sleep(60)
+"""))
+        code, summary = self.compare(self.source, self.source + "# candidate\n", driver, timeout=2)
+        self.assertEqual(code, 2, summary)
+        self.assertIn("ERROR", summary)
+        self.assertIn("command timed out after recording", summary)
+        self.assertIn("Weakest evidence · incomplete", summary)
+        self.assertIn("Replay candidate", summary)
+        self.assertNotIn("Replay base", summary)
+        self.assertNotIn("Review again", summary)
+        self.assertFalse((self.out / "base").exists())
+        self.assertEqual(self.cli("replay", str(self.out / "candidate"))[0], 0)
+        metadata = json.loads((self.out / "run-pr.json").read_bytes())
+        self.assertIsNone(metadata["candidate"]["test_exit"])
+        self.assertTrue(metadata["candidate"]["manifest_sha256"])

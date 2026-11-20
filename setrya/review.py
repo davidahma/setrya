@@ -77,7 +77,12 @@ class ReviewInput:
 
     def describe(self, name: str) -> str:
         context = f"{name} commit {self.commit or '(invalid)'} · test exit "
-        context += str(self.test_exit) if self.test_exit is not None else "(invalid)"
+        if self.test_exit is not None:
+            context += str(self.test_exit)
+        elif self.report is not None and self.report_error:
+            context += f"(unavailable, {self.report_error})"
+        else:
+            context += "(invalid)"
         if self.report is None:
             return f"{context}\n{name} report {self.report_error}."
         if isinstance(self.report, EndpointEvidence):
