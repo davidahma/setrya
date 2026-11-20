@@ -42,6 +42,11 @@ class StarterTests(unittest.TestCase):
             self.assertEqual(result.returncode, 3, result.stderr)
             self.assertIn("open_fixture()", result.stderr)
             self.assertFalse((path / "run").exists())
+            if find_spec("pytest") is not None:
+                collected = _run("-m", "pytest", "-q", "test_erasure.py", cwd=path)
+                self.assertEqual(collected.returncode, 1, collected.stdout + collected.stderr)
+                self.assertIn("NOT TESTED", collected.stdout)
+                self.assertIn("open_fixture()", collected.stdout)
             (path / "inventory.toml").write_text("my changes", encoding="utf-8")
             with self.assertRaises(FileExistsError):
                 init_erasure(path)
@@ -116,6 +121,15 @@ class ErasureAcceptanceTests(unittest.TestCase):
                     self.assertEqual(evidence["case"]["callers"], ["coordinator", "dispatcher"])
                     memory = next(row for row in receipt["copies"] if row["store"] == "memory")
                     self.assertEqual(memory["status"], "verified gone" if code == 0 else "still present")
+                    if find_spec("pytest") is not None:
+                        lane = folder / (setting + "-pytest")
+                        collected = _run("-m", "pytest", "-q", "-s", "--basetemp", lane, "test_erasure.py",
+                                         cwd=folder, env={**os.environ, "DISPATCH_GUARD": setting})
+                        self.assertEqual(collected.returncode, code, collected.stdout + collected.stderr)
+                        self.assertIn(expected, collected.stdout)
+                        bundle = next(lane.glob("test_*0/erasure-run"))
+                        self.assertIn(str(bundle), collected.stdout)
+                        self._check_bundle(bundle, expected, 0)
 
     def test_wrong_principal_does_not_authorize_deleting_even_the_disposable_subject(self):
         actual_read = ChartApplication.read

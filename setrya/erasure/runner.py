@@ -5,7 +5,7 @@ from pathlib import Path
 from time import monotonic
 from uuid import uuid4
 
-from setrya.offboarding.inputs import require, save
+from setrya.offboarding.inputs import publish_new, require
 from . import inventory as boundary
 from .journal import identifier
 from .model import Drain, Hold, Read, question_digest
@@ -13,7 +13,7 @@ from .subject import Subject
 
 
 def run_erasure(subject, *, journal, inventory, adapters, application, case, output, dispositions=()):
-    from .receipt import EVIDENCE, RECEIPT, derive, load_evidence
+    from .receipt import EVIDENCE, MAX_BUNDLE_FILE_BYTES, RECEIPT, derive
 
     start = monotonic()
     require(isinstance(subject, Subject), "Expected a tenant-bound test subject.")
@@ -124,9 +124,12 @@ def run_erasure(subject, *, journal, inventory, adapters, application, case, out
                 "worker": {"held": held, "checkpoint": checkpoint, "pre_release": pre_release, "drained": drained},
                 "reads": {"before": before, "immediate": immediate, "final": after}, "stores": stores,
                 "journal": history, "dispositions": claims, "errors": errors,
-                "time_to_first_verdict_ms": round(1000 * (monotonic() - start))}
-    save(evidence, destination / EVIDENCE)
-    evidence, digest = load_evidence(destination)
-    receipt = derive(evidence, digest)
-    save(receipt, destination / RECEIPT)
+                "time_to_first_verdict_ms": 0}
+    # Compute the decision before stopping its clock. Then bind the exact timed evidence bytes.
+    receipt = derive(evidence, "0" * 64)
+    elapsed = round(1000 * (monotonic() - start))
+    evidence["time_to_first_verdict_ms"] = receipt["time_to_first_verdict_ms"] = elapsed
+    digest = publish_new(evidence, destination / EVIDENCE, max_bytes=MAX_BUNDLE_FILE_BYTES)
+    receipt["evidence"]["sha256"] = digest
+    publish_new(receipt, destination / RECEIPT, max_bytes=MAX_BUNDLE_FILE_BYTES)
     return receipt

@@ -60,6 +60,8 @@ python test_erasure.py --output candidate
 setrya replay candidate
 ```
 
+The starter is also a pytest test. Run `python -m pytest -q -s test_erasure.py` or let your normal suite collect it. Each run gets a new evidence directory under pytest’s temporary folder and prints its replay command. Pytest reports any result other than `PASS` as a failed test. Use the standalone command above when CI needs a named directory to upload or the distinct Setrya exit codes.
+
 The verdict covers the declared stores, observed copies and two serving sessions during this run. The receipt lists remaining unknowns. The timer starts when the drill starts, after setup and instrumentation. The one-hour integration goal requires a timed trial with a developer new to Setrya. The automated acceptance test connects the same starter to a second fictional dispatch app where an old job repopulates long-term memory.
 
 ## Sign the evidence

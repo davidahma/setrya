@@ -15,6 +15,7 @@ from .checker import Status, Verdict, evaluate
 from .drill import Drill, InputError
 from .evidence import Report, bundle_manifest, matches_search
 from .runner import RunResult, run
+from .offboarding.inputs import InvalidReport
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = ROOT / "setrya" / "examples" / "support-search"
@@ -277,6 +278,8 @@ def main(argv=None) -> int:
 
             init_erasure(args.output)
             print(f"Created {args.output}")
+            print("Connect open_fixture, snapshot_job and read_chat, then run  " + shlex.join(
+                ["python", "-m", "pytest", "-q", "-s", "--", str(args.output / "test_erasure.py")]))
             return 0
         if args.command == "init":
             from .starter import write_endpoint_test
@@ -410,7 +413,7 @@ def main(argv=None) -> int:
         from .qualification import qualify as run_qualification
 
         return run_qualification(args.case, args.quick)
-    except InputError as error:
+    except (InputError, InvalidReport) as error:
         diagnostic = f"ERROR  {error}"
     except KeyboardInterrupt:
         diagnostic = "ERROR  Interrupted. Fixture teardown requested."

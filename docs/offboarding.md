@@ -76,6 +76,8 @@ setrya offboarding receipt --request request.json --expect-request "$TICKET_DIGE
   --record provider.json provider.txt --record backups.json backups.txt --output receipt.json
 ```
 
+Attachment descriptors are validated before Setrya opens their exhibits. Each exhibit can be up to 32 MiB, with a 64 MiB total across the request.
+
 **Replay the receipt** with the original files and the digest from the case ticket. For the local demonstration, `request.sha256` stands in for that independently kept digest. Run this from the directory where you started the demo.
 
 ```sh

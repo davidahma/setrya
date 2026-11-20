@@ -216,10 +216,14 @@ class ErasureHooksTests(TestCase):
         answer = self.hooks.fill_cache(strict, key, lambda: [fresh], lambda _: "chart snapshot",
                                        store="answers", source="chart")
         self.assertEqual(answer.answer, "chart snapshot")
+        other = Subject.derive(b"t" * 32, "clinic", "fictional-other", "clinical notes")
+        foreign = passage_metadata("chart", "C", "one", subject=other)
+        with self.assertRaises(InputError):
+            self.hooks.fill_cache(strict, CacheKey("clinic", "doctor", self.subject.ref, "other-question"),
+                                  lambda: [foreign], lambda _: "mixed snapshot", store="answers", source="chart")
         adapter = SubjectAnswerCacheAdapter(strict, tenant="clinic")
         self.assertEqual(adapter.find(self.subject), {"clinic:doctor:handoff"})
-        row, = self.journal.copies(self.subject)
-        self.assertEqual(row.key, "clinic:doctor:handoff")
+        row = next(row for row in self.journal.copies(self.subject) if row.key == "clinic:doctor:handoff")
         self.assertEqual(row.details["sources"], [fresh["setrya_marker"]])
         adapter.delete(self.subject)
         self.assertFalse(adapter.verify_absent(self.subject))

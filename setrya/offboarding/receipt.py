@@ -5,6 +5,7 @@ Adapted from Axiom v0.3.2 for Setrya's offboarding interface.
 
 import re
 import secrets
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 
 from . import gate
@@ -125,11 +126,12 @@ def issue(policy, policy_hash, *, revision, run_id, context, statements, schedul
 
 def assess_items(items, records, request_hash):
     require(
-        isinstance(records, list) and len(records) <= MAX_ITEMS, "Invalid record list."
+        isinstance(records, Iterator) or isinstance(records, list) and len(records) <= MAX_ITEMS, "Invalid record list."
     )
     expected = {item["id"]: item["kind"] for item in items}
     supplied = {}
-    for record in records:
+    for count, record in enumerate(records, 1):
+        require(count <= MAX_ITEMS, "Invalid record list.")
         require(
             isinstance(record, (tuple, list)) and len(record) == 3, "Invalid record."
         )

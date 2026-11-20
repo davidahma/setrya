@@ -84,3 +84,28 @@ def save(report, path):
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def publish_new(data, path, *, max_bytes=MAX_JSON_BYTES):
+    raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")
+    if len(raw) > max_bytes:
+        raise InvalidReport(f"Output exceeds the {max_bytes // (1024 * 1024)} MiB replay limit.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with NamedTemporaryFile(dir=path.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Link a complete file. An existing target, including a dangling symlink
+        # or an input alias, makes this fail atomically without replacing it.
+        os.link(temporary, path)
+    except FileExistsError:
+        raise InvalidReport(
+            "Output already exists. Choose a new output path."
+        ) from None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return hashlib.sha256(raw).hexdigest()

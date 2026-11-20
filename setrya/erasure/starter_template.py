@@ -55,6 +55,26 @@ def run(output):
                                    case=CASE, application=worker, output=output)
 
 
+def summary(receipt, output):
+    return (f"{receipt['verdict']} · {receipt['unknown_copies']} unknown copies · "
+            f"{receipt['time_to_first_verdict_ms']} ms to first verdict\n"
+            f"Replay: setrya replay {quote(str(output))}")
+
+
+def test_subject_erasure(tmp_path):
+    import pytest
+
+    output = tmp_path / "erasure-run"
+    try:
+        receipt = run(output)
+    except NotImplementedError as exc:
+        pytest.fail(f"NOT TESTED · {exc}", pytrace=False)
+    message = summary(receipt, output)
+    if receipt["verdict"] != "PASS":
+        pytest.fail(message, pytrace=False)
+    print(message)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path, help="new directory for the receipt and evidence")
@@ -63,7 +83,5 @@ if __name__ == "__main__":
         receipt = run(args.output)
     except NotImplementedError as exc:
         parser.exit(3, f"NOT TESTED · {exc}\n")
-    print(f"{receipt['verdict']} · {receipt['unknown_copies']} unknown copies · "
-          f"{receipt['time_to_first_verdict_ms']} ms to first verdict")
-    print(f"Replay: setrya replay {quote(str(args.output))}")
+    print(summary(receipt, args.output))
     raise SystemExit({"PASS": 0, "FAIL": 1, "ERROR": 2, "NOT TESTED": 3}[receipt["verdict"]])

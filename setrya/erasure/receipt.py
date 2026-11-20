@@ -10,6 +10,7 @@ from setrya.offboarding.inputs import keys_match, read_regular_bytes, require, u
 from .inventory import label, systems
 from .journal import identifier, validate_details
 from .subject import Subject
+from .model import route_id
 
 EVIDENCE = "erasure-evidence.json"
 RECEIPT = "erasure-receipt.json"
@@ -51,7 +52,7 @@ def _observations(evidence):
     case, reads = evidence["case"], evidence["reads"]
     require(keys_match(case, ("route", "callers", "question_sha256")) and _hex(case["question_sha256"], 64),
             "Invalid erasure case.")
-    identifier(case["route"], "route")
+    route_id(case["route"])
     callers = case["callers"]
     require(isinstance(callers, list) and len(callers) == 2 and callers[0] != callers[1], "Expected two callers.")
     for caller in callers:

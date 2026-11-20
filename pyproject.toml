@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "setrya"
 version = "0.16.0"
-description = "Test search results and cached answers after document updates, access revocation, and tenant deletion"
+description = "Verify subject erasure in LangGraph and test search and cached answers after access, tenant or document changes"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"

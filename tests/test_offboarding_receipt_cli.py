@@ -89,6 +89,14 @@ class OffboardingReceiptCLITests(unittest.TestCase):
             self.invoke(2, "verify-receipt", *self.inputs, "--receipt", LEGACY_RECEIPT)
         digest.assert_not_called()
 
+    def test_malformed_first_descriptor_stops_before_reading_later_descriptors(self):
+        _, first_path, _ = self.inputs[-6:-3]
+        _, next_path, _ = self.inputs[-3:]
+        self.store(first_path.name, {"not": "a descriptor"})
+        next_path.unlink()
+        diagnostic = self.invoke(2, "verify-receipt", *self.inputs, "--receipt", LEGACY_RECEIPT)
+        self.assertIn("Invalid SHA-256 digest", diagnostic)
+
     def test_replay_allows_only_the_declared_clock_skew(self):
         observed = datetime.fromisoformat(self.data["evidence"]["job"]["observed_at"])
         with patch("setrya.offboarding.receipt_cli.datetime", wraps=datetime) as clock:

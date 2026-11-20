@@ -7,12 +7,11 @@ import hashlib
 import json
 import os
 import sys
-import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import receipt
-from .inputs import InvalidReport, MAX_JSON_BYTES, read_json, regular_file_opener
+from .inputs import InvalidReport, publish_new, read_json, regular_file_opener
 
 COMMANDS = ("request", "receipt", "verify-receipt")
 MAX_DOCUMENT_BYTES = 32 * 1024 * 1024
@@ -80,31 +79,6 @@ def document_digest(path, budget):
     return digest.hexdigest(), limit - remaining
 
 
-def publish_new(data, path):
-    raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")
-    if len(raw) > MAX_JSON_BYTES:
-        raise InvalidReport("Output exceeds the 1 MiB replay limit.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
-            temporary = Path(stream.name)
-            stream.write(raw)
-            stream.flush()
-            os.fsync(stream.fileno())
-        # Link a complete file. An existing target, including a dangling symlink
-        # or an input alias, makes this fail atomically without replacing it.
-        os.link(temporary, path)
-    except FileExistsError:
-        raise InvalidReport(
-            "Output already exists. Choose a new output path."
-        ) from None
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-    return hashlib.sha256(raw).hexdigest()
-
-
 def print_decision(report, *, verified):
     if verified:
         print("Receipt verified. Replay matches the supplied receipt.")
@@ -156,12 +130,16 @@ def run(args):
         if request_hash != args.expect_request:
             raise InvalidReport("Request digest does not match expected digest.")
         evidence, evidence_hash = read_json(args.evidence, "evidence")
-        records = []
-        for descriptor_path, _ in args.record:
-            descriptor, descriptor_hash = read_json(descriptor_path, "descriptor")
-            records.append(
-                (descriptor, descriptor_hash, descriptor.get("document_sha256") if isinstance(descriptor, dict) else None)
-            )
+        documents = []
+
+        def descriptors():
+            # assess_items validates each descriptor before opening the next.
+            # Only a validated digest and its exhibit path survive iteration.
+            for descriptor_path, document_path in args.record:
+                descriptor, digest = read_json(descriptor_path, "descriptor")
+                expected = descriptor.get("document_sha256") if isinstance(descriptor, dict) else None
+                yield descriptor, digest, expected
+                documents.append((document_path, expected))
 
         report = receipt.assess(
             request,
@@ -171,7 +149,7 @@ def run(args):
             policy_hash,
             evidence,
             evidence_hash,
-            records,
+            descriptors(),
         )
         if (
             datetime.fromisoformat(report["observed_at"])
@@ -183,7 +161,7 @@ def run(args):
         if args.expect_job is not None and args.expect_job != report["job_id"]:
             raise InvalidReport("Job identifier does not match the expected job.")
         budget = MAX_TOTAL_DOCUMENT_BYTES
-        for (_, _, expected), (_, path) in zip(records, args.record):
+        for path, expected in documents:
             actual, size = document_digest(path, budget)
             if actual != expected:
                 raise InvalidReport("Document digest does not match.")

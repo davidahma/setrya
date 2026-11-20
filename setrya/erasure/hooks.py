@@ -134,12 +134,17 @@ class CopyHooks:
             self.journal.record(metadata_subject, store=store, key=physical, action="retrieved", source=marker)
         return documents, evidence
 
-    def fill_cache(self, cache, cache_key, retrieve, generate, *, store: str, source: str, **kwargs):
+    def fill_cache(self, cache, cache_key, retrieve, generate, *, store: str, source: str, metadata=None, **kwargs):
         """Record a possible answer location before fill and its exact dependencies when available."""
         from .cache import answer_location
         key = answer_location(cache_key, self.subject)
         self._attempt(store, key, source, "derived")
-        answer = cache.fill(cache_key, retrieve, generate, **kwargs)
+        def checked_metadata(item):
+            data = item if metadata is None else metadata(item)
+            if Subject.from_metadata(data) != self.subject:
+                raise InputError("a subject-exclusive answer cannot include a different subject or classification")
+            return data
+        answer = cache.fill(cache_key, retrieve, generate, metadata=checked_metadata, **kwargs)
         if answer is not None:
             self._record(store, key, source, "derived", stage="returned", sources=answer.dependencies.markers)
         return answer

@@ -14,7 +14,7 @@ Alice’s chart was deleted. A worker still holds an old snapshot. When two care
 ```sh
 python -m pip install 'setrya[erasure]'
 setrya demo erasure --output alice
-setrya replay alice/broken
+setrya replay alice/guarded
 ```
 
 | Run | What the two users see | Receipt |

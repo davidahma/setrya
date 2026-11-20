@@ -6,6 +6,15 @@ from setrya.offboarding.inputs import require
 from .journal import identifier
 
 
+def route_id(value):
+    if isinstance(value, str) and value.startswith("/"):
+        require(len(value) <= 1024 and not value.startswith("//"), "Expected a local endpoint route.")
+        if value != "/":
+            identifier(value[1:], "route")
+        return value
+    return identifier(value, "route")
+
+
 def question_digest(question: str) -> str:
     require(isinstance(question, str) and 0 < len(question) <= 8192, "Expected a bounded test question.")
     return sha256(question.encode()).hexdigest()
@@ -20,7 +29,7 @@ class ErasureCase:
     def spec(self):
         require(isinstance(self.callers, (tuple, list)) and len(self.callers) == 2
                 and self.callers[0] != self.callers[1], "Supply two distinct test callers.")
-        return {"route": identifier(self.route, "route"), "callers": [identifier(c, "caller") for c in self.callers],
+        return {"route": route_id(self.route), "callers": [identifier(c, "caller") for c in self.callers],
                 "question_sha256": question_digest(self.question)}
 
 
