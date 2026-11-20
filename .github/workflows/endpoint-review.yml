@@ -51,3 +51,28 @@ jobs:
           name: endpoint-review
           path: ${{ runner.temp }}/endpoint-review/
           if-no-files-found: error
+
+  replay-fix:
+    name: Replay the downloadable FIX VERIFIED example
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+      - run: python -m pip install .
+      - name: Download the public archive for this revision and replay offline
+        working-directory: ${{ runner.temp }}
+        env:
+          SOURCE_REPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          example=docs/examples/endpoint-fix
+          curl --fail --silent --show-error --location --retry 4 --retry-all-errors \
+            "https://raw.githubusercontent.com/$SOURCE_REPO/$SOURCE_SHA/$example/endpoint-fix.zip" -o endpoint-fix.zip
+          cmp endpoint-fix.zip "$GITHUB_WORKSPACE/$example/endpoint-fix.zip"
+          python -I "$GITHUB_WORKSPACE/scripts/verify-endpoint-fix.py" endpoint-fix.zip "$GITHUB_WORKSPACE/$example/review.md"

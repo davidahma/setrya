@@ -76,7 +76,9 @@ setrya run-pr --endpoint --repo . --base origin/main --candidate HEAD \
   --output endpoint-review -- python -m pytest -q tests/test_setrya_endpoint.py
 ```
 
-The published example shows two passing commits. Open `review.md` in the bundle to see the answers, cache hits, and replay commands. [Download the PR example](https://github.com/davidahma/setrya/releases/download/v0.15.0/endpoint-review.zip) · [GitHub Actions recipe](https://github.com/davidahma/setrya/blob/v0.15.0/docs/pr-endpoint.md)
+In the approvals example, the delayed worker restored a private answer for the revoked reviewer. After the fix, the reviewer got public guidance and the owner still got the private answer. Open `review.md` in the download and run its **Review again** command to reproduce `FIX VERIFIED` offline. [Read the FIX VERIFIED report](https://github.com/davidahma/setrya/blob/main/docs/examples/endpoint-fix/review.md) · [Download both runs and the two fixture commits](https://raw.githubusercontent.com/davidahma/setrya/main/docs/examples/endpoint-fix/endpoint-fix.zip)
+
+Routine PRs can pass on both commits. [Download the two-pass example](https://github.com/davidahma/setrya/releases/download/v0.15.0/endpoint-review.zip) · [GitHub Actions recipe](https://github.com/davidahma/setrya/blob/main/docs/pr-endpoint.md)
 
 <a id="run-the-demo"></a>
 <a id="run-the-refund-policy-demo"></a>

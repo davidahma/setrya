@@ -33,6 +33,24 @@ setrya replay candidate
 
 The two directories contain the redacted endpoint manifests and search journals. The `Review again` command in the summary rechecks both complete bundles, commit IDs, and captured native exits. If the command times out after the endpoint check finishes, the job reports `ERROR` and retains the completed bundle for individual replay. Replay uses the installed Setrya core and runs offline. `run-pr.json` records each manifest's SHA-256. An older endpoint bundle without a recorded Git revision still replays individually. A commit-bound PR review requires a fresh run of both revisions.
 
+## Replay a verified fix
+
+The [recorded approvals report](examples/endpoint-fix/review.md) follows two synthetic application commits. While the worker was paused, the revoked reviewer received public guidance and the owner kept their private answer on both commits. On base, the worker then committed its old answer and the reviewer received it from the cache. The candidate checked access before writing and rejected the fill. The owner’s private cache hit remained visible.
+
+With Setrya 0.15.0 or later installed, download the evidence and recompute the decision. Only the download needs network access.
+
+```sh
+curl -fL https://raw.githubusercontent.com/davidahma/setrya/main/docs/examples/endpoint-fix/endpoint-fix.zip -o endpoint-fix.zip
+unzip -q endpoint-fix.zip -d endpoint-fix
+cd endpoint-fix
+setrya review base candidate \
+  --base-commit 10a803ed09238b8923706373f8f2954ef3afc552 \
+  --candidate-commit fa2c247737e977f2412e387cc685d9b089434f0f \
+  --base-exit 1 --candidate-exit 0 --exit-contract setrya
+```
+
+The first line should say `FIX VERIFIED`. To inspect the worker change, run `git clone fixture.bundle fixture` in the extracted directory, then `git -C fixture diff base main`. These commit IDs belong to the bundled fixture repository. The [routine PR example](https://github.com/davidahma/setrya/releases/download/v0.15.0/endpoint-review.zip) records two passing Setrya revisions.
+
 ## Wire the check into GitHub Actions
 
 Add this job to a workflow that runs on `pull_request`. Replace the dependency installation and test selector with your project's commands. Select a read-only, disposable test environment with synthetic identities and data. For a new test held outside both clones, load the application from the working directory.
