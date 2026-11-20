@@ -9,7 +9,7 @@ Setrya answers two questions. An engineer can run a **CI gate** against a build 
 Install the core SDK in a Python 3.11+ virtual environment. The example uses SQLite, a local HTTP endpoint, and fictional records.
 
 ```sh
-python -m pip install 'setrya @ https://github.com/davidahma/setrya/releases/download/v0.12.1/setrya-0.12.1.tar.gz'
+python -m pip install setrya
 setrya offboarding demo --output offboarding-run
 ```
 

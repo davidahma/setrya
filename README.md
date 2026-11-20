@@ -13,12 +13,11 @@ A delayed job can also bring back a departed customer’s summary. Setrya can ch
 
 ## Run the demo
 
-The demo queries a local SQLite index with synthetic policies. You need Git and Python 3.11 or later with SQLite FTS5. After cloning, you can run it offline.
+Install Setrya in a Python 3.11+ virtual environment with SQLite FTS5 support. The demo runs offline against a local index of synthetic policies. [Setrya on PyPI](https://pypi.org/project/setrya/)
 
 ```sh
-git clone https://github.com/davidahma/setrya.git
-cd setrya
-python3 -m setrya demo
+pip install setrya
+setrya demo
 ```
 
 | Verdict | What the support agent retrieves | What happened |
@@ -33,7 +32,7 @@ A Celery task retrieves a private policy and pauses before writing the answer to
 
 The LangChain and pgvector example runs the task and calls the application's HTTP answer endpoint as the revoked user and a colleague. In the broken configuration, the revoked user receives a private cache hit after the worker resumes. The guarded configuration returns the public answer to that user, and the colleague can still get the private answer from cache.
 
-To try the evidence first, [install core Setrya](#use-the-python-sdk-in-your-tests) and unpack the [late-cache-fill bundle](https://github.com/davidahma/setrya/releases/download/v0.12.1/late-cache-fill.zip). From the directory containing `broken/` and `guarded/`, run:
+To try the evidence first, [install core Setrya](#run-the-demo) and unpack the [late-cache-fill bundle](https://github.com/davidahma/setrya/releases/download/v0.12.1/late-cache-fill.zip). From the directory containing `broken/` and `guarded/`, run:
 
 ```sh
 setrya replay broken
@@ -61,7 +60,7 @@ In the OpenDesk trial, an actual summary job starts before one agent loses team 
 
 ## Test tenant offboarding
 
-Acme leaves. The support app deletes its ticket and summary. Then a worker finishes writing the summary it read before deletion. From the same checkout, run the offboarding example in a new output directory.
+Acme leaves. The support app deletes its ticket and summary. Then a worker finishes writing the summary it read before deletion. Run the installed offboarding example in a new output directory.
 
 ```sh
 python3 -m setrya offboarding demo --output offboarding-run
@@ -78,17 +77,20 @@ Already using Axiom? Setrya can run its SQLite observer and pinned OpenDesk tria
 Install the release in your project’s virtual environment. Omit `[pytest]` for the core SDK, which uses only the Python standard library.
 
 ```sh
-python -m pip install 'setrya[pytest] @ https://github.com/davidahma/setrya/releases/download/v0.12.1/setrya-0.12.1.tar.gz'
+python -m pip install 'setrya[pytest]'
 ```
 
 A *drill* is a TOML file that names the document revisions, the caller and search route, and the passage IDs each query must return or exclude. The refund drill checks the top three hits for the support agent. A second query checks that the delivery policy stays findable. [Example drill](setrya/examples/recorded-search/drill.toml)
 
-From the cloned checkout you can run a complete drill in Python.
+The installed package includes a refund drill you can run from Python.
 
 ```python
+from importlib.resources import as_file, files
 from setrya.runner import run
 
-result = run("setrya/examples/support-search/drill.toml")
+drill = files("setrya.examples").joinpath("support-search", "drill.toml")
+with as_file(drill) as path:
+    result = run(path)
 print(result.verdict.status.label)  # PASS
 ```
 
@@ -148,7 +150,7 @@ def verify_refund(open_app):
 
 ## Connect your own search
 
-If you want Setrya to pause the worker and schedule the searches, give the drill a Python adapter. From the checkout, run the bundled adapter against its HTTP endpoint and save the result. The Markdown summary names the tested revision and gives the reviewer a replay command.
+If you want Setrya to pause the worker and schedule the searches, give the drill a Python adapter. From a Setrya source checkout, run the bundled adapter against its HTTP endpoint and save the result. The Markdown summary names the tested revision and gives the reviewer a replay command.
 
 ```sh
 python3 -m setrya check setrya/examples/support-search/drill.toml --report run.json --summary summary.md
