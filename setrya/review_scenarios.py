@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from .checker import Status, Verdict, evaluate
-from .comparison import compare
+from .comparison import compare_with_tier
 from .scenarios import SCHEDULES, ScenarioEvidence, ScenarioMember
 
 
@@ -20,6 +20,7 @@ class _Pair:
     after: Verdict
     code: int
     comparison: str
+    tier: str | None
 
     def describe(self, named_directories: frozenset[str]) -> str:
         _, _, observations = self.comparison.partition("\n")
@@ -106,9 +107,9 @@ def compare_scenarios(base: ScenarioEvidence, candidate: ScenarioEvidence, base_
                 order_details.extend(details)
         for i in sorted(old.reports.keys() & new.reports.keys()):
             before, after = old.reports[i], new.reports[i]
-            code, comparison = compare(before, after, allow_passing_pair=True)
+            code, comparison, tier = compare_with_tier(before, after, allow_passing_pair=True)
             path = (f"{schedule}/" if base.schedule == "all" else "") + f"delivery-{i}.json"
-            pairs.append(_Pair(path, evaluate(before), evaluate(after), code, comparison))
+            pairs.append(_Pair(path, evaluate(before), evaluate(after), code, comparison, tier))
 
     # FAIL can outlive a damaged sibling. Keep it visible without claiming the
     # base passed the same complete scenario or all failing phases were fixed.
@@ -138,13 +139,9 @@ def compare_scenarios(base: ScenarioEvidence, candidate: ScenarioEvidence, base_
         selected = selected or pairs[0]
         code, headline = selected.code, selected.comparison.splitlines()[0]
 
-    tier = None
-    for pair in pairs:
-        for verdict in (pair.before, pair.after):
-            if verdict.evidence_tier == "observed-after-refresh":
-                tier = "observed-after-refresh"
-            elif verdict.evidence_tier and tier is None:
-                tier = verdict.evidence_tier
+    tiers = {pair.tier for pair in pairs}
+    tier = ("observed-after-refresh" if "observed-after-refresh" in tiers
+            else "write-confirmed" if "write-confirmed" in tiers else None)
     if code == 0 and tier == "observed-after-refresh":
         headline = "PASS  The matching observations passed after refresh. Write visibility is unverified."
 

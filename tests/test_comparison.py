@@ -7,7 +7,9 @@ from setrya.comparison import compare
 from setrya.drill import Drill
 from setrya.evidence import SCHEMA, Report, bind_inputs
 from setrya.review import review
-from test_checker import History
+from setrya.review_scenarios import compare_scenarios
+from setrya.scenarios import ScenarioEvidence, ScenarioMember
+from test_checker import History, view
 from test_runtime_evidence import make_report
 
 
@@ -77,6 +79,97 @@ class ComparisonTests(unittest.TestCase):
                     self.assertTrue(text.startswith("INCONCLUSIVE"))
                     self.assertTrue(reverse.startswith("FAILURE OBSERVED"))
 
+    def test_held_and_final_recurrences_need_the_same_scoped_read_on_both_revisions(self):
+        def lane(name, revision, stage, markers):
+            h = History()
+            h.probe(31, "freshness", ["refund@B"])
+            if stage == "freshness":
+                for index, marker in enumerate(markers):
+                    h.probe(33 + 2 * index, stage, [marker])
+            h.add("released", 50, attempt="attempt")
+            h.receipt("rejected")
+            if stage == "final":
+                for index, marker in enumerate(markers):
+                    h.probe(70 + 2 * index, stage, [marker])
+            h.probe(90, "final", ["delivery@1"], "delivery")
+            if stage == "freshness":
+                h.probe(92, "final", ["refund@B"])
+            return make_report(h, name=name, revision=revision)
+
+        for stage in ("freshness", "final"):
+            base = lane("base", "a" * 40, stage, ["refund@B", "refund@B", "refund@A"])
+            for samples, expected in ((["refund@B"] * 2, 3), (["refund@B"] * 3, 0),
+                                      (["refund@B", "refund@B", None, "refund@B"], 3)):
+                with self.subTest(stage=stage, samples=samples):
+                    candidate = lane("candidate", "b" * 40, stage, samples)
+                    self.assertIs(evaluate(candidate).status, Status.PASS)
+                    code, summary = review(base, candidate, base_commit="a" * 40, candidate_commit="b" * 40,
+                                           base_exit=1, candidate_exit=0)
+                    self.assertEqual(code, expected, summary)
+                    reverse_code, reverse = compare(candidate, base)
+                    self.assertEqual(reverse_code, 1)
+                    self.assertTrue(reverse.startswith("REGRESSION" if expected == 0 else "FAILURE OBSERVED"), reverse)
+
+    def test_pre_receipt_failure_needs_a_corresponding_pre_receipt_read(self):
+        def lane(name, early):
+            h = History()
+            h.resume()
+            if early:
+                h.probe(55, "final", [early])
+            h.receipt("rejected")
+            h.probe(70, "final", ["refund@B"])
+            h.probe(72, "final", ["delivery@1"], "delivery")
+            return make_report(h, name=name)
+
+        base = lane("base", "refund@A")
+        for early, expected in ((None, 3), ("refund@B", 0)):
+            code, text = compare(base, lane("candidate", early))
+            self.assertEqual(code, expected, text)
+
+    def test_pre_receipt_read_with_a_commit_watermark_needs_matching_write_visibility(self):
+        def lane(name, marker, commit):
+            h = History()
+            h.resume()
+            h.probe(55, "final", [marker], view=view(commit), origins=["attempt"])
+            h.receipt()
+            h.probe(70, "final", ["refund@B"], view=view())
+            h.probe(72, "final", ["delivery@1"], "delivery", view=view())
+            return make_report(h, name=name)
+
+        base = lane("base", "refund@A", 3)
+        for commit, expected in ((2, 3), (3, 0)):
+            candidate = lane("candidate", "refund@B", commit)
+            self.assertEqual(compare(base, candidate)[0], expected)
+            self.assertTrue(compare(candidate, base)[1].startswith("REGRESSION" if expected == 0 else "FAILURE OBSERVED"))
+
+    def test_matched_refresh_only_read_sets_the_comparison_tier_even_if_later_reads_have_watermarks(self):
+        def lane(name, revision, marker):
+            h = History()
+            h.rules = replace(h.rules, visibility="observed-after-refresh")
+            h.resume()
+            h.receipt()
+            h.add("refreshed", 65, run_id="run", attempt="attempt", generation="generation",
+                  route="support-search", scope="support-agent")
+            h.probe(70, "final", [marker])
+            h.probe(72, "final", ["delivery@1"], "delivery", view=view())
+            h.probe(74, "final", ["refund@B"], view=view())
+            return make_report(h, name=name, revision=revision)
+
+        def scenario(report):
+            verdict = evaluate(report)
+            return ScenarioEvidence("update", "single", verdict, {"single": ScenarioMember(verdict, {0: report}, "config", True)})
+
+        base, candidate = lane("base", "a" * 40, "refund@A"), lane("candidate", "b" * 40, "refund@B")
+        self.assertEqual(evaluate(candidate).evidence_tier, "write-confirmed")
+        for code, text in (compare(base, candidate),
+                           compare_scenarios(scenario(base), scenario(candidate), "a" * 40, "b" * 40, 1, 0)):
+            self.assertEqual(code, 0, text)
+            self.assertTrue(text.startswith("PASS"), text)
+            self.assertIn("after refresh", text.splitlines()[0])
+        code, reverse = compare(candidate, base)
+        self.assertEqual(code, 1)
+        self.assertTrue(reverse.startswith("FAILURE OBSERVED"), reverse)
+
     def test_absence_requires_a_control_observed_after_the_deletion(self):
         def lane(name, control_after_deletion):
             history = History()
@@ -107,7 +200,9 @@ class ComparisonTests(unittest.TestCase):
         from test_store_signals import VisibilityTests
 
         history = VisibilityTests().history
-        before = make_report(history(), name="base", revision="a" * 40)
+        base = history()
+        base.probe(75, "final", ["refund@B"])
+        before = make_report(base, name="base", revision="a" * 40)
         candidate = history()
         candidate.probe(75, "final", ["refund@A"])
         after = make_report(candidate, name="candidate", revision="b" * 40)
