@@ -60,6 +60,16 @@ class EndpointPrTests(unittest.TestCase):
                                "--", sys.executable, str(harness))
         return code, (self.out / "review.md").read_text()
 
+    def test_http_fixture_starts_without_reverse_dns(self):
+        import runpy
+
+        fixture = runpy.run_path(str(FIXTURE))
+        with patch.dict(os.environ, APP_TEST_MODE="guarded"), patch("socket.getfqdn", side_effect=AssertionError):
+            with fixture["Application"]("local-check") as app:
+                app.seed()
+                for caller in ("owner", "reviewer"):
+                    self.assertEqual(app.answer(caller, fixture["CASE"].question)["caller"], caller)
+
     def test_verified_fix_shows_both_callers_and_replays_without_checkout(self):
         broken = self.source.replace('if self.granted or self.mode == "broken":', "if True:")
         code, text = self.compare(broken, self.source)

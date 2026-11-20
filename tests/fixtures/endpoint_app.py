@@ -2,7 +2,8 @@
 
 from hashlib import sha256
 from http.client import HTTPConnection
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
+from socketserver import TCPServer
 import json
 import os
 from secrets import token_urlsafe
@@ -60,7 +61,8 @@ class Application:
         self.worker = None
 
     def __enter__(self):
-        self.server = HTTPServer(("127.0.0.1", 0), Handler)
+        # The handler uses its bound port. Keep loopback-only startup independent of reverse DNS.
+        self.server = TCPServer(("127.0.0.1", 0), Handler)
         self.server.app = self
         self.http = Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.02})
         self.http.start()
