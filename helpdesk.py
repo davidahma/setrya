@@ -28,6 +28,8 @@ def create_app(db, sessions):
         with db:
             questions = db.execute("SELECT question FROM notes WHERE customer = ?", (customer,)).fetchall()
             db.execute("DELETE FROM notes WHERE customer = ?", (customer,))
+        for (question,) in questions:
+            answers.pop(question, None)
         return "", 204
 
     return app
