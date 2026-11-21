@@ -40,7 +40,9 @@ setrya replay receipt
 
 Replace `CASE` and `open_fixture` in the starter. Seed a disposable workspace with one fact to erase and one to keep. Wire `inspect` to read each declared key, `read` to ask the authenticated application and `erase` to call its deletion operation. Doctor reads the baseline. The drill performs the deletion. You can also run the starter with pytest.
 
-For a shared answer, declare which objects the application must **delete**, **rewrite at the same key**, or **preserve**. Choose a literal marker, regex, entity or application-supplied model judge for answers. Connect the worker checkpoint to test `--mode late-write`. In CI the GitHub Action runs the fixture, keeps the exit code and posts the receipt summary to the PR. [Fixture and verdict rules](https://github.com/davidahma/setrya/blob/v1.0.1/docs/erasure-v3.md) · [GitHub Actions workflow](https://github.com/davidahma/setrya/blob/v1.0.1/docs/github-action.md)
+For a shared answer, declare which objects the application must **delete**, **rewrite at the same key**, or **preserve**. Choose a literal marker, regex, entity or application-supplied model judge for answers. Connect the worker checkpoint to test `--mode late-write`. [Fixture and verdict rules](https://github.com/davidahma/setrya/blob/v1.0.1/docs/erasure-v3.md)
+
+To run the drill on pull requests, install `setrya==1.0.1` in the job and use `davidahma/setrya@v1.0.1`. The example workflow posts the verdict on the PR and saves the receipt for offline replay, including when the drill finds deleted data. [Setrya erasure drill on GitHub Marketplace](https://github.com/marketplace/actions/setrya-erasure-drill) · [Copy the workflow](https://github.com/davidahma/setrya/blob/v1.0.1/docs/github-action.md)
 
 ## What a receipt covers
 
