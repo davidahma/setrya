@@ -80,6 +80,19 @@ class RecorderTests(unittest.TestCase):
         with self.assertRaisesRegex(InputError, "requires an adapter"):
             run(self.drill)
 
+    def test_pr_confirms_only_the_completed_recording_with_a_caller_supplied_run_id(self):
+        path = self.directory / "report.json"
+        env = {"SETRYA_RUN_PR": "1", "SETRYA_REVIEW_DRILL": str(self.drill), "SETRYA_REVIEW_REPORT": str(path)}
+        with patch.dict("os.environ", env):
+            with Recorder(self.drill, test_id="refund-test", report=path, revision=BASE, run_id="stable") as recorder:
+                self.sequence(recorder)
+                self.assertFalse(path.with_suffix(".executed").exists())
+            digest = path.with_suffix(".executed").read_text()
+            self.assertEqual(Report.load(path, expected_sha256=digest).run_id, "stable")
+            with self.assertRaisesRegex(InputError, "exactly one"):
+                self.create()
+            self.assertTrue(path.with_suffix(".ambiguous").is_file())
+
     def test_foreign_scope_or_missing_write_evidence_cannot_pass(self):
         observations = ({"caller": "preview"}, {"receipt": "committed", "view": False}, {"receipt": None})
         for options in observations:

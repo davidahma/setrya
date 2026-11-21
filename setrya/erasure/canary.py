@@ -167,25 +167,17 @@ class AnswerCacheCanaryScanner:
 
     def find(self, *, scope: str, marker: str) -> set[str]:
         validate_probe(scope, marker)
-        from setrya.local_cache import LocalAnswerCache
-        from setrya.redis_cache import RedisAnswerCache
-        if type(self.cache) in (LocalAnswerCache, RedisAnswerCache):
-            keys = self.cache._matching_answer_keys(self.tenant, scope, marker, LIMIT)
-            return {identifier(f"{key.tenant}:{key.access_scope}:{key.request}", "answer key") for key in keys}
-        keys = self.cache.cached_keys(self.tenant, scope)
-        if len(keys) > LIMIT:
-            raise InputError("answer cache canary scan exceeds the key limit")
-        found, seen = set(), set()
-        for key in keys:
+        from setrya.local_cache import CacheKey
+
+        scan = getattr(self.cache, "matching_answer_keys", None)
+        if not callable(scan):
+            raise InputError("this cache does not provide a consistent canary scan")
+        found = set()
+        for key in scan(self.tenant, scope, marker, LIMIT):
+            if not isinstance(key, CacheKey) or key.tenant != self.tenant or key.retrieval_scope != scope:
+                raise InputError("cache canary returned a key outside the declared scope")
             location = identifier(f"{key.tenant}:{key.access_scope}:{key.request}", "answer key")
-            if location in seen:
-                raise InputError("ambiguous answer cache copy key")
-            seen.add(location)
-            answer = self.cache.get(key)
-            if answer is None:
-                raise InputError("answer changed during the canary scan")
-            if marker in answer.answer:
-                found.add(location)
-        if set(keys) != set(self.cache.cached_keys(self.tenant, scope)):
-            raise InputError("cache keys changed during the canary scan")
+            if location in found or len(found) >= LIMIT:
+                raise InputError("ambiguous or oversized answer cache canary scan")
+            found.add(location)
         return found

@@ -55,16 +55,16 @@ drill = Drill.load(source)
 if label == "other-factory": drill = replace(drill, factory="setrya.examples.support_search.adapter:python_fixture")
 if label == "other-options": drill = replace(drill, options={"mode": "other"})
 if label == "opaque": os.environ["TEST_OPAQUE"] = "1"
+if label == "stale" and lane == "candidate": revision = "a" * 40
 result = run(drill, revision=revision)
 target = Path(os.environ["SETRYA_REVIEW_REPORT"])
 result.report.save(target)
 if label == "slow-teardown" and lane == "base": time.sleep(30)
 if label == "dirty" and lane == "candidate": Path("lane").write_text("changed")
 report = json.loads(target.read_bytes())
-if label == "wrong" and lane == "candidate": report["rules"]["document"] = "other"
-if label == "stale" and lane == "candidate": report["inputs"]["revision"] = "a" * 40
-if label == "wrong-identity": report["inputs"]["adapter"] = "f" * 64
-target.write_text(json.dumps(report))
+if lane == "candidate" and label in ("rewritten", "wrong-identity"):
+    if label == "wrong-identity": report["inputs"]["adapter"] = "f" * 64
+    target.write_text(json.dumps(report))
 print("synthetic native output only")
 sys.exit(result.verdict.status.exit_code)
 """
@@ -138,8 +138,8 @@ class RunPrTests(unittest.TestCase):
                 self.assertFalse(self.out.exists())
 
     def test_mismatched_commit_drill_or_changed_checkout_cannot_confirm_a_fix(self):
-        for mode, code, reason in (("stale", 3, "expected commit"), ("wrong", 2, "selected drill"),
-                                   ("dirty", 2, "tracked files"), ("wrong-identity", 2, "live SDK run"),
+        for mode, code, reason in (("stale", 3, "expected commit"), ("rewritten", 2, "report digest differs"),
+                                   ("dirty", 2, "tracked files"), ("wrong-identity", 2, "report digest differs"),
                                    ("other-factory", 2, "did not produce"), ("other-options", 2, "did not produce")):
             with self.subTest(mode=mode):
                 self.assertEqual(self.check(mode), code)

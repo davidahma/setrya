@@ -32,7 +32,7 @@ def run(drill: Drill | str | Path, *, revision: str | None = None) -> RunResult:
         raise InputError("could not import adapter factory from the checkout or Python path") from None
     except (Exception, KeyboardInterrupt) as error:
         execution.add_error("factory", error)
-        return execution.result()
+        return execution.completed_result()
 
     with TemporaryDirectory(prefix="setrya-") as directory:
         try:
@@ -49,7 +49,7 @@ def run(drill: Drill | str | Path, *, revision: str | None = None) -> RunResult:
                     execution.adapter.close()
                 except (Exception, KeyboardInterrupt) as error:
                     execution.add_error("close", error)
-    return execution.result()
+    return execution.completed_result()
 
 
 class _Execution(_Journal):

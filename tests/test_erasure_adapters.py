@@ -26,6 +26,10 @@ def installed(name):
         return False
 
 
+def dict_row(cursor, row):
+    return {column[0]: value for column, value in zip(cursor.description, row)}
+
+
 class Fixture(unittest.TestCase):
     def setUp(self):
         secret = secrets.token_bytes(32)
@@ -46,8 +50,11 @@ class SQLiteTests(Fixture):
                 ])
             with self.assertRaises(sqlite3.OperationalError):
                 SQLiteAdapter(db, "docs", subject_column="missing").verify_absent(self.a)
-            self.exercise(SQLiteAdapter(db, "docs"))
-            self.assertEqual(db.execute("SELECT payload FROM docs").fetchall(), [("fixture",)])
+            adapter = SQLiteAdapter(db, "docs")
+            self.assertEqual(adapter.find(self.a), {"a", "b"})
+            db.row_factory = dict_row
+            self.exercise(adapter)
+            self.assertEqual(db.execute("SELECT payload FROM docs").fetchall(), [{"payload": "fixture"}])
             with self.assertRaises(InputError):
                 SQLiteAdapter(db, "main.docs")
 
@@ -77,7 +84,10 @@ class SQLiteCheckpointTests(Fixture):
                 config = {"configurable": {"thread_id": thread, "checkpoint_ns": "", "checkpoint_id": "fixture"}}
                 saver.put_writes(config, [("chart", "fixture")], "pending")
             self.assertEqual(db.execute("SELECT count(*) FROM checkpoints").fetchone()[0], 0)
-            self.exercise(LangGraphSQLiteCheckpointAdapter(saver), [checkpoint_thread(self.a, "same-chat")],
+            adapter = LangGraphSQLiteCheckpointAdapter(saver)
+            self.assertEqual(adapter.find(self.a), {checkpoint_thread(self.a, "same-chat")})
+            db.row_factory = dict_row
+            self.exercise(adapter, [checkpoint_thread(self.a, "same-chat")],
                           [checkpoint_thread(self.b, "same-chat")])
 
 

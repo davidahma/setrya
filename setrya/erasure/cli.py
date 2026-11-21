@@ -35,6 +35,31 @@ def _run_starter(starter, mode, output):
     return code, digest
 
 
+def run_person_starter(starter, mode, output):
+    """Return replayed evidence only when it belongs to this starter invocation."""
+    if output is None or starter is None:
+        raise InputError("Supply --starter and a new --output directory.")
+    if not starter.is_file() or os.path.lexists(output):
+        raise InputError("Choose a trusted starter file and a fresh output directory.")
+    if mode not in ("deletion", "late-write"):
+        raise InputError("Choose deletion or late-write for the drill mode.")
+    code, issued_digest = _run_starter(starter, mode, output)
+    if not (output / RECEIPT).is_file():
+        label = "NOT TESTED" if code == 3 else "ERROR"
+        print(f"{label}  The starter exited {code} before writing a receipt. "
+              "Run the trusted starter directly to see its diagnostics.", file=sys.stderr)
+        return (3 if code == 3 else 2), None
+    receipt = load_directory(output)
+    if receipt["version"] != 3:
+        raise InputError("Update the starter to issue v3 receipts. Use replay for historical v2 evidence.")
+    if (receipt.get("scope") != "person" or "profile" in receipt
+            or code != receipt_exit(receipt) or receipt.get("mode") != mode):
+        raise InputError("Starter exit or recorded mode differs from the requested drill.")
+    if issued_digest != receipt["evidence"]["sha256"].encode("ascii"):
+        raise InputError("Receipt does not match evidence issued by this live run.")
+    return code, receipt
+
+
 def main(argv, *, prog="setrya erasure"):
     parser = argparse.ArgumentParser(prog=prog, description=__doc__)
     commands = parser.add_subparsers(dest="action", required=True)
@@ -96,26 +121,8 @@ def main(argv, *, prog="setrya erasure"):
                 raise InputError("Supply the directory containing the receipt and its evidence.")
             return replay_directory(args.directory, case_review=args.case_review, expected_scope=args.scope)
         if args.action == "run":
-            if args.output is None or args.starter is None:
-                raise InputError("Supply --starter and a new --output directory.")
-            if not args.starter.is_file() or os.path.lexists(args.output):
-                raise InputError("Choose a trusted starter file and a fresh output directory.")
-            selected_mode = args.mode or "deletion"
-            code, issued_digest = _run_starter(args.starter, selected_mode, args.output)
-            if not (args.output / RECEIPT).is_file():
-                label = "NOT TESTED" if code == 3 else "ERROR"
-                print(f"{label}  The starter exited {code} before writing a receipt. "
-                      "Run the trusted starter directly to see its diagnostics.", file=sys.stderr)
-                return 3 if code == 3 else 2
-            receipt = load_directory(args.output)
-            if receipt["version"] != 3:
-                raise InputError("Update the starter to issue v3 receipts. Use replay for historical v2 evidence.")
-            if (receipt.get("scope") != "person" or "profile" in receipt
-                    or code != receipt_exit(receipt) or receipt.get("mode") != selected_mode):
-                raise InputError("Starter exit or recorded mode differs from the requested drill.")
-            if issued_digest != receipt["evidence"]["sha256"].encode("ascii"):
-                raise InputError("Receipt does not match evidence issued by this live run.")
-            return report(receipt)
+            code, receipt = run_person_starter(args.starter, args.mode or "deletion", args.output)
+            return report(receipt) if receipt is not None else code
         if args.scope == "tenant" and (args.example or getattr(args, "mode", None)):
             raise InputError("Use person scope to select a shared investigation mode.")
         if args.action == "demo":

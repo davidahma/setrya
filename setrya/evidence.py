@@ -156,7 +156,7 @@ class Report:
         if len(data) > MAX_REPORT_BYTES:
             raise InputError("report exceeds size limit")
         if expected_sha256 is not None and sha256(data).hexdigest() != expected_sha256:
-            raise InputError("report digest differs from the schedule manifest")
+            raise InputError("report digest differs from the expected digest")
         try:
             obj = json.loads(data, object_pairs_hook=_unique_object)
         except (ValueError, RecursionError):

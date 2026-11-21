@@ -63,6 +63,17 @@ class AnswerCache:
         """Enumerate stored answers visible in this tenant and exact retrieval scope."""
         raise NotImplementedError
 
+    def matching_answer_keys(self, tenant: str, retrieval_scope: str, marker: str, limit: int) -> tuple[CacheKey, ...]:
+        """Inspect one consistent view of stored answer bodies, including entries hidden from readers."""
+        if type(limit) is not int or not 1 <= limit <= 4096:
+            raise InputError("choose a cache scan limit between 1 and 4096")
+        if not isinstance(marker, str) or not marker.isprintable() or not 8 <= len(marker) <= 256:
+            raise InputError("use a printable synthetic marker of 8 to 256 characters")
+        return self._matching_answer_keys(tenant, retrieval_scope, marker, limit)
+
+    def _matching_answer_keys(self, tenant, retrieval_scope, marker, limit):
+        raise InputError("this cache does not provide a consistent canary scan")
+
     def invalidate_document(self, tenant: str, document: str) -> int:
         raise NotImplementedError
 
@@ -220,12 +231,16 @@ class LocalAnswerCache(AnswerCache):
 
     def _matching_answer_keys(self, tenant, retrieval_scope, marker, limit):
         # Keep a point-in-time view without promoting inspected entries in the LRU.
+        label(tenant, "tenant")
+        label(retrieval_scope, "retrieval scope")
         with self._changed:
-            keys = self.cached_keys(tenant, retrieval_scope)
-            if len(keys) > limit:
-                raise InputError("answer cache canary scan exceeds the key limit")
-            answers = [(key, self._slots[key].answer) for key in keys]
-        return [key for key, answer in answers if marker in answer.answer]
+            answers = []
+            for key, slot in self._slots.items():
+                if key.tenant == tenant and key.retrieval_scope == retrieval_scope and slot.answer is not None:
+                    if len(answers) == limit:
+                        raise InputError("answer cache canary scan exceeds the key limit")
+                    answers.append((key, slot.answer))
+        return tuple(key for key, answer in answers if marker in answer.answer)
 
     def _unlink_answer(self, key, slot):
         if slot.answer is not None:

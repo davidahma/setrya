@@ -298,7 +298,7 @@ class RedisAnswerCache(AnswerCache):
             pipe.execute_command("EVAL_RO", _SCAN_ANSWERS, len(keys),
                                  *(prefix + "answer:" + self._slot(key) for key in keys), marker)
             matches, = pipe.execute()
-        return [keys[i - 1] for i in matches]
+        return tuple(keys[i - 1] for i in matches)
 
     def _acquire(self, key, *, refresh):
         slot = self._slot(key)

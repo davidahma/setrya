@@ -27,19 +27,13 @@ def run():
     review = "UNAVAILABLE"
     code = 2
     try:
-        from setrya.receipts import replay
-        if os.path.lexists(folder):
-            raise ValueError("select a fresh output directory")
-        args = ["--starter", os.environ["SETRYA_STARTER"], "--mode", os.environ["SETRYA_MODE"], "--output", str(folder)]
-        result = subprocess.run([sys.executable, "-I", "-m", "setrya", "run", *args], check=False)
-        if (folder / "erasure-receipt.json").is_file():
-            receipt = replay(folder)
-            technical = receipt["technical_verdict"]
-            if result.returncode != LABELS.index(technical):
-                raise ValueError("run and replay disagree")
-            code, review = result.returncode, receipt["review_status"]
-        elif result.returncode == 3:
-            code = 3
+        from setrya.erasure.cli import run_person_starter
+        from setrya.receipts import report
+
+        code, receipt = run_person_starter(Path(os.environ["SETRYA_STARTER"]), os.environ["SETRYA_MODE"], folder)
+        if receipt is not None:
+            report(receipt)
+            review = receipt["review_status"]
         body = summary(str(code), review)
     except Exception as exc:
         print(f"Setrya action error ({type(exc).__name__}).", file=sys.stderr)

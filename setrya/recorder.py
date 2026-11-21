@@ -1,8 +1,10 @@
 """Capture and evaluate search evidence inside an existing test."""
 
 from dataclasses import asdict, dataclass
+from hashlib import file_digest
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import monotonic_ns
 from typing import Callable
 from uuid import uuid4
@@ -11,6 +13,7 @@ from .adapter import Checkpoint, Publication, Receipt, Refresh, SearchResult
 from .checker import Verdict, evaluate
 from .drill import Drill, InputError, Probe, label
 from .evidence import SCHEMA, Report, _EventSequence, _STAGES, bind_inputs
+from .offboarding.inputs import publish_new_bytes
 
 
 @dataclass(frozen=True)
@@ -19,21 +22,21 @@ class RunResult:
     report: Report
 
 
-def _bind_pr_execution(drill, run_id, adapter_identity):
-    """Tell the parent which live SDK journal used its selected drill."""
+def _reserve_pr_execution(drill):
+    """Reserve the single live recording before the application executes."""
     if os.environ.get("SETRYA_RUN_PR") != "1":
         return
     source = os.environ.get("SETRYA_REVIEW_DRILL")
     destination = os.environ.get("SETRYA_REVIEW_REPORT")
     if not source or not destination or drill != Drill.load(source):
         raise InputError("the executed drill differs from the selected run-pr drill")
-    receipt = Path(destination).with_suffix(".executed")
+    report = Path(destination)
     try:
-        with receipt.open("x", encoding="ascii") as stream:
-            stream.write(f"{run_id} {adapter_identity}")
+        report.with_suffix(".started").touch(exist_ok=False)
     except FileExistsError:
-        receipt.with_suffix(".ambiguous").touch()
+        report.with_suffix(".ambiguous").touch()
         raise InputError("run-pr needs exactly one Setrya recording per command") from None
+    return report.with_suffix(".executed")
 
 
 class _Journal:
@@ -42,7 +45,7 @@ class _Journal:
         self.run_id = run_id
         self.rules = drill.rules
         self.inputs = bind_inputs(drill, test_id=test_id, revision=revision)
-        _bind_pr_execution(drill, run_id, self.inputs["adapter"])
+        self._pr_confirmation = _reserve_pr_execution(drill)
         self.probes = {probe.rules.id: probe for probe in drill.probes}
         self.started_ns = monotonic_ns()
         self.events = []
@@ -67,6 +70,19 @@ class _Journal:
     def result(self) -> RunResult:
         report = Report(self.run_id, self.rules, tuple(self.events), schema=SCHEMA, inputs=self.inputs)
         return RunResult(evaluate(report), report)
+
+    def completed_result(self) -> RunResult:
+        result = self.result()
+        if self._pr_confirmation is not None:
+            # Use the same bounded serialization as Report.save, from the final
+            # observations, before handing the report back to application code.
+            with TemporaryDirectory(dir=self._pr_confirmation.parent) as scratch:
+                snapshot = Path(scratch) / "report.json"
+                result.report.save(snapshot)
+                with snapshot.open("rb") as stream:
+                    digest = file_digest(stream, "sha256").hexdigest()
+            publish_new_bytes(digest.encode("ascii"), self._pr_confirmation)
+        return result
 
     def observe(self, probe: Probe, search: Callable[[Probe], SearchResult]) -> tuple[SearchResult, dict]:
         stage = _STAGES.get(self._sequence.stage)
@@ -112,7 +128,7 @@ class Recorder:
         self._active = False
         if error is not None:
             self._journal.add_error("test", error)
-        self._result = self._journal.result()
+        self._result = self._journal.completed_result()
         try:
             self.result.report.save(self._path)
         except InputError:

@@ -46,6 +46,34 @@ class PublicCLI(unittest.TestCase):
             self.assertEqual(main(["demo", "--scope=tenant", f"--output={tmp}/tenant"]), 0)
             self.assertTrue(Path(tmp, "tenant/receipt/erasure-receipt.json").is_file())
 
+    def test_person_scope_uses_the_primary_fixture_and_examples(self):
+        with TemporaryDirectory() as tmp, contextlib.redirect_stdout(StringIO()):
+            for name, scope in (("split", ["--scope", "person"]), ("equals", ["--scope=person"])):
+                output = Path(tmp, name)
+                starter = output / "starter"
+                with self.subTest(name=name):
+                    self.assertEqual(main(["init", *scope, "--output", str(starter)]), 0)
+                    run_args = ["--starter", str(starter / "test_erasure.py")]
+                    self.assertEqual(main(["doctor", *run_args]), 0)
+                    self.assertEqual(main(["run", *scope, *run_args, "--output", str(output / "run")]), 0)
+                    workspace = output / "workspace"
+                    example = ["workspace"] if name == "split" else []
+                    self.assertEqual(main(["demo", *example, *scope, "--output", str(workspace)]), 0)
+                    result = json.loads((workspace / "guarded" / "erasure-receipt.json").read_bytes())
+                    self.assertEqual(set(result["case"]["callers"]), {"support-lead", "account-manager"})
+            with patch("setrya.erasure.investigation.run_demo", return_value=0) as analyst:
+                for cmd in (["demo", "analyst", "--scope=person"], ["erasure", "demo", "--scope=person"],
+                            ["demo", "erasure", "--scope", "person"], ["demo", "--scope", "person", "--example=shared"]):
+                    self.assertEqual(main(cmd), 0)
+                self.assertEqual(analyst.call_count, 4)
+            legacy = Path(tmp, "legacy")
+            self.assertEqual(main(["init", "erasure", "--scope=person", "--output", str(legacy)]), 0)
+            self.assertTrue((legacy / "answer_cache.py").is_file())
+            for command in ("init", "demo"):
+                with contextlib.redirect_stdout(StringIO()) as help_text, self.assertRaises(SystemExit):
+                    main([command, "--help"])
+                self.assertIn("--scope {person,tenant}", help_text.getvalue())
+
     def test_scoped_replay_and_verification_use_the_receipts_actual_scope(self):
         with TemporaryDirectory() as tmp, contextlib.redirect_stdout(StringIO()), contextlib.redirect_stderr(StringIO()):
             person, tenant = Path(tmp, "person"), Path(tmp, "tenant")
@@ -104,6 +132,30 @@ class PublicCLI(unittest.TestCase):
             with contextlib.redirect_stdout(StringIO()) as out:
                 self.assertEqual(main(args), 3)
                 self.assertIn("Missing fixture methods: scan, lineage", out.getvalue())
+
+    def test_action_distinguishes_live_error_evidence_from_an_old_error_receipt(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            starter = root / "starter.py"
+            starter.write_text(
+                "import sys\nfrom setrya.examples.workspace import SIMPLE, open_fixture\n"
+                "from setrya.erasure.v3 import run_shared\n"
+                "def read(*args): raise ConnectionError('fixture unavailable')\n"
+                "with open_fixture() as (subject, app, items):\n"
+                "    app.read = read\n"
+                "    run_shared(subject, case=SIMPLE, application=app, mode='deletion', "
+                "output=sys.argv[-1])\nraise SystemExit(2)\n")
+            for name, status in (("original", "OPEN_ITEMS"), ("copy", "UNAVAILABLE")):
+                output = root / name
+                log = root / (name + ".outputs")
+                env = {"SETRYA_STARTER": str(starter), "SETRYA_MODE": "deletion", "SETRYA_OUTPUT": str(output),
+                       "GITHUB_OUTPUT": str(log), "GITHUB_STEP_SUMMARY": str(root / "summary")}
+                with patch.dict(os.environ, env), contextlib.redirect_stdout(StringIO()), contextlib.redirect_stderr(StringIO()):
+                    self.assertEqual(action.run(), 2)
+                    self.assertIn("review-status=" + status, log.read_text())
+                starter.write_text("import shutil, sys\nfrom pathlib import Path\n"
+                                   "shutil.copytree(Path(__file__).parent / 'original', sys.argv[-1])\n"
+                                   "raise SystemExit(2)\n")
 
     def test_public_help_names_only_primary_commands(self):
         with contextlib.redirect_stdout(StringIO()) as out, self.assertRaises(SystemExit):

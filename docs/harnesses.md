@@ -42,6 +42,8 @@ Seed the marker into a copy *before* running the case. Each scanner returns the 
 | LangGraph checkpoints | `SQLiteCheckpointCanaryScanner(connection)`, `PostgresCheckpointCanaryScanner(connection)` | All full-saver checkpoint versions and pending writes for one thread, including orphan PostgreSQL blobs. Searches plain marker bytes in supported serialized data. |
 | LangGraph memory | `LangGraphMemoryCanaryScanner(store, namespace=("teams",))`, `PostgresMemoryCanaryScanner(connection, namespace=("teams",))` | In-memory items or persisted JSON values in the declared namespace subtree. Direct PostgreSQL reads include expired rows. |
 
+A custom answer-cache backend can implement `matching_answer_keys(tenant, retrieval_scope, marker, limit)`. Return the matching `CacheKey` objects from one consistent storage view, including answers hidden from serving. Raise an error if the scan is incomplete or exceeds the limit. Subclasses that replace the local or Redis storage must override this method. Without a snapshot reader the cache boundary stays unverified. Reading a changing set of answers one by one can miss a marker that moves between keys.
+
 The LangGraph scanners live in `setrya.erasure.langgraph_canary`; the other store scanners live in `setrya.erasure.canary`. PostgreSQL scanners use a synchronous observer connection even when the app writes through an async saver.
 
 ## Attach an agent or trace hook

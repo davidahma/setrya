@@ -1,6 +1,6 @@
 # Run, replay, and review erasure
 
-Install the core package with Python 3.11 or later. The primary starter runs against a disposable workspace. Choose a fresh output directory for each run.
+Install the core package with Python 3.11 or later. The primary starter runs against a disposable workspace. For `init` and `demo`, person scope is the default. Use `--scope tenant` for tenant offboarding. Choose a fresh output directory for each run.
 
 ```sh
 python -m pip install setrya

@@ -171,6 +171,30 @@ class CacheCanaryTests(unittest.TestCase):
         from setrya.local_cache import LocalAnswerCache
         self.exercise(LocalAnswerCache())
 
+    def test_custom_cache_requires_scoped_snapshot_reads(self):
+        from setrya.drill import InputError
+        from setrya.erasure.canary import AnswerCacheCanaryScanner
+        from setrya.local_cache import CacheKey, LocalAnswerCache
+
+        class InstrumentedCache(LocalAnswerCache):
+            def cached_keys(self, tenant, retrieval_scope):
+                # The serving view hides entries after an access change.
+                return ()
+
+            def get(self, key):
+                raise AssertionError("an observer must not call the serving path")
+
+        self.exercise(InstrumentedCache())
+        with self.assertRaisesRegex(InputError, "consistent canary scan"):
+            AnswerCacheCanaryScanner(object(), tenant="trial").find(scope="room", marker=MARKER)
+
+        class WrongScope:
+            def matching_answer_keys(self, tenant, retrieval_scope, marker, limit):
+                return (CacheKey("other", "reader", retrieval_scope, "answer"),)
+
+        with self.assertRaisesRegex(InputError, "outside the declared scope"):
+            AnswerCacheCanaryScanner(WrongScope(), tenant="trial").find(scope="room", marker=MARKER)
+
     def test_local_scan_preserves_eviction_order(self):
         from setrya.erasure.canary import AnswerCacheCanaryScanner
         from setrya.local_cache import CacheKey, LocalAnswerCache

@@ -88,7 +88,7 @@ class SQLiteAdapter(_Direct):
         self._check_connection()
         with self.db:
             return _keys(self.db.execute(
-                f"SELECT s.{self.key} FROM {self.table} AS s WHERE s.{self.scope} COLLATE BINARY = ?", (_ref(subject),)
+                f"SELECT s.{self.key} AS copy_key FROM {self.table} AS s WHERE s.{self.scope} COLLATE BINARY = ?", (_ref(subject),)
             ))
 
     def delete(self, subject):
@@ -184,7 +184,7 @@ class LangGraphSQLiteCheckpointAdapter(_Direct):
         prefix = f"setrya:{_ref(subject)}:"
         tables = ("checkpoints", "writes")
         query = " UNION ".join(
-            f"SELECT thread_id FROM {table} WHERE substr(thread_id, 1, ?) = ? COLLATE BINARY" for table in tables
+            f"SELECT thread_id AS copy_key FROM {table} WHERE substr(thread_id, 1, ?) = ? COLLATE BINARY" for table in tables
         )
         with self.saver.lock:
             if self.saver.conn.in_transaction:
