@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
-from time import sleep
+from time import monotonic_ns
 import unittest
 from unittest.mock import Mock, patch
 
@@ -71,19 +71,25 @@ class FixtureComparisonTests(unittest.TestCase):
     def test_wrong_or_late_receipt_cannot_start_the_selected_final_reads(self):
         original = SupportAdapter.receipt
         drill = Drill.load(EXAMPLE / "python.toml")
-        drill = replace(drill, rules=replace(drill.rules, settle_ms=150, max_gap_ms=100),
+        drill = replace(drill, rules=replace(drill.rules, checkpoint_ms=10_000, freshness_ms=5_000, settle_ms=5_000),
                         options={"mode": "broken", "final_reads": "after-receipt"})
         for mode in ("wrong-attempt", "late"):
+            offset_ns = 0
+
             def observed(app):
+                nonlocal offset_ns
                 receipt = original(app)
                 if receipt is not None:
                     if mode == "late":
-                        sleep(0.2)
+                        # Deliver the real receipt beyond the deadline without
+                        # depending on the CI host's process scheduling.
+                        offset_ns = (drill.rules.settle_ms + 1) * 1_000_000
                     else:
                         return replace(receipt, attempt="other")
                 return receipt
 
-            with self.subTest(mode=mode), patch.object(SupportAdapter, "receipt", observed):
+            with (self.subTest(mode=mode), patch.object(SupportAdapter, "receipt", observed),
+                  patch("setrya.recorder.monotonic_ns", lambda: monotonic_ns() + offset_ns)):
                 result = run(drill)
                 self.assertIs(result.verdict.status, Status.NOT_TESTED)
                 self.assertTrue(any(e["kind"] == "receipt" for e in result.report.events))
