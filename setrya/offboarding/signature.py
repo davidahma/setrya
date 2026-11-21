@@ -21,7 +21,7 @@ def add_commands(commands, *, local_keys=False, aliases=False, scope=True):
     ):
         command = commands.add_parser(name, help=help_text, aliases=[name.split("-")[0]] if aliases else [])
         if aliases and scope:
-            command.add_argument("--scope", choices=("person", "tenant"), default="person")
+            command.add_argument("--scope", choices=("person", "tenant"), help="require the selected receipt scope")
         command.add_argument("--receipt", required=True, type=Path)
         command.add_argument("--bundle", required=True, type=Path)
         if local_keys:

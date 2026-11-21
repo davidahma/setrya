@@ -71,9 +71,9 @@ def _lane(repo, root, name, commit, drill_bytes, expected, command, timeout):
         try:
             test_exit = _test(command, checkout, env, timeout)
         except subprocess.TimeoutExpired:
-            # Teardown can outlive the completed endpoint recording. Validate
+            # Teardown can outlive a completed recording. Validate
             # that recording normally, but leave the missing native exit unset.
-            if expected is not None or not evidence.with_suffix(".executed").is_file():
+            if not evidence.exists() or not evidence.with_suffix(".executed").is_file():
                 raise
             command_problem = "command timed out after recording"
         if (resolve_commit(checkout, "HEAD") != commit
@@ -105,7 +105,7 @@ def _lane(repo, root, name, commit, drill_bytes, expected, command, timeout):
         if (read_regular_bytes(source, "drill") != drill_bytes or not executed.is_file() or executed.is_symlink()
                 or read_regular_bytes(executed, "execution identity", 256) != identity):
             raise InputError("the report does not match a live SDK run of the selected drill")
-        return ReviewInput(report, commit, test_exit, None)
+        return ReviewInput(report, commit, test_exit, command_problem)
     except subprocess.TimeoutExpired:
         problem = "checkout or command timed out"
     except (OSError, subprocess.CalledProcessError):

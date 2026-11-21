@@ -28,6 +28,9 @@ if __name__ == "__main__":
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--mode", choices=("deletion", "late-write"), default="deletion")
     args = parser.parse_args()
-    receipt = run(args.output, args.mode)
+    try:
+        receipt = run(args.output, args.mode)
+    except NotImplementedError:
+        parser.exit(3, "NOT TESTED  Connect the fixture to your disposable application.\n")
     print(summary(receipt))
     raise SystemExit(exit_code(receipt))

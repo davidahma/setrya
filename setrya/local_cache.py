@@ -218,6 +218,15 @@ class LocalAnswerCache(AnswerCache):
             return tuple(key for key, slot in self._slots.items()
                          if key.tenant == tenant and key.retrieval_scope == retrieval_scope and slot.answer is not None)
 
+    def _matching_answer_keys(self, tenant, retrieval_scope, marker, limit):
+        # Keep a point-in-time view without promoting inspected entries in the LRU.
+        with self._changed:
+            keys = self.cached_keys(tenant, retrieval_scope)
+            if len(keys) > limit:
+                raise InputError("answer cache canary scan exceeds the key limit")
+            answers = [(key, self._slots[key].answer) for key in keys]
+        return [key for key, answer in answers if marker in answer.answer]
+
     def _unlink_answer(self, key, slot):
         if slot.answer is not None:
             for document in {chunk.document for chunk in slot.answer.dependencies.chunks}:

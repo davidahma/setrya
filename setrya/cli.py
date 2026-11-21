@@ -266,6 +266,7 @@ def main(argv=None) -> int:
     check.add_argument("--revision", help="record the full Git commit ID supplying the application")
     replay = commands.add_parser("replay", help="recompute a verdict from saved observations")
     replay.add_argument("report")
+    replay.add_argument("--scope", choices=("person", "tenant"), help="require the selected receipt scope")
     replay.add_argument("--expect-request", help="independent tenant request SHA-256 digest")
     replay.add_argument("--expect-job", help="expected tenant job ID")
     replay.add_argument("--case-review", action="store_true", help="also gate on open case items")
@@ -308,11 +309,14 @@ def main(argv=None) -> int:
             receipt_file = directory.is_file() and directory.name in receipt_names
             historical = directory.is_dir() and manifest is None and (directory / "receipt.json").is_file()
             if manifest in receipt_names or receipt_file or historical:
-                from .receipts import replay as replay_receipt, report as receipt_report
+                from .receipts import check_scope, replay as replay_receipt, report as receipt_report
 
                 receipt = replay_receipt(directory, expected_request=getattr(args, "expect_request", None),
                                         expected_job=getattr(args, "expect_job", None))
+                check_scope(receipt, getattr(args, "scope", None))
                 return receipt_report(receipt, case_review=getattr(args, "case_review", False))
+            if getattr(args, "scope", None):
+                raise InputError("--scope requires a deletion receipt.")
             if getattr(args, "expect_request", None) or getattr(args, "expect_job", None):
                 raise InputError("Tenant pins require a tenant receipt.")
             if getattr(args, "case_review", False):

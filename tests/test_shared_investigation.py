@@ -54,8 +54,18 @@ class LineageAndScannerTests(unittest.TestCase):
         db.execute("CREATE TABLE stored(id TEXT, body TEXT, scope TEXT)")
         db.executemany("INSERT INTO stored VALUES(?,?,?)", [
             ("a", "xTEST_%MARK: only here", "one"), ("b", "TEST_xyzMARK", "one"), ("c", "TEST_%MARK", "two")])
+        db.commit()
         scanner = SQLiteCanaryScanner(db, table="stored", key="id", content="body", scope_column="scope")
         self.assertEqual(scanner.find(scope="one", marker="TEST_%MARK"), {"a"})
+        db.execute("DELETE FROM stored WHERE id='a'")
+        with self.assertRaisesRegex(InputError, "commit"):
+            scanner.find(scope="one", marker="TEST_%MARK")
+        db.rollback()
+        self.assertEqual(scanner.find(scope="one", marker="TEST_%MARK"), {"a"})
+        with db:
+            db.execute("INSERT INTO stored VALUES ('binary', ?, 'one')", (b"binary data",))
+        with self.assertRaisesRegex(InputError, "text canary column"):
+            scanner.find(scope="one", marker="TEST_%MARK")
         wrong = SQLiteCanaryScanner(db, table="stored", key="id", content="missing", scope_column="scope")
         with self.assertRaises(sqlite3.OperationalError):
             wrong.find(scope="one", marker="TEST_%MARK")

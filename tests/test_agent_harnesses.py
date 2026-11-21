@@ -58,6 +58,11 @@ class HarnessTests(unittest.TestCase):
         self.addCleanup(db.close)
         scan = OpenAISessionCanaryScanner(db)
         self.assertEqual(len(scan.find(scope="workspace-chat", marker=MARKER)), 1)
+        db.execute("DELETE FROM agent_messages")
+        with self.assertRaisesRegex(InputError, "commit"):
+            scan.find(scope="workspace-chat", marker=MARKER)
+        db.rollback()
+        self.assertEqual(len(scan.find(scope="workspace-chat", marker=MARKER)), 1)
         asyncio.run(session.clear_session())
         self.assertEqual(scan.find(scope="workspace-chat", marker=MARKER), set())
 

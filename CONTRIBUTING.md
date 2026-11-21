@@ -1,6 +1,6 @@
 # Contributing to Setrya
 
-Run the [README quickstart](README.md#run-the-demo) first. Python 3.11 or later with SQLite FTS5 is enough for the normal test loop.
+Run the [README quickstart](README.md#try-the-broken-and-fixed-versions) first. Python 3.11 or later with SQLite FTS5 is enough for the normal test loop.
 
 ```sh
 python3 -m unittest discover -s tests -v
@@ -17,12 +17,12 @@ Tenant offboarding development, including the portable tool and OpenDesk trial, 
 
 ## Publish a Python release
 
-When a GitHub release is published, the PyPI workflow builds the wheel and source distribution from its tag, checks both installs, and publishes the same files using the `pypi` GitHub environment. A final job installs the public release, runs the access and refund demos, and checks the generated pytest starter and its offline replay. The tag must match the package version, for example `v0.17.0` for version `0.17.0`.
+When a GitHub release is published, the PyPI workflow builds the wheel and source distribution from its tag, checks both installs, and publishes the same files using the `pypi` GitHub environment. A final job installs the public release, checks the two-user workspace demo and starter, and replays the released evidence. The tag must match the package version, for example `v1.0.1` for version `1.0.1`.
 
 For an existing published GitHub release that has not reached PyPI, dispatch the workflow from the default branch with the release tag:
 
 ```sh
-gh workflow run publish.yml --ref main -f tag=v0.17.0
+gh workflow run publish.yml --ref main -f tag=v1.0.1
 ```
 
 If only the final install check fails, rerun that failed job. PyPI release files are immutable. [Publishing runs](https://github.com/davidahma/setrya/actions/workflows/publish.yml)

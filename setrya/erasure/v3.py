@@ -1,17 +1,22 @@
 """Drive a deletion or late-write drill against one shared conversation."""
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 from time import monotonic
 from uuid import uuid4
 
-from setrya.offboarding.inputs import publish_new, require
+from setrya.offboarding.inputs import publish_new, publish_new_bytes, require
 from .judges import AnswerJudges, TextAnswer
 from .journal import identifier
 from .model import Drain, Hold, question_digest
 from .receipt import EVIDENCE, MAX_BUNDLE_FILE_BYTES, RECEIPT
 from .subject import Subject
 from . import v3_receipt as rules
+
+
+_RUN_OUTPUT = "SETRYA_LIVE_RUN_OUTPUT"
+_RUN_CONFIRMATION = "SETRYA_LIVE_RUN_CONFIRMATION"
 
 
 @dataclass(frozen=True)
@@ -197,7 +202,7 @@ def run_shared(subject, *, case, application, output, mode="late-write", externa
                 rules.check_lineage(result)
                 return result
             lineage = observe("lineage", get_lineage)
-        if mode == "late-write":
+        if worker["held"] is not None:
             worker["checkpoint"] = observe("checkpoint", lambda: held_by(application.checkpoint))
         ready = rules.baseline_ready(spec, baseline) and rules.ready_for_mode(mode, worker)
         if ready and authorize_erase is not None:
@@ -259,4 +264,8 @@ def run_shared(subject, *, case, application, output, mode="late-write", externa
     evidence["drill_duration_ms"] = receipt["drill_duration_ms"] = round((monotonic() - start) * 1000)
     receipt["evidence"]["sha256"] = publish_new(evidence, destination / EVIDENCE, max_bytes=MAX_BUNDLE_FILE_BYTES)
     publish_new(receipt, destination / RECEIPT, max_bytes=MAX_BUNDLE_FILE_BYTES)
+    # Bind a CLI invocation to what this live runner issued, before fixture teardown.
+    confirmation = os.environ.get(_RUN_CONFIRMATION)
+    if confirmation and os.environ.get(_RUN_OUTPUT) == str(destination.resolve()):
+        publish_new_bytes(receipt["evidence"]["sha256"].encode("ascii"), Path(confirmation))
     return receipt

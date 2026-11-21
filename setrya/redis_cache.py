@@ -189,6 +189,23 @@ return count
 """
 
 
+_SCAN_ANSWERS = """
+local found = {}
+local bytes = 0
+for i, key in ipairs(KEYS) do
+    bytes = bytes + redis.call('HSTRLEN', key, 'data')
+    if bytes > 16777216 then return redis.error_reply('answer cache canary content budget exceeded') end
+    local data = redis.call('HGET', key, 'data')
+    if data then
+        local answer = cjson.decode(data)[1]
+        if type(answer) ~= 'string' then return redis.error_reply('unreadable cached answer') end
+        if string.find(answer, ARGV[1], 1, true) then table.insert(found, i) end
+    end
+end
+return found
+"""
+
+
 def _text(value):
     return value.decode('utf-8') if isinstance(value, bytes) else value
 
@@ -237,16 +254,51 @@ class RedisAnswerCache(AnswerCache):
         data, verified = self._client.hmget(self._prefix(key.tenant) + "answer:" + slot, "data", "verified")
         return _cached(data) if data is not None and (not self._strict or _text(verified) == "1") else None
 
+    @staticmethod
+    def _answer_slots(client, prefix, scope):
+        for raw in client.scan_iter(match=prefix + "*:" + scope + ":*"):
+            yield _text(raw).removeprefix(prefix)
+
     def cached_keys(self, tenant: str, retrieval_scope: str) -> tuple[CacheKey, ...]:
         prefix = self._prefix(label(tenant, "tenant")) + "answer:"
         scope = label(retrieval_scope, "retrieval scope")
         keys = set()
-        for raw in self._client.scan_iter(match=prefix + "*:" + scope + ":*"):
-            name = _text(raw)
-            access, retrieval, request = name.removeprefix(prefix).split(":")
-            if retrieval == scope and self._client.hexists(name, "data"):
+        for slot in self._answer_slots(self._client, prefix, scope):
+            access, retrieval, request = slot.split(":")
+            if retrieval == scope and self._client.hexists(prefix + slot, "data"):
                 keys.add(CacheKey(tenant, access, retrieval, request))
         return tuple(keys)
+
+    def _matching_answer_keys(self, tenant, retrieval_scope, marker, limit):
+        prefix = self._prefix(label(tenant, "tenant"))
+        scope = label(retrieval_scope, "retrieval scope")
+        if self._client.role()[0] not in ("master", b"master") or self._client.info("cluster").get("cluster_enabled") != 0:
+            raise InputError("use a standalone Redis primary for the canary fixture")
+        index = prefix + "retrieval:" + scope
+        with self._client.pipeline() as pipe:
+            # New reservations must enter this index before publication. Include
+            # existing leases, plus stored hashes found independently of the index.
+            pipe.watch(index)
+            slots = {_text(slot) for slot in pipe.zrange(index, 0, limit)}
+            for slot in self._answer_slots(pipe, prefix + "answer:", scope):
+                slots.add(slot)
+                if len(slots) > limit:
+                    raise InputError("answer cache canary scan exceeds the key limit")
+            if len(slots) > limit:  # The index can also contain unpublished leases.
+                raise InputError("answer cache canary scan exceeds the key limit")
+            keys = []
+            for slot in sorted(slots):
+                access, retrieval, request = slot.split(":")
+                if retrieval != scope:
+                    raise InputError("Redis retrieval index contains an out-of-scope key")
+                keys.append(CacheKey(tenant, access, retrieval, request))
+            # Read underlying publications together even when strict serving hides
+            # an older answer. A concurrent index change aborts the transaction.
+            pipe.multi()
+            pipe.execute_command("EVAL_RO", _SCAN_ANSWERS, len(keys),
+                                 *(prefix + "answer:" + self._slot(key) for key in keys), marker)
+            matches, = pipe.execute()
+        return [keys[i - 1] for i in matches]
 
     def _acquire(self, key, *, refresh):
         slot = self._slot(key)

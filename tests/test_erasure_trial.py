@@ -59,6 +59,27 @@ class StarterTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "already dispatched"):
                 worker.hold(None)
 
+    def test_unrelated_subject_cannot_confirm_or_retire_a_held_job(self):
+        from setrya.erasure import Subject
+
+        held_for = Subject("a" * 64, "fixture")
+        unrelated = Subject("b" * 64, "fixture")
+        writes = []
+
+        def job(subject, before_write):
+            before_write()
+            writes.append(subject.ref)
+
+        with WorkerFixture(job, None) as worker:
+            held = worker.hold(held_for)
+            self.assertIsNone(worker.checkpoint(unrelated))
+            for method in (worker.release_and_drain, worker.cancel_and_drain):
+                with self.assertRaisesRegex(RuntimeError, "unconfirmed worker"):
+                    method(unrelated, held.attempt)
+            self.assertEqual(worker.checkpoint(held_for), held)
+            worker.release_and_drain(held_for, held.attempt)
+        self.assertEqual(writes, [held_for.ref])
+
 
 @unittest.skipUnless(_langgraph_installed(), "install the erasure extra for the live LangGraph trial")
 class ErasureAcceptanceTests(unittest.TestCase):

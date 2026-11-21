@@ -45,7 +45,7 @@ def bundle_manifest(directory: Path) -> str | None:
     """Identify one replayable bundle; never silently choose between two verdicts."""
     manifests = [name for name in ("answer-cache.json", "scenario.json", "endpoint-reads.json", "erasure-receipt.json", "case-result.json")
                  if os.path.lexists(directory / name)]
-    if len(manifests) > 1:
+    if len(manifests) > 1 or (manifests and os.path.lexists(directory / "receipt.json")):
         raise InputError("ambiguous evidence directory: keep each evidence bundle in its own directory")
     return manifests[0] if manifests else None
 

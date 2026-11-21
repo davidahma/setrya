@@ -21,19 +21,19 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: '3.13'
-      - run: python -m pip install setrya==1.0.0
+      - run: python -m pip install setrya==1.0.1
       - id: erasure
-        uses: davidahma/setrya@v1.0.0
+        uses: davidahma/setrya@v1.0.1
         with:
           starter: setrya-case/test_erasure.py
           mode: late-write
-          output: setrya-receipt
+          output: ${{ runner.temp }}/setrya-receipt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.erasure.outputs.review-status != '' && steps.erasure.outputs.review-status != 'UNAVAILABLE' }}
         with:
           name: setrya-receipt
-          path: setrya-receipt/
-          if-no-files-found: warn
+          path: ${{ runner.temp }}/setrya-receipt/
+          if-no-files-found: error
   comment:
     needs: drill
     if: ${{ !cancelled() && needs.drill.outputs.code != '' && github.event.pull_request.head.repo.full_name == github.repository }}
@@ -41,7 +41,7 @@ jobs:
     permissions:
       pull-requests: write
     steps:
-      - uses: davidahma/setrya@v1.0.0
+      - uses: davidahma/setrya@v1.0.1
         with:
           operation: comment
           token: ${{ github.token }}

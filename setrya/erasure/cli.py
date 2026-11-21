@@ -5,16 +5,34 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 
 from setrya.drill import InputError
 from setrya.offboarding import signature
-from setrya.offboarding.inputs import InvalidReport
+from setrya.offboarding.inputs import InvalidReport, read_regular_bytes
 from .receipt import RECEIPT
-from setrya.receipts import exit_code as receipt_exit, replay as load_directory, report, signature_command
+from .v3 import _RUN_CONFIRMATION, _RUN_OUTPUT
+from setrya.receipts import check_scope, exit_code as receipt_exit, replay as load_directory, report, signature_command
 
 
-def replay_directory(directory, *, case_review=False):
-    return report(load_directory(directory), case_review=case_review)
+def replay_directory(directory, *, case_review=False, expected_scope=None):
+    receipt = load_directory(directory)
+    check_scope(receipt, expected_scope)
+    return report(receipt, case_review=case_review)
+
+
+def _run_starter(starter, mode, output):
+    with TemporaryDirectory(prefix="setrya-live-") as tmp:
+        confirmation = Path(tmp) / "evidence-sha256"
+        child_env = {**os.environ, _RUN_OUTPUT: str(output.resolve()), _RUN_CONFIRMATION: str(confirmation)}
+        # Installed starters can import their own siblings and the caller's application.
+        paths = [str(Path.cwd()), child_env.get("PYTHONPATH", "")]
+        child_env["PYTHONPATH"] = os.pathsep.join(filter(None, paths))
+        code = subprocess.run([sys.executable, str(starter.resolve()), "--mode", mode,
+                               "--output", str(output.resolve())], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, env=child_env).returncode
+        digest = read_regular_bytes(confirmation, "live run confirmation", 64) if confirmation.exists() else None
+    return code, digest
 
 
 def main(argv, *, prog="setrya erasure"):
@@ -35,7 +53,7 @@ def main(argv, *, prog="setrya erasure"):
     run.add_argument("--mode", choices=("deletion", "late-write"))
     run.add_argument("--output", type=Path)
     replay = commands.add_parser("replay", help="recompute engineering or case-review outcomes")
-    replay.add_argument("--scope", choices=("person", "tenant"), default="person")
+    replay.add_argument("--scope", choices=("person", "tenant"), help="require the selected receipt scope")
     replay.add_argument("directory", nargs="?", type=Path)
     replay.add_argument("--case-review", action="store_true")
     signature.add_commands(commands, local_keys=True, aliases=True)
@@ -62,8 +80,7 @@ def main(argv, *, prog="setrya erasure"):
                 tenant.add_argument("--case-review", action="store_true")
                 opts = tenant.parse_args(rest)
                 receipt = load_directory(opts.directory, expected_request=opts.expect_request, expected_job=opts.expect_job)
-                if receipt.get("scope") != "tenant":
-                    raise InputError("Expected a tenant receipt.")
+                check_scope(receipt, "tenant")
                 return report(receipt, case_review=opts.case_review)
             except (ValueError, OSError, RecursionError) as error:
                 detail = str(error) if isinstance(error, (InputError, InvalidReport)) else type(error).__name__
@@ -77,29 +94,27 @@ def main(argv, *, prog="setrya erasure"):
         if args.action == "replay":
             if args.directory is None:
                 raise InputError("Supply the directory containing the receipt and its evidence.")
-            return replay_directory(args.directory, case_review=args.case_review)
+            return replay_directory(args.directory, case_review=args.case_review, expected_scope=args.scope)
         if args.action == "run":
             if args.output is None or args.starter is None:
                 raise InputError("Supply --starter and a new --output directory.")
             if not args.starter.is_file() or os.path.lexists(args.output):
                 raise InputError("Choose a trusted starter file and a fresh output directory.")
             selected_mode = args.mode or "deletion"
-            # A trusted starter can import its own siblings and application modules
-            # in the caller's checkout, including when Setrya was installed from PyPI.
-            child_env = os.environ.copy()
-            paths = [str(Path.cwd()), child_env.get("PYTHONPATH", "")]
-            child_env["PYTHONPATH"] = os.pathsep.join(filter(None, paths))
-            code = subprocess.run([sys.executable, str(args.starter.resolve()), "--mode", selected_mode,
-                                   "--output", str(args.output.resolve())], stdout=subprocess.DEVNULL,
-                                  env=child_env).returncode
-            if code in (2, 3) and not (args.output / RECEIPT).is_file():
-                return code
+            code, issued_digest = _run_starter(args.starter, selected_mode, args.output)
+            if not (args.output / RECEIPT).is_file():
+                label = "NOT TESTED" if code == 3 else "ERROR"
+                print(f"{label}  The starter exited {code} before writing a receipt. "
+                      "Run the trusted starter directly to see its diagnostics.", file=sys.stderr)
+                return 3 if code == 3 else 2
             receipt = load_directory(args.output)
             if receipt["version"] != 3:
                 raise InputError("Update the starter to issue v3 receipts. Use replay for historical v2 evidence.")
             if (receipt.get("scope") != "person" or "profile" in receipt
                     or code != receipt_exit(receipt) or receipt.get("mode") != selected_mode):
                 raise InputError("Starter exit or recorded mode differs from the requested drill.")
+            if issued_digest != receipt["evidence"]["sha256"].encode("ascii"):
+                raise InputError("Receipt does not match evidence issued by this live run.")
             return report(receipt)
         if args.scope == "tenant" and (args.example or getattr(args, "mode", None)):
             raise InputError("Use person scope to select a shared investigation mode.")

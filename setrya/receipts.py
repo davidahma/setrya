@@ -38,8 +38,6 @@ def replay(directory, *, expected_request=None, expected_job=None, records=None)
         if path.name not in (v2.RECEIPT, "case-result.json"):
             return _replay_legacy(path, expected_request, expected_job, records)
     name = bundle_manifest(folder)
-    if name is not None and os.path.lexists(folder / "receipt.json"):
-        raise InputError("Ambiguous receipt directory. Keep each receipt with its own evidence.")
     if name is None and (folder / "receipt.json").is_file():
         return _replay_legacy(folder / "receipt.json", expected_request, expected_job, records)
     require(records is None, "Explicit --record inputs apply only to archived v1 receipts.")
@@ -66,6 +64,15 @@ def _replay_legacy(path, expected_request, expected_job, records):
     return replay_legacy(request_path=folder / "request.json", policy_path=folder / "policy.json",
                          evidence_path=folder / "evidence.json", expect_request=expected_request,
                          expect_job=expected_job, receipt_path=path, records=records)
+
+
+def check_scope(receipt, expected_scope):
+    """Apply an explicit reviewer scope to an already validated historical or v3 receipt."""
+    if expected_scope is None:
+        return
+    legacy_tenant = receipt.get("version") == 1 and "format" not in receipt
+    scope = receipt.get("scope", "tenant" if legacy_tenant else "person")
+    require(scope == expected_scope, f"Expected a {expected_scope} receipt.")
 
 
 def summary(receipt):
@@ -112,10 +119,12 @@ def signature_command(args):
             # the original ticket digest, policy, evidence and exhibits separately.
             require(len(raw) <= MAX_JSON_BYTES, "The v1 receipt exceeds the 1 MiB limit.")
             validate_receipt(header)
+            check_scope(header, args.scope)
             return
         require(not os.path.lexists(args.receipt.parent / "receipt.json")
                 and args.receipt.name == bundle_manifest(args.receipt.parent),
                 "Choose the manifest from the original evidence bundle.")
-        replay_bytes(args.receipt.parent, raw)
+        receipt = replay_bytes(args.receipt.parent, raw)
+        check_scope(receipt, args.scope)
 
     return signature.run(args, receipt_limit=v2.MAX_BUNDLE_FILE_BYTES, validate=validate)

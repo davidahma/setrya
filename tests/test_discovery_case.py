@@ -196,7 +196,7 @@ class DiscoveryCaseTests(TestCase):
                 return Hold("captured")
 
             def checkpoint(self, subject):
-                return None
+                raise AssertionError("a worker with no acknowledged hold cannot be inspected")
 
             def release_and_drain(self, subject, attempt):
                 self.released = True
@@ -210,6 +210,7 @@ class DiscoveryCaseTests(TestCase):
                                         output=folder)
             self.assertEqual(result["technical_verdict"], "NOT TESTED")
             self.assertFalse(app.erased or app.held or app.released)
+            self.assertEqual(result["errors"], [])
             self.assertEqual(discovery.replay(folder), result)
 
     def test_timed_out_or_abandoned_fixture_worker_never_publishes_during_cleanup(self):
@@ -344,6 +345,12 @@ class DiscoveryCaseTests(TestCase):
         folder = self.root / "run"
         result = discovery.run_case(self.binding, **self.options, output=folder)
         self.assertEqual(result["technical_verdict"], "PASS")
+        for directory in (folder, folder / discovery.DRILL):
+            legacy = directory / "receipt.json"
+            legacy.write_text("{}")
+            with self.assertRaisesRegex(ValueError, "ambiguous evidence directory"):
+                discovery.replay(folder)
+            legacy.unlink()
         for directory in (folder, folder / discovery.DRILL):
             with self.subTest(directory=directory):
                 second = directory / "scenario.json"

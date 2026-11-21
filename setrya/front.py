@@ -29,20 +29,29 @@ def help_parser():
 
 
 def doctor(argv):
-    from .erasure.v3 import observe_baseline
+    from .erasure.v3 import SharedCase, observe_baseline
 
     parser = argparse.ArgumentParser(prog="setrya doctor", description="Read a trusted fixture's baseline before erasure.")
     parser.add_argument("--starter", type=Path, required=True)
     parser.add_argument("--mode", choices=("deletion", "late-write"), default="deletion")
     args = parser.parse_args(argv)
-    source = args.starter.resolve(strict=True)
+    if not args.starter.is_file():
+        raise InputError("Supply a trusted starter file with --starter.")
+    source = args.starter.resolve()
     original = sys.path
     try:
         sys.path = [str(source.parent), str(Path.cwd()), *original]
         hooks = runpy.run_path(str(source))
-        with hooks["open_fixture"]() as (subject, app, items):
-            case = hooks["CASE"]
+        case, open_fixture = hooks.get("CASE"), hooks.get("open_fixture")
+        if not isinstance(case, SharedCase) or not callable(open_fixture):
+            raise InputError("The trusted starter must define a SharedCase named CASE and open_fixture().")
+        case.spec()
+        with open_fixture() as (subject, app, items):
             required = ["inspect", "read", "erase"]
+            if case.scan_stores:
+                required.append("scan")
+            if case.require_lineage:
+                required.append("lineage")
             if args.mode == "late-write":
                 required += ["hold", "checkpoint", "release_and_drain"]
             missing = [name for name in required if not callable(getattr(app, name, None))]
@@ -58,8 +67,8 @@ def doctor(argv):
     except NotImplementedError:
         print("NOT TESTED  Connect open_fixture to your disposable application.")
         return 3
-    except (KeyError, SystemExit):
-        raise InputError("The trusted starter must define CASE and open_fixture().") from None
+    except SystemExit:
+        raise InputError("The starter exited before its baseline could be checked.") from None
     finally:
         sys.path = original
 

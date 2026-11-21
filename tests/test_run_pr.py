@@ -58,6 +58,7 @@ if label == "opaque": os.environ["TEST_OPAQUE"] = "1"
 result = run(drill, revision=revision)
 target = Path(os.environ["SETRYA_REVIEW_REPORT"])
 result.report.save(target)
+if label == "slow-teardown" and lane == "base": time.sleep(30)
 if label == "dirty" and lane == "candidate": Path("lane").write_text("changed")
 report = json.loads(target.read_bytes())
 if label == "wrong" and lane == "candidate": report["rules"]["document"] = "other"
@@ -157,6 +158,17 @@ class RunPrTests(unittest.TestCase):
                 self.assertTrue((self.out / "candidate.json").is_file())
                 self.assertIn("ERROR", (self.out / "review.md").read_text())
                 shutil.rmtree(self.out)
+
+    def test_search_timeout_after_recording_keeps_the_base_failure(self):
+        self.assertEqual(self.check("slow-teardown", timeout=3), 2)
+        metadata = json.loads((self.out / "run-pr.json").read_bytes())
+        base = (self.out / "base.json").read_bytes()
+        self.assertEqual(metadata["base"]["report_sha256"], sha256(base).hexdigest())
+        self.assertIsNone(metadata["base"]["test_exit"])
+        self.assertEqual(metadata["candidate"]["test_exit"], 0)
+        summary = (self.out / "review.md").read_text()
+        self.assertIn("command timed out after recording", summary)
+        self.assertNotIn("FIX VERIFIED", summary)
 
     def test_setrya_native_inconclusive_exits_survive_offline_review(self):
         from setrya.cli import main as cli

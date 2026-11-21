@@ -15,6 +15,8 @@ The generated starter also runs under `python -m pytest -q subject-test/test_era
 
 For PostgreSQL LangGraph deployments install `'setrya[erasure,erasure-postgres]'`. For Elasticsearch add `erasure-elasticsearch`. For the shared answer cache add `redis`. Replay of downloaded evidence uses the core package alone.
 
+If the fixture exits before writing a receipt, `setrya run` reports the fixture exit code. An unconnected starter exits 3. Other exits without a receipt return ERROR (2). For application logs and tracebacks, run the trusted starter directly in your private development environment with its usual `--mode` and a fresh `--output`.
+
 ## Two decisions
 
 `setrya replay DIRECTORY` returns the engineering result. Exit 0 means required application evidence passed, 1 means an established failure, 2 means an error, and 3 means required evidence is insufficient. A deletion-only result identifies the worker race as unexercised. `setrya replay DIRECTORY --case-review` also exits 3 when a technically passing case has outstanding review items. Open the owner, evidence reference and follow-up date in the case system. A missing required application read prevents technical PASS.
@@ -30,7 +32,7 @@ setrya verify --receipt guarded/erasure-receipt.json --bundle guarded/receipt.si
 setrya replay guarded
 ```
 
-Use `erasure sign --key cosign.key --receipt … --bundle …` and `erasure verify --key cosign.pub --receipt … --bundle …` for local detached Cosign signatures. Distribute the public key independently.
+Use `erasure sign --key cosign.key --receipt … --bundle …` and `erasure verify --key cosign.pub --receipt … --bundle …` for local detached Cosign signatures. Distribute the public key independently. Add `--scope person` or `--scope tenant` to `setrya verify` or `setrya replay` when the reviewer requires that scope.
 
 ## Tenant scope
 

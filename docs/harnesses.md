@@ -34,11 +34,11 @@ Seed the marker into a copy *before* running the case. Each scanner returns the 
 
 | Store | Scanner | Read boundary |
 | --- | --- | --- |
-| SQLite | `SQLiteCanaryScanner` | Literal text in one explicitly named table column and scope |
-| PostgreSQL / pgvector | `PostgresCanaryScanner` | All rows in one scoped text column, including rows with no embedding. Install `setrya[pgvector]`. |
+| SQLite | `SQLiteCanaryScanner` | Literal text in one explicitly named table column and scope. The observer must have no open transaction. An in-scope non-text value makes the scan inconclusive. |
+| PostgreSQL / pgvector | `PostgresCanaryScanner` | All rows in one scoped text column, including rows with no embedding. An incompatible column type makes the scan inconclusive. Install `setrya[pgvector]`. |
 | Elasticsearch | `ElasticsearchCanaryScanner(client, index, scope_field="workspace", content_field="body")` | One concrete index, exact keyword scope. Refresh and traverse a point-in-time view of the declared source field. Install `setrya[erasure-elasticsearch]`. |
 | Redis | `RedisCanaryScanner(client, prefix="answers")` | String values under `answers:<scope>:<key>` on a standalone Redis 7+ primary. Use a dedicated DB of at most 4,096 keys and 16 MiB of scoped text. An incompatible key type stops the scan. Install `setrya[redis]`. |
-| SDK answer caches | `AnswerCacheCanaryScanner(cache, tenant="fixture")` | Published answers in one retrieval scope of a local or Redis SDK cache |
+| SDK answer caches | `AnswerCacheCanaryScanner(cache, tenant="fixture")` | Published answer text in one retrieval scope, including Redis answers hidden by strict serving rules. Redis reads up to 4,096 scoped answers and reservations and 16 MiB of serialized publications on a standalone primary. |
 | LangGraph checkpoints | `SQLiteCheckpointCanaryScanner(connection)`, `PostgresCheckpointCanaryScanner(connection)` | All full-saver checkpoint versions and pending writes for one thread, including orphan PostgreSQL blobs. Searches plain marker bytes in supported serialized data. |
 | LangGraph memory | `LangGraphMemoryCanaryScanner(store, namespace=("teams",))`, `PostgresMemoryCanaryScanner(connection, namespace=("teams",))` | In-memory items or persisted JSON values in the declared namespace subtree. Direct PostgreSQL reads include expired rows. |
 

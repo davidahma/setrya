@@ -46,6 +46,65 @@ class PublicCLI(unittest.TestCase):
             self.assertEqual(main(["demo", "--scope=tenant", f"--output={tmp}/tenant"]), 0)
             self.assertTrue(Path(tmp, "tenant/receipt/erasure-receipt.json").is_file())
 
+    def test_scoped_replay_and_verification_use_the_receipts_actual_scope(self):
+        with TemporaryDirectory() as tmp, contextlib.redirect_stdout(StringIO()), contextlib.redirect_stderr(StringIO()):
+            person, tenant = Path(tmp, "person"), Path(tmp, "tenant")
+            self.assertEqual(main(["demo", "--mode", "deletion", "--output", str(person)]), 0)
+            self.assertEqual(main(["demo", "--scope", "tenant", "--output", str(tenant)]), 0)
+            key, signature = Path(tmp, "key"), Path(tmp, "signature")
+            key.write_text("test key")
+            signature.write_text("test signature")
+            for scope, wrong, folder in (("person", "tenant", person / "guarded"), ("tenant", "person", tenant / "receipt")):
+                for cmd in (["replay"], ["erasure", "replay"]):
+                    self.assertEqual(main([*cmd, str(folder), "--scope", scope]), 0)
+                    self.assertEqual(main([*cmd, str(folder), "--scope", wrong]), 2)
+                verify = ["verify", "--receipt", str(folder / "erasure-receipt.json"), "--bundle", str(signature), "--key", str(key)]
+                with patch("setrya.offboarding.signature.subprocess.run") as cosign:
+                    self.assertEqual(main([*verify, "--scope", wrong]), 2)
+                    cosign.assert_not_called()
+                    self.assertEqual(main([*verify, "--scope", scope]), 0)
+                    self.assertEqual(main(verify), 0)
+                    self.assertEqual(cosign.call_count, 2)
+            legacy = ROOT / "tests/fixtures/offboarding-receipt-axiom-v0.3.2.json"
+            with patch("setrya.offboarding.signature.subprocess.run") as cosign:
+                verify = ["verify", "--receipt", str(legacy), "--bundle", str(signature), "--key", str(key)]
+                self.assertEqual(main([*verify, "--scope", "person"]), 2)
+                self.assertEqual(main([*verify, "--scope", "tenant"]), 0)
+                cosign.assert_called_once()
+
+    def test_starter_without_receipt_reports_a_safe_diagnostic(self):
+        with TemporaryDirectory() as tmp:
+            starter = Path(tmp, "starter.py")
+            args = ["run", "--starter", str(starter), "--output", str(Path(tmp, "out"))]
+            for code in (0, 1, 2, 3):
+                starter.write_text(f"raise SystemExit({code})\n")
+                with self.subTest(code=code), contextlib.redirect_stderr(StringIO()) as err:
+                    self.assertEqual(main(args), 3 if code == 3 else 2)
+                    self.assertIn("NOT TESTED" if code == 3 else "ERROR", err.getvalue())
+                    self.assertIn(f"exited {code} before writing a receipt", err.getvalue())
+
+    def test_doctor_validates_the_contract_before_opening_and_preserves_hook_errors(self):
+        with TemporaryDirectory() as tmp:
+            starter = Path(tmp, "starter.py")
+            args = ["doctor", "--starter", str(starter)]
+            starter.write_text("def open_fixture():\n    raise AssertionError('setup was called')\n")
+            with contextlib.redirect_stderr(StringIO()) as err:
+                self.assertEqual(main(args), 2)
+                self.assertIn("define a SharedCase named CASE", err.getvalue())
+            starter.write_text("from setrya.examples.workspace import SIMPLE as CASE\n"
+                               "def open_fixture():\n    raise KeyError('private setting')\n")
+            with contextlib.redirect_stderr(StringIO()) as err:
+                self.assertEqual(main(args), 2)
+                self.assertIn("KeyError", err.getvalue())
+                self.assertNotIn("private setting", err.getvalue())
+            starter.write_text("from contextlib import contextmanager\nfrom dataclasses import replace\n"
+                               "from setrya.examples.workspace import SIMPLE, open_fixture as workspace\n"
+                               "CASE = replace(SIMPLE, scan_stores=('notes',), require_lineage=True)\n"
+                               "open_fixture = workspace\n")
+            with contextlib.redirect_stdout(StringIO()) as out:
+                self.assertEqual(main(args), 3)
+                self.assertIn("Missing fixture methods: scan, lineage", out.getvalue())
+
     def test_public_help_names_only_primary_commands(self):
         with contextlib.redirect_stdout(StringIO()) as out, self.assertRaises(SystemExit):
             main(["--help"])

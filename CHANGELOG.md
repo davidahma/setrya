@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1
+
+- A live person drill now checks that its starter returned the evidence issued by that invocation. Replay and signing honor an explicit person or tenant scope. A bundle with competing receipts is rejected, including inside a discovery case. Supported historical receipts still replay under their original rules.
+- A worker checkpoint belongs to the subject whose job was paused. A drill that never held a worker skips its checkpoint callback.
+- SQLite canary reads require committed data. Cache scanners check the stored answer bodies across a consistent read. A scan that cannot establish the state of the declared store leaves the result open.
+- The CLI reports fixture setup failures without publishing the application's exception text. Doctor identifies missing fixture hooks, and the GitHub workflow uploads a receipt only after the action verifies it.
+- A search PR review keeps a completed report when test teardown times out. Reviewers can replay the observation and see which lane lacks a native exit.
+
 ## 1.0.0
 
 - A single person-erasure case now accepts a private key to delete, a shared object to rewrite, a required record to preserve, or a mixture. Start with one authenticated reader and add more callers as needed.

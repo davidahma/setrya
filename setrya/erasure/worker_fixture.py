@@ -31,6 +31,7 @@ class WorkerFixture:
         self._attempt = uuid4().hex
         self._future = Future()
         self._thread = None
+        self._subject = None
 
     def __enter__(self):
         return self
@@ -72,6 +73,7 @@ class WorkerFixture:
 
         if self._thread is not None:
             raise RuntimeError("this fixture has already dispatched a worker")
+        self._subject = subject
         self._thread = Thread(target=self._run, args=(subject,), name="setrya-erasure-worker", daemon=True)
         self._thread.start()
         if not self._ready.wait(self.timeout):
@@ -88,7 +90,7 @@ class WorkerFixture:
     def checkpoint(self, subject):
         from . import Hold
 
-        if self._paused.is_set() and not self._release.is_set() and not self._future.done():
+        if subject == self._subject and self._paused.is_set() and not self._release.is_set() and not self._future.done():
             return Hold(self._attempt)
         return None
 

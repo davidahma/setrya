@@ -32,7 +32,7 @@ class OpenAISessionCanaryScanner(SQLiteCanaryScanner):
 
     def __init__(self, connection, *, messages_table="agent_messages"):
         self.db = connection
-        self.query = (f'SELECT t.id FROM {_sql_name(messages_table)} t WHERE t.session_id COLLATE BINARY=? '
+        self.query = (f'SELECT t.id AS copy_key FROM {_sql_name(messages_table)} t WHERE t.session_id COLLATE BINARY=? '
                       'AND EXISTS(SELECT 1 FROM json_tree(t.message_data) j '
                       "WHERE instr(CASE WHEN j.type='text' THEN j.atom END,?2)>0 OR instr(j.key,?2)>0) LIMIT 4097")
 
