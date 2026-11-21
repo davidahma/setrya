@@ -7,6 +7,9 @@ permissions:
   contents: read
 jobs:
   drill:
+    outputs:
+      code: ${{ steps.action.outputs.exit-code }}
+      review: ${{ steps.action.outputs.review-status }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -101,6 +104,21 @@ jobs:
           name: checked-erasure
           path: ${{ runner.temp }}/alice/
           if-no-files-found: error
+
+  pr-receipt:
+    needs: drill
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.drill.outputs.code != '' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write
+    steps:
+      # The write-enabled job takes only two enums from the drill. It never checks out PR code.
+      - uses: davidahma/setrya@7eb94c5214016365a89d18cb335a8ce8abd5b0fe
+        with:
+          operation: comment
+          token: ${{ github.token }}
+          exit-code: ${{ needs.drill.outputs.code }}
+          review-status: ${{ needs.drill.outputs.review }}
 
   sign:
     needs: drill
