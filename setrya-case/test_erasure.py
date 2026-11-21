@@ -4,8 +4,7 @@ from pathlib import Path
 
 from setrya.erasure.v3 import run_shared
 from setrya.erasure.v3_receipt import exit_code, summary
-from setrya.examples.workspace import SIMPLE as CASE
-from setrya.examples.workspace import open_fixture
+from helpdesk_fixture import CASE, open_fixture
 
 # Replace CASE and open_fixture with imports from your disposable application.
 # CASE names the caller, questions, store keys and actions. open_fixture seeds
