@@ -70,12 +70,14 @@ class HarnessTests(unittest.TestCase):
 
         client = OpenAI(api_key="fixture", http_client=httpx.Client(transport=httpx.MockTransport(transport)))
         self.addCleanup(client.close)
-        response = openai_response(self.hooks, client, {"model": "fixture-model", "input": MARKER},
+        response = openai_response(self.hooks, client, {"model": "fixture-model", "input": MARKER,
+                                                       "prompt_cache_retention": "24h"},
                                    store="provider", key="request", source="ticket")
         self.assertEqual(response.id, "resp_1")
         copy = next(row for row in self.journal.copies(self.subject) if row.store == "provider")
         self.assertEqual(copy.details["components"], ["input"])
         self.assertEqual(copy.details["evidence_level"], "configuration")
+        self.assertIs(copy.details["prompt_caching"], True)
         self.assertNotIn(MARKER, repr(copy))
 
         async_client = AsyncOpenAI(api_key="fixture", http_client=httpx.AsyncClient(transport=httpx.MockTransport(transport)))
