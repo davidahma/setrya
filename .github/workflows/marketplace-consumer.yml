@@ -1,0 +1,95 @@
+name: Marketplace consumer verification
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions: {}
+jobs:
+  consumer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.guarded.outputs.exit-code }}
+      review: ${{ steps.guarded.outputs.review-status }}
+    steps:
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.13'
+      - name: Install the public package and wire two synthetic application fixtures
+        run: |
+          python -m pip --isolated install --no-cache-dir --index-url https://pypi.org/simple setrya==1.0.1
+          python - <<'PY'
+          from pathlib import Path
+          from subprocess import run
+          for lane in ("guarded", "broken"):
+              run(["setrya", "init", "--output", lane], check=True)
+              path = Path(lane, "test_erasure.py")
+              text = path.read_text().replace("import SIMPLE as CASE", "import CASE")
+              path.write_text(text.replace("with open_fixture()", f"with open_fixture(shared=True, guarded={lane == 'guarded'})"))
+          PY
+      - id: guarded
+        uses: davidahma/setrya@v1.0.1
+        with:
+          starter: guarded/test_erasure.py
+          mode: late-write
+          output: evidence/guarded
+      - id: broken
+        continue-on-error: true
+        uses: davidahma/setrya@v1.0.1
+        with:
+          starter: broken/test_erasure.py
+          mode: late-write
+          output: evidence/broken
+      - name: Check the release gate and both review statuses
+        env:
+          GOOD_CODE: ${{ steps.guarded.outputs.exit-code }}
+          BAD_CODE: ${{ steps.broken.outputs.exit-code }}
+          GOOD_REVIEW: ${{ steps.guarded.outputs.review-status }}
+          BAD_REVIEW: ${{ steps.broken.outputs.review-status }}
+          BROKEN_OUTCOME: ${{ steps.broken.outcome }}
+        run: |
+          test "$GOOD_CODE" = 0
+          test "$GOOD_REVIEW" = OPEN_ITEMS
+          test "$BAD_CODE" = 1
+          test "$BAD_REVIEW" = RESIDUAL_FOUND
+          test "$BROKEN_OUTCOME" = failure
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: marketplace-receipts
+          path: evidence/
+          if-no-files-found: error
+  reviewer:
+    needs: consumer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: marketplace-receipts
+          path: evidence
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.11'
+      - name: Replay downloaded evidence on a fresh runner
+        run: |
+          python -m pip --isolated install --index-url https://pypi.org/simple setrya==1.0.1
+          setrya replay evidence/guarded
+          code=0
+          setrya replay evidence/broken || code=$?
+          test "$code" = 1
+          code=0
+          setrya replay evidence/guarded --case-review || code=$?
+          test "$code" = 3
+  comment:
+    needs: [consumer, reviewer]
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: davidahma/setrya@d6dc0249ebc5dc558c2671d6912b5e5aafdffc59 # v1.0.1
+        with:
+          operation: comment
+          token: ${{ github.token }}
+          exit-code: ${{ needs.consumer.outputs.code }}
+          review-status: ${{ needs.consumer.outputs.review }}
