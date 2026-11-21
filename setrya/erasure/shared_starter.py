@@ -39,7 +39,7 @@ def test_subject_erasure(tmp_path):
         receipt = run(output, "deletion")
     except NotImplementedError as exc:
         pytest.fail(f"NOT TESTED · {exc}", pytrace=False)
-    print(f"Replay: setrya erasure replay {shlex.quote(str(output))}")
+    print(f"Replay: setrya replay {shlex.quote(str(output))}")
     if exit_code(receipt):
         pytest.fail(summary(receipt), pytrace=False)
     print(summary(receipt))

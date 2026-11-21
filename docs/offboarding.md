@@ -10,7 +10,7 @@ Install the core SDK in a Python 3.11+ virtual environment. The example uses SQL
 
 ```sh
 python -m pip install setrya
-setrya offboarding demo --output offboarding-run
+setrya demo --scope tenant --output offboarding-run
 ```
 
 Choose a new directory. The demo checks the departing tenant and a retained tenant through the same running support endpoint before deletion, after deletion, and after the held summary job finishes. A successful demo exits 0 when it reproduces all the expected cases.
@@ -20,7 +20,7 @@ Choose a new directory. The demo checks the departing tenant and a retained tena
 | `broken.json` | Gate FAIL | The delayed write restores a summary the support agent can read. |
 | `fixed.json` | Gate PASS | The guarded worker discards its stale write. The declared reads find the retained tenant and no record for the departing tenant. |
 | `inconclusive.json` | Gate NOT TESTED | A missing baseline prevents the observer from establishing what the agent could see. |
-| `receipt/receipt.json` | Technical PASS, review OPEN_ITEMS | In a separately issued staging case, the reads passed, a provider reported deletion, and the backup schedule still needs review. |
+| `receipt/erasure-receipt.json` | Technical PASS, review OPEN_ITEMS | In a separately issued staging case, the reads passed, a provider reported deletion, and the backup schedule still needs review. |
 
 Each CI case has its own `*-decision.json`. To replay the regression after the app exits, supply the original policy and observations. This example exits **1** and identifies the failed reads.
 
@@ -71,36 +71,27 @@ Associate the request ID with the tenant in your case system. Have the deletion 
 **After the job**, collect the files for this request. For each external item, supply a descriptor and the original document. The descriptor binds the request and document digests to an issuer, item ID, and kind. A `provider_statement` records what its issuer reported. A `retention_schedule` records an expiry date. A scheduled item stays open when the date passes. The demo’s `receipt/` directory contains examples of both.
 
 ```sh
-setrya offboarding receipt --request request.json --expect-request "$TICKET_DIGEST" \
+setrya run --scope tenant --request request.json --expect-request "$TICKET_DIGEST" \
   --expect-job "$DISPATCHED_JOB_ID" --policy policy.json --evidence evidence.json \
-  --record provider.json provider.txt --record backups.json backups.txt --output receipt.json
+  --record provider.json provider.txt --record backups.json backups.txt --output tenant-receipt
 ```
 
-Attachment descriptors are validated before Setrya opens their exhibits. Each exhibit can be up to 32 MiB, with a 64 MiB total across the request.
+The bundle includes the exact request, policy, observations, descriptors and exhibits supplied. Limit each exhibit to 32 MiB and the collection to 64 MiB. Share the bundle only with reviewers authorized to read those files. The manifest uses fixed local filenames and records SHA-256 digests.
 
-**Replay the receipt** with the original files and the digest from the case ticket. For the local demonstration, `request.sha256` stands in for that independently kept digest. Run this from the directory where you started the demo.
+**Replay the receipt** with the digest kept in the original ticket. The optional job ID pins it to your dispatch log. Use `--case-review` to hold the case open when the technical reads pass but a backup schedule or provider item still needs attention.
 
 ```sh
-cd offboarding-run/receipt
-setrya offboarding verify-receipt --request request.json --expect-request "$(cat request.sha256)" \
-  --policy policy.json --evidence evidence.json --receipt receipt.json \
-  --record provider.json provider.txt --record backups.json backups.txt
+setrya replay tenant-receipt --expect-request "$TICKET_DIGEST" --expect-job "$DISPATCHED_JOB_ID"
+setrya replay tenant-receipt --expect-request "$TICKET_DIGEST" --case-review
 ```
 
-The example prints `Receipt verified.`, `Technical verdict PASS`, and `Review status OPEN_ITEMS`. Exit **3** means the reviewer reproduced the outstanding backup item. For a real case, pin the expected job ID from the dispatch log when available. Replay verifies the evidence and attachments supplied for the request. The reviewer judges the observer’s authority, the scope of each read, and the provider’s statement. [Handling private evidence](../SECURITY.md)
-
-| Exit | Offboarding gate | Receipt creation or replay |
-| --- | --- | --- |
-| 0 | PASS | READY_FOR_REVIEW |
-| 1 | FAIL | RESIDUAL_FOUND |
-| 2 | ERROR | Invalid input, output, or receipt mismatch |
-| 3 | NOT TESTED | OPEN_ITEMS |
+The technical verdict covers the named probes, checkpoints and retained-tenant controls. A reported provider deletion stays attributed to its issuer. A backup schedule stays open until the owner obtains new evidence. Replay establishes consistency with the observations. Verify a detached signature to establish who issued them. [Receipt formats and signing](receipt-format.md)
 
 ## Review evidence without installing a package
 
 Download `setrya-offboarding.pyz` from the Setrya release. Verify its build provenance, then run it with Python 3.11 or newer. The arguments after the filename are the same ones you would pass after `setrya offboarding`. For example, validate an archived reference report offline with `python3 -I setrya-offboarding.pyz validate demo-report.json`. [Release files](https://github.com/davidahma/setrya/releases/tag/v0.12.1) · [Verify the build](../SECURITY.md#verify-a-downloaded-offboarding-tool)
 
-A reviewer can also sign the exact bytes of a deletion receipt with an authorized OpenSSH key. The signature namespace stays `axiom-receipt-v1` so existing signatures and allowed-signers policies continue to work. Obtain the allowed-signers file independently. The signature identifies the signing key. The receipt and original evidence supply the findings.
+For a historical v1 deletion receipt, a reviewer can also sign its exact bytes with an authorized OpenSSH key. The signature namespace stays `axiom-receipt-v1` so existing signatures and allowed-signers policies continue to work. Obtain the allowed-signers file independently. The signature identifies the signing key. The receipt and original evidence supply the findings.
 
 ```sh
 ssh-keygen -Y sign -f "$SIGNING_KEY" -n axiom-receipt-v1 receipt.json
@@ -115,7 +106,7 @@ Use the Setrya repository, SDK, CLI, releases and issue tracker for tenant offbo
 | Axiom workflow | Setrya command |
 | --- | --- |
 | Staging CI gate | `setrya offboarding gate` with the original arguments |
-| Request issuance and deletion receipts | `setrya offboarding request`, `receipt`, and `verify-receipt` with the original arguments |
+| Request issuance and deletion receipts | `setrya offboarding request` issues the ticket. `setrya run --scope tenant` issues v3. `setrya offboarding verify-receipt` accepts original v1 arguments |
 | Original three-case worker demo | `setrya offboarding reference-demo --output demo-report.json` |
 | Validate a saved worker demo | `setrya offboarding validate demo-report.json` |
 | SQLite source and answer-cache observer | `setrya offboarding sqlite-policy` and `setrya offboarding observe-sqlite` |

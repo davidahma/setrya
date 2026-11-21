@@ -4,7 +4,7 @@ from datetime import date
 import re
 
 from setrya.erasure.journal import identifier
-from setrya.erasure.model import route_id
+from setrya.erasure.model import check_callers, route_id
 from setrya.erasure.subject import Subject
 from setrya.offboarding.inputs import keys_match, read_json, require
 
@@ -67,11 +67,7 @@ def _check(value, expected_format):
     require(isinstance(value["revision"], str) and re.fullmatch("[0-9a-f]{40}|[0-9a-f]{64}", value["revision"]),
             "Expected a full Git commit ID for the application revision.")
     route_id(value["route"])
-    callers = value["callers"]
-    require(isinstance(callers, list) and len(callers) == 2, "Declare both authenticated callers.")
-    for caller in callers:
-        identifier(caller, "caller")
-    require(callers[0] != callers[1], "Expected distinct authenticated callers.")
+    check_callers(value["callers"])
     questions = value["questions"]
     require(isinstance(questions, list) and len(questions) == 2
             and all(isinstance(q, str) and re.fullmatch(r"[0-9a-f]{64}", q) for q in questions)

@@ -1,4 +1,20 @@
-# Deletion receipt v1
+# Review an erasure receipt
+
+A v3 receipt identifies its scope (`person` or `tenant`), run, technical verdict, case review status, evidence and open items. The [published JSON Schema](../setrya/erasure/receipt-v3.schema.json) specifies the fields for each scope. Experimental discovery adds `profile: "discovery"` and records which approved services were inspected. A discovery gap can hold a case at `NOT TESTED` even when the nested application drill passed.
+
+Keep the whole directory. Run `setrya replay DIRECTORY` to recompute the decision offline or add `--case-review` to require closure of open items. The public Python reviewer accepts the same evidence.
+
+```python
+from setrya.receipts import exit_code, replay, summary
+
+receipt = replay("tenant-run/receipt", expected_request=ticket_digest)
+print(summary(receipt))
+code = exit_code(receipt, case_review=True)
+```
+
+Replay establishes what the captured reads and exhibits support. Authenticate those bytes with `setrya verify --receipt FILE --bundle SIGNATURE --key independently-trusted.pub` for a local Cosign signature, or supply a trusted Sigstore root, exact identity and issuer for a keyless bundle. A signed receipt still depends on the app's observer and the scope it tested.
+
+## Historical v1 tenant receipts
 
 A receipt records the evidence for one previously issued deletion request. The [JSON Schema](../setrya/offboarding/receipt-v1.schema.json) defines the wire format. Setrya and Axiom v0.3.2 use the same version. The field names, types, status values and meanings are frozen. A future incompatible format will have a different version and its own schema. Setrya will continue to accept v1 in `verify-receipt`.
 

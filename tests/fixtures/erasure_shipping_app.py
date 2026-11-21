@@ -8,7 +8,8 @@ from typing import TypedDict
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import StateGraph, START, END
 from langgraph.store.memory import InMemoryStore
-from setrya.erasure import ErasureCase, Read, Subject
+from setrya.erasure import Subject
+from setrya.erasure.model import ErasureCase, Read
 from setrya.erasure.adapters import LangGraphMemoryAdapter, LangGraphSQLiteCheckpointAdapter, memory_namespace
 from setrya.erasure.hooks import CopyHooks
 

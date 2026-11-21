@@ -1,146 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Setrya shared subject erasure receipt v3",
-  "type": "object",
-  "properties": {
-    "format": {
-      "const": "setrya.erasure.receipt.v3"
+  "$id": "urn:setrya:erasure:receipt:v3",
+  "title": "Setrya erasure receipt v3",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/person"
     },
-    "version": {
-      "const": 3
+    {
+      "$ref": "#/$defs/tenant"
     },
-    "scope": {
-      "const": "person"
-    },
-    "run": {
-      "$ref": "#/$defs/id"
-    },
-    "subject": {
-      "$ref": "#/$defs/subject"
-    },
-    "observed_at": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "case": {
-      "$ref": "#/$defs/case"
-    },
-    "mode": {
-      "enum": [
-        "deletion",
-        "late-write"
-      ]
-    },
-    "race": {
-      "enum": [
-        "not exercised",
-        "incomplete",
-        "exercised"
-      ]
-    },
-    "technical_verdict": {
-      "enum": [
-        "FAIL",
-        "PASS",
-        "ERROR",
-        "NOT TESTED"
-      ]
-    },
-    "review_status": {
-      "enum": [
-        "READY_FOR_REVIEW",
-        "OPEN_ITEMS",
-        "RESIDUAL_FOUND"
-      ]
-    },
-    "open_items": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/openItem"
-      },
-      "maxItems": 512
-    },
-    "artifact_checks": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/artifactCheck"
-      }
-    },
-    "failures": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      }
-    },
-    "gaps": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      }
-    },
-    "errors": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "operation": {
-            "$ref": "#/$defs/id"
-          },
-          "error": {
-            "$ref": "#/$defs/id"
-          }
-        },
-        "required": [
-          "operation",
-          "error"
-        ],
-        "additionalProperties": false
-      }
-    },
-    "drill_duration_ms": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "evidence": {
-      "type": "object",
-      "properties": {
-        "file": {
-          "const": "erasure-evidence.json"
-        },
-        "sha256": {
-          "$ref": "#/$defs/sha256"
-        }
-      },
-      "required": [
-        "file",
-        "sha256"
-      ],
-      "additionalProperties": false
+    {
+      "$ref": "#/$defs/discovery"
     }
-  },
-  "required": [
-    "format",
-    "version",
-    "scope",
-    "run",
-    "subject",
-    "observed_at",
-    "case",
-    "mode",
-    "race",
-    "technical_verdict",
-    "review_status",
-    "open_items",
-    "artifact_checks",
-    "failures",
-    "gaps",
-    "errors",
-    "drill_duration_ms",
-    "evidence"
   ],
-  "additionalProperties": false,
   "$defs": {
     "id": {
       "type": "string",
@@ -247,8 +119,7 @@
           "items": {
             "$ref": "#/$defs/id"
           },
-          "minItems": 2,
-          "maxItems": 2,
+          "minItems": 1,
           "uniqueItems": true
         },
         "questions": {
@@ -278,6 +149,29 @@
         },
         "require_lineage": {
           "type": "boolean"
+        },
+        "judges": {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "enum": [
+                "digest",
+                "excerpt"
+              ]
+            },
+            "target": {
+              "$ref": "#/$defs/answerJudge"
+            },
+            "control": {
+              "$ref": "#/$defs/answerJudge"
+            }
+          },
+          "required": [
+            "target",
+            "control",
+            "capture"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -332,6 +226,1080 @@
         "evidence",
         "follow_up",
         "subject_ref"
+      ],
+      "additionalProperties": false
+    },
+    "answerJudge": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "marker",
+            "regex",
+            "entity",
+            "model"
+          ]
+        },
+        "rule_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "model_rule": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "kind",
+        "rule_sha256"
+      ],
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "model"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "model_rule"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "model_rule"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "utcSeconds": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "format": "date-time"
+    },
+    "verdict": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "INCONCLUSIVE"
+      ]
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "scope",
+        "checkpoint",
+        "verdict",
+        "reasons"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "scope": {
+          "$ref": "#/$defs/token"
+        },
+        "checkpoint": {
+          "enum": [
+            "after_offboarding",
+            "after_worker"
+          ]
+        },
+        "verdict": {
+          "$ref": "#/$defs/verdict"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "missingItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "kind": {
+          "enum": [
+            "provider_statement",
+            "retention_schedule"
+          ]
+        },
+        "status": {
+          "const": "MISSING"
+        }
+      }
+    },
+    "statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "issuer",
+        "descriptor_sha256",
+        "document_sha256",
+        "kind",
+        "outcome",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "issuer": {
+          "$ref": "#/$defs/token"
+        },
+        "descriptor_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "document_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "kind": {
+          "const": "provider_statement"
+        },
+        "outcome": {
+          "enum": [
+            "reported_deleted",
+            "reported_retained",
+            "unresolved"
+          ]
+        },
+        "status": {
+          "enum": [
+            "PROVIDER_REPORTED",
+            "REPORTED_RETAINED",
+            "UNRESOLVED"
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "outcome": {
+              "const": "reported_deleted"
+            },
+            "status": {
+              "const": "PROVIDER_REPORTED"
+            }
+          }
+        },
+        {
+          "properties": {
+            "outcome": {
+              "const": "reported_retained"
+            },
+            "status": {
+              "const": "REPORTED_RETAINED"
+            }
+          }
+        },
+        {
+          "properties": {
+            "outcome": {
+              "const": "unresolved"
+            },
+            "status": {
+              "const": "UNRESOLVED"
+            }
+          }
+        }
+      ]
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "issuer",
+        "descriptor_sha256",
+        "document_sha256",
+        "kind",
+        "expires_on",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/token"
+        },
+        "issuer": {
+          "$ref": "#/$defs/token"
+        },
+        "descriptor_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "document_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "kind": {
+          "const": "retention_schedule"
+        },
+        "expires_on": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "status": {
+          "const": "SCHEDULED"
+        }
+      }
+    },
+    "person": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "const": "setrya.erasure.receipt.v3"
+        },
+        "version": {
+          "const": 3
+        },
+        "scope": {
+          "const": "person"
+        },
+        "run": {
+          "$ref": "#/$defs/id"
+        },
+        "subject": {
+          "$ref": "#/$defs/subject"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "case": {
+          "$ref": "#/$defs/case"
+        },
+        "mode": {
+          "enum": [
+            "deletion",
+            "late-write"
+          ]
+        },
+        "race": {
+          "enum": [
+            "not exercised",
+            "incomplete",
+            "exercised"
+          ]
+        },
+        "technical_verdict": {
+          "enum": [
+            "FAIL",
+            "PASS",
+            "ERROR",
+            "NOT TESTED"
+          ]
+        },
+        "review_status": {
+          "enum": [
+            "READY_FOR_REVIEW",
+            "OPEN_ITEMS",
+            "RESIDUAL_FOUND"
+          ]
+        },
+        "open_items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/openItem"
+          },
+          "maxItems": 512
+        },
+        "artifact_checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactCheck"
+          }
+        },
+        "failures": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "$ref": "#/$defs/id"
+              },
+              "error": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "operation",
+              "error"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "drill_duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "const": "erasure-evidence.json"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          },
+          "required": [
+            "file",
+            "sha256"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "format",
+        "version",
+        "scope",
+        "run",
+        "subject",
+        "observed_at",
+        "case",
+        "mode",
+        "race",
+        "technical_verdict",
+        "review_status",
+        "open_items",
+        "artifact_checks",
+        "failures",
+        "gaps",
+        "errors",
+        "drill_duration_ms",
+        "evidence"
+      ],
+      "additionalProperties": false
+    },
+    "tenant": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 3
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "context": {
+          "enum": [
+            "staging",
+            "customer"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/token"
+        },
+        "revision": {
+          "$ref": "#/$defs/token"
+        },
+        "run_id": {
+          "$ref": "#/$defs/token"
+        },
+        "job_id": {
+          "$ref": "#/$defs/token"
+        },
+        "created_at": {
+          "$ref": "#/$defs/utcSeconds"
+        },
+        "started_at": {
+          "$ref": "#/$defs/utcSeconds"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/utcSeconds"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "policy_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "evidence_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "technical_verdict": {
+          "enum": [
+            "FAIL",
+            "PASS",
+            "NOT TESTED"
+          ]
+        },
+        "probes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/probe"
+          }
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/missingItem"
+              },
+              {
+                "$ref": "#/$defs/statement"
+              },
+              {
+                "$ref": "#/$defs/schedule"
+              }
+            ]
+          }
+        },
+        "review_status": {
+          "enum": [
+            "READY_FOR_REVIEW",
+            "OPEN_ITEMS",
+            "RESIDUAL_FOUND"
+          ]
+        },
+        "format": {
+          "const": "setrya.erasure.receipt.v3"
+        },
+        "scope": {
+          "const": "tenant"
+        },
+        "run": {
+          "$ref": "#/$defs/token"
+        },
+        "open_items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "kind": {
+                "$ref": "#/$defs/id"
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidence": {
+                "type": "string",
+                "minLength": 1
+              },
+              "follow_up": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "format": "date"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "status",
+              "evidence",
+              "follow_up"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 256
+        },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "const": "tenant-input.json"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          },
+          "required": [
+            "file",
+            "sha256"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "request_id",
+        "context",
+        "target",
+        "revision",
+        "run_id",
+        "job_id",
+        "created_at",
+        "started_at",
+        "observed_at",
+        "request_sha256",
+        "policy_sha256",
+        "evidence_sha256",
+        "technical_verdict",
+        "probes",
+        "items",
+        "review_status",
+        "format",
+        "scope",
+        "run",
+        "open_items",
+        "evidence"
+      ],
+      "additionalProperties": false
+    },
+    "discovery": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "const": "setrya.erasure.receipt.v3"
+        },
+        "version": {
+          "const": 3
+        },
+        "technical_verdict": {
+          "enum": [
+            "FAIL",
+            "PASS",
+            "ERROR",
+            "NOT TESTED"
+          ]
+        },
+        "review_status": {
+          "enum": [
+            "READY_FOR_REVIEW",
+            "OPEN_ITEMS",
+            "RESIDUAL_FOUND"
+          ]
+        },
+        "scope": {
+          "const": "person"
+        },
+        "profile": {
+          "const": "discovery"
+        },
+        "run": {
+          "$ref": "#/$defs/sha256"
+        },
+        "mode": {
+          "enum": [
+            "deletion",
+            "late-write",
+            "retention"
+          ]
+        },
+        "catalog": {
+          "const": "aws-macie"
+        },
+        "sample": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "case_id": {
+          "$ref": "#/$defs/id"
+        },
+        "finding_id": {
+          "$ref": "#/$defs/id"
+        },
+        "finding_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "asset_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "finding_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "environment": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "$ref": "#/$defs/id"
+        },
+        "classification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject_ref": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "store": {
+              "$ref": "#/$defs/id"
+            },
+            "key": {
+              "$ref": "#/$defs/id"
+            },
+            "revision": {
+              "$ref": "#/$defs/id"
+            },
+            "action": {
+              "enum": [
+                "delete",
+                "rewrite",
+                "retain"
+              ]
+            }
+          },
+          "required": [
+            "store",
+            "key",
+            "revision",
+            "action"
+          ],
+          "additionalProperties": false
+        },
+        "conversation": {
+          "$ref": "#/$defs/id"
+        },
+        "route": {
+          "type": "string",
+          "minLength": 1
+        },
+        "callers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sha256"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "const": "case-input.json"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          },
+          "required": [
+            "file",
+            "sha256"
+          ],
+          "additionalProperties": false
+        },
+        "open_items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "kind": {
+                "$ref": "#/$defs/id"
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidence": {
+                "type": "string",
+                "minLength": 1
+              },
+              "follow_up": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "format": "date"
+              },
+              "owner": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "status",
+              "evidence",
+              "follow_up",
+              "owner"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 256
+        },
+        "race": {
+          "enum": [
+            "not exercised",
+            "incomplete",
+            "exercised"
+          ]
+        },
+        "drill_observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "role": {
+                "enum": [
+                  "endpoint",
+                  "source",
+                  "summary",
+                  "checkpoint",
+                  "cache",
+                  "memory",
+                  "vector",
+                  "store",
+                  "provider",
+                  "external"
+                ]
+              },
+              "owner": {
+                "$ref": "#/$defs/id"
+              },
+              "status": {
+                "enum": [
+                  "PASS",
+                  "NOT TESTED",
+                  "FAIL",
+                  "RETAINED",
+                  "CONFIGURATION",
+                  "ATTESTED",
+                  "OPEN"
+                ]
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "store": {
+                "$ref": "#/$defs/id"
+              },
+              "key": {
+                "$ref": "#/$defs/id"
+              },
+              "route": {
+                "type": "string",
+                "minLength": 1
+              },
+              "action": {
+                "enum": [
+                  "delete",
+                  "rewrite",
+                  "preserve",
+                  "retain",
+                  "external"
+                ]
+              },
+              "baseline": {
+                "enum": [
+                  "CONFIRMED",
+                  "INCOMPLETE",
+                  "UNREAD"
+                ]
+              },
+              "follow_up": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "format": "date"
+              },
+              "exhibit": {
+                "type": "string",
+                "minLength": 1
+              },
+              "invocation": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "UNOBSERVED",
+                      "SDK_ATTEMPTED",
+                      "SDK_RETURNED"
+                    ]
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "required": [
+                  "status",
+                  "evidence"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "role",
+              "owner",
+              "status",
+              "evidence",
+              "reasons"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 2,
+          "maxItems": 256
+        },
+        "lineage": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "roots": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "store": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "key": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "revision": {
+                    "$ref": "#/$defs/id"
+                  }
+                },
+                "required": [
+                  "store",
+                  "key",
+                  "revision"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "derivations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "artifact": {
+                    "type": "object",
+                    "properties": {
+                      "store": {
+                        "$ref": "#/$defs/id"
+                      },
+                      "key": {
+                        "$ref": "#/$defs/id"
+                      },
+                      "revision": {
+                        "$ref": "#/$defs/id"
+                      }
+                    },
+                    "required": [
+                      "store",
+                      "key",
+                      "revision"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "inputs": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "store": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "key": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "revision": {
+                          "$ref": "#/$defs/id"
+                        }
+                      },
+                      "required": [
+                        "store",
+                        "key",
+                        "revision"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "artifact",
+                  "inputs"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "roots",
+            "derivations"
+          ],
+          "additionalProperties": false
+        },
+        "erasure_receipt": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "file": {
+                  "const": "erasure/erasure-receipt.json"
+                },
+                "sha256": {
+                  "$ref": "#/$defs/sha256"
+                }
+              },
+              "required": [
+                "file",
+                "sha256"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "failures": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "$ref": "#/$defs/id"
+              },
+              "error": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "operation",
+              "error"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "format",
+        "version",
+        "technical_verdict",
+        "review_status",
+        "scope",
+        "profile",
+        "run",
+        "mode",
+        "catalog",
+        "sample",
+        "case_id",
+        "finding_id",
+        "finding_sha256",
+        "asset_sha256",
+        "finding_type",
+        "categories",
+        "observed_at",
+        "environment",
+        "revision",
+        "classification",
+        "subject_ref",
+        "source",
+        "conversation",
+        "route",
+        "callers",
+        "questions",
+        "evidence",
+        "open_items",
+        "race",
+        "services",
+        "lineage",
+        "erasure_receipt",
+        "failures",
+        "gaps",
+        "errors"
       ],
       "additionalProperties": false
     }

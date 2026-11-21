@@ -5,7 +5,9 @@ from shutil import copytree
 from tempfile import TemporaryDirectory
 import unittest
 
-from setrya.erasure import CopyJournal, Disposition, Drain, ErasureCase, Hold, Read, Subject, run_erasure
+from fixtures.erasure_v2.runner import run_erasure
+from setrya.erasure import CopyJournal, Drain, Hold, Subject
+from setrya.erasure.model import Disposition, ErasureCase, Read
 from setrya.erasure.receipt import EVIDENCE, RECEIPT, replay
 from setrya.offboarding.inputs import InvalidReport
 

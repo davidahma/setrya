@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 
+from setrya.receipt_format import MAX_BUNDLE_FILE_BYTES, RECEIPT
 from setrya.offboarding.inputs import keys_match, read_regular_bytes, require, unique_fields
 from .inventory import label, systems
 from .journal import identifier, validate_details
@@ -13,9 +14,7 @@ from .subject import Subject
 from .model import route_id
 
 EVIDENCE = "erasure-evidence.json"
-RECEIPT = "erasure-receipt.json"
 EXIT = {"PASS": 0, "FAIL": 1, "ERROR": 2, "NOT TESTED": 3}
-MAX_BUNDLE_FILE_BYTES = 16 * 1024 * 1024
 STAGES = ("before", "immediate", "final")
 
 

@@ -1,4 +1,6 @@
-# Test erasure in your LangGraph app
+# Archive: the v2 LangGraph starter
+
+This page describes the v0.18 legacy starter. New integrations use the [current case model](erasure-v3.md). Use an isolated environment if reproducing the historical example.
 
 A queued job has already read Alice’s chart. Can it save that snapshot after Alice is deleted? The demo reopens the saved chat through the application’s HTTP endpoint as two members of her care team. Bob’s fictional chart must stay readable to both of them.
 
@@ -7,7 +9,7 @@ A queued job has already read Alice’s chart. Can it save that snapshot after A
 Use Python 3.11 or later. The demo runs on loopback with a SQLite source table, a SQLite-backed LangGraph checkpointer and LangGraph’s in-memory long-term store.
 
 ```sh
-python -m pip install 'setrya[erasure]'
+python -m pip install 'setrya[erasure]==0.18.0'
 setrya erasure demo --example legacy --output chart-trial
 setrya replay chart-trial/guarded
 ```

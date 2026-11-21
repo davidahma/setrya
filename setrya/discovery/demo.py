@@ -77,7 +77,7 @@ def run_demo(output):
             run_case(binding, **settings, mode="late-write", output=directory)
         result = replay(directory, expected_binding=binding)
         print(f"\n{name}\n{summary(result)}")
-        print(f"Replay: setrya discovery replay {quote(str(directory))}")
+        print(f"Replay: setrya replay {quote(str(directory))}")
         if exit_code(result) != expected:
             raise InputError(f"The {name} discovery fixture produced an unexpected verdict.")
     return 0

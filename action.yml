@@ -1,0 +1,49 @@
+name: Setrya erasure drill
+description: Run a disposable application fixture, replay its receipt, and report the verdict on a pull request.
+inputs:
+  operation:
+    description: Run a fixture or post its result from a separate job (run or comment).
+    default: run
+  starter:
+    description: Trusted test fixture in the checked-out application.
+    default: setrya-case/test_erasure.py
+  mode:
+    description: deletion or late-write.
+    default: deletion
+  output:
+    description: New directory for the receipt and evidence.
+    default: setrya-receipt
+  exit-code:
+    description: For comment only, the exit-code output from the run job.
+  review-status:
+    description: For comment only, the review-status output from the run job.
+  token:
+    description: For comment only, a token with pull-requests write permission.
+outputs:
+  exit-code:
+    description: 0 PASS, 1 FAIL, 2 ERROR, or 3 NOT TESTED.
+    value: ${{ steps.drill.outputs.exit-code }}
+  review-status:
+    description: Case review status, or UNAVAILABLE if no receipt was produced.
+    value: ${{ steps.drill.outputs.review-status }}
+runs:
+  using: composite
+  steps:
+    - id: drill
+      if: inputs.operation == 'run'
+      shell: bash
+      env:
+        SETRYA_STARTER: ${{ inputs.starter }}
+        SETRYA_MODE: ${{ inputs.mode }}
+        SETRYA_OUTPUT: ${{ inputs.output }}
+      run: python -I "$GITHUB_ACTION_PATH/scripts/action.py" run
+    - if: inputs.operation == 'comment'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        SETRYA_CODE: ${{ inputs.exit-code }}
+        SETRYA_REVIEW: ${{ inputs.review-status }}
+      run: python -I "$GITHUB_ACTION_PATH/scripts/action.py" comment
+    - if: inputs.operation != 'run' && inputs.operation != 'comment'
+      shell: bash
+      run: exit 2

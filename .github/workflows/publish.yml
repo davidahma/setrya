@@ -74,7 +74,11 @@ jobs:
             python -m venv "$envdir"
             "$envdir/bin/python" -m pip install --no-deps "$distribution"
             test "$("$envdir/bin/setrya" --version)" = "$VERSION"
-            "$envdir/bin/setrya" demo
+            if test -f "$GITHUB_WORKSPACE/scripts/verify-installed-v1.py"; then
+              "$envdir/bin/python" -I "$GITHUB_WORKSPACE/scripts/verify-installed-v1.py"
+            else
+              "$envdir/bin/setrya" demo
+            fi
             if test -f "$GITHUB_WORKSPACE/setrya/examples/access_demo.py"; then
               "$envdir/bin/setrya" demo access
             fi
@@ -83,7 +87,7 @@ jobs:
               "$envdir/bin/python" -m pip install "${distribution}[pytest]"
               "$envdir/bin/python" -I "$GITHUB_WORKSPACE/scripts/verify-installed-starter.py"
             fi
-            if test -f "$GITHUB_WORKSPACE/setrya/erasure/demo.py"; then
+            if test -d "$GITHUB_WORKSPACE/setrya/erasure"; then
               "$envdir/bin/python" -m pip install "${distribution}[erasure]"
               "$envdir/bin/setrya" init erasure --output "$envdir/starter"
               "$envdir/bin/setrya" demo erasure --output "$envdir/alice"
@@ -141,7 +145,11 @@ jobs:
             sleep 5
           done
           test "$(public-install/bin/setrya --version)" = "$VERSION"
-          public-install/bin/setrya demo
+          if test -f "$GITHUB_WORKSPACE/scripts/verify-installed-v1.py"; then
+            public-install/bin/python -I "$GITHUB_WORKSPACE/scripts/verify-installed-v1.py"
+          else
+            public-install/bin/setrya demo
+          fi
           if test -f "$GITHUB_WORKSPACE/setrya/examples/access_demo.py"; then
             public-install/bin/setrya demo access
           fi
@@ -149,7 +157,7 @@ jobs:
             public-install/bin/python -m pip --isolated install --no-cache-dir --index-url https://pypi.org/simple "setrya[pytest]==$VERSION"
             public-install/bin/python -I "$GITHUB_WORKSPACE/scripts/verify-installed-starter.py"
           fi
-          if test -f "$GITHUB_WORKSPACE/setrya/erasure/demo.py"; then
+          if test -d "$GITHUB_WORKSPACE/setrya/erasure"; then
             public-install/bin/python -m pip --isolated install --index-url https://pypi.org/simple "setrya[erasure]==$VERSION"
             public-install/bin/setrya init erasure
             public-install/bin/setrya demo erasure --output alice

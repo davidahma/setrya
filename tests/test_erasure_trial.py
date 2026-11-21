@@ -14,8 +14,8 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from setrya.erasure.demo import ALICE, BOB, CALLERS, ChartApplication, run_case
-from setrya.erasure.starter import init_erasure
+from fixtures.erasure_v2.demo import ALICE, BOB, CALLERS, ChartApplication, run_case
+from fixtures.erasure_v2.starter import init_erasure
 from setrya.erasure.worker_fixture import WorkerFixture
 
 
@@ -29,7 +29,7 @@ def _langgraph_installed():
 def _run(*args, cwd=None, env=None):
     # The base CI matrix runs from a source checkout without installing Setrya.
     child = dict(os.environ if env is None else env)
-    child["PYTHONPATH"] = os.pathsep.join(filter(None, (str(Path(__file__).resolve().parents[1]), child.get("PYTHONPATH"))))
+    child["PYTHONPATH"] = os.pathsep.join(filter(None, (str(Path(__file__).resolve().parents[1]), str(Path(__file__).resolve().parent), child.get("PYTHONPATH"))))
     return subprocess.run([sys.executable, *map(str, args)], capture_output=True, text=True, timeout=60, cwd=cwd, env=child)
 
 

@@ -40,7 +40,7 @@ jobs:
           python3 -I -S "$cli" validate "$report"
           python3 -I -S "$cli" demo --output example
           digest=$(sha256sum example/receipt/request.json | cut -d' ' -f1)
-          test "$digest" = "$(cat example/receipt/request.sha256)"
+          test "$digest" = "$(jq -r .request_sha256 example/receipt/tenant-input.json)"
           echo "Synthetic offboarding request SHA-256: \`$digest\`" >> "$GITHUB_STEP_SUMMARY"
       - name: Scan the synthetic reports and exhibits before packaging
         run: |
@@ -56,14 +56,11 @@ jobs:
           unzip -q "$archive" -d replay
           cd replay/receipt
           status=0
-          python3 -I -S "$RUNNER_TEMP/portable/setrya-offboarding.pyz" verify-receipt \
-            --request request.json --expect-request "$(cat "$RUNNER_TEMP/adopter/example/receipt/request.sha256")" \
-            --policy policy.json --evidence evidence.json --receipt receipt.json \
-            --record provider.json provider.txt --record backups.json backups.txt > "$RUNNER_TEMP/receipt-replay.txt" || status=$?
+          python3 -I -S "$RUNNER_TEMP/portable/setrya-offboarding.pyz" replay . --case-review \
+            --expect-request "$(sha256sum "$RUNNER_TEMP/adopter/example/receipt/request.json" | cut -d' ' -f1)" \
+            > "$RUNNER_TEMP/receipt-replay.txt" || status=$?
           test "$status" -eq 3
-          grep -Fx 'Receipt verified. Replay matches the supplied receipt.' "$RUNNER_TEMP/receipt-replay.txt"
-          grep -Fx 'Technical verdict PASS' "$RUNNER_TEMP/receipt-replay.txt"
-          grep -Fx 'Review status OPEN_ITEMS' "$RUNNER_TEMP/receipt-replay.txt"
+          grep -F 'Technical verdict PASS · Review status OPEN_ITEMS' "$RUNNER_TEMP/receipt-replay.txt"
           cd "$RUNNER_TEMP/portable"
           sha256sum setrya-offboarding.pyz > setrya-offboarding.pyz.sha256
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -96,15 +93,15 @@ jobs:
           TUF_ROOT: ${{ runner.temp }}/sigstore-trust
           SIGNER: ${{ github.server_url }}/${{ github.workflow_ref }}
         run: |
-          unzip -p offboarding-example.zip receipt/receipt.json > "$RUNNER_TEMP/receipt.json"
+          unzip -q offboarding-example.zip 'receipt/*' -d "$RUNNER_TEMP/review"
           cosign initialize
           root="$TUF_ROOT/tuf-repo-cdn.sigstore.dev/targets/trusted_root.json"
           cli=(python3 -I setrya-offboarding.pyz)
-          "${cli[@]}" sign-receipt --receipt "$RUNNER_TEMP/receipt.json" --bundle receipt.sigstore.json
-          verify=(verify-signature --trusted-root "$root" --issuer https://token.actions.githubusercontent.com --bundle receipt.sigstore.json --receipt "$RUNNER_TEMP/receipt.json")
+          "${cli[@]}" sign-receipt --receipt "$RUNNER_TEMP/review/receipt/erasure-receipt.json" --bundle receipt.sigstore.json
+          verify=(verify-signature --trusted-root "$root" --issuer https://token.actions.githubusercontent.com --bundle receipt.sigstore.json --receipt "$RUNNER_TEMP/review/receipt/erasure-receipt.json")
           "${cli[@]}" "${verify[@]}" --identity "$SIGNER"
           if "${cli[@]}" "${verify[@]}" --identity 'unauthorized@example.invalid'; then exit 1; fi
-          echo ' ' >> "$RUNNER_TEMP/receipt.json"
+          echo ' ' >> "$RUNNER_TEMP/review/receipt/erasure-receipt.json"
           if "${cli[@]}" "${verify[@]}" --identity "$SIGNER"; then exit 1; fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:

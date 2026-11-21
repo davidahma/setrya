@@ -62,10 +62,42 @@ class OffboardingReceiptCLITests(unittest.TestCase):
         self.assertIn("Review status OPEN_ITEMS", verified)
         self.assertIn("SCHEDULED archive", verified)
         output = self.root / "new-receipt.json"
-        self.invoke(3, "receipt", *self.inputs, "--output", output)
-        self.assertEqual(output.read_bytes(), LEGACY_RECEIPT.read_bytes())
+        self.invoke(0, "receipt", *self.inputs, "--output", output)
+        new = json.loads((output / "erasure-receipt.json").read_bytes())
+        self.assertEqual((new["version"], new["scope"]), (3, "tenant"))
+        self.assertEqual(new["probes"], json.loads(LEGACY_RECEIPT.read_bytes())["probes"])
         self.invoke(2, "receipt", *self.inputs, "--output", output)
         self.invoke(2, *command, "--expect-job", "neighboring-job")
+
+    def test_v3_bundle_replays_without_original_files_and_detects_changed_exhibit(self):
+        from setrya import receipts
+        from setrya.receipt_format import RECEIPT
+
+        folder = self.root / "portable"
+        self.invoke(0, "receipt", *self.inputs, "--output", folder)
+        original = self.data["request_hash"]
+        result = receipts.replay(folder / RECEIPT, expected_request=original)
+        self.assertEqual((receipts.exit_code(result), receipts.exit_code(result, case_review=True)), (0, 3))
+        self.assertEqual([item["id"] for item in result["open_items"]], ["archive"])
+        for pin in ({"expected_request": "0" * 64}, {"expected_job": "different"}):
+            with self.assertRaises(InvalidReport):
+                receipts.replay(folder, **pin)
+        (self.root / "evidence.json").unlink()
+        self.assertEqual(receipts.replay(folder), result)
+        (folder / "record-1.bin").write_bytes(b"replacement exhibit")
+        with self.assertRaisesRegex(InvalidReport, "digest"):
+            receipts.replay(folder)
+
+    def test_v1_reviewer_requires_independent_ticket_pin_and_preserves_exit_contract(self):
+        from setrya import receipts
+
+        manifest = self.root / "receipt.json"
+        manifest.write_bytes(LEGACY_RECEIPT.read_bytes())
+        with self.assertRaisesRegex(InvalidReport, "ticket digest"):
+            receipts.replay(self.root)
+        result = receipts.replay(manifest, expected_request=self.data["request_hash"])
+        self.assertEqual(result, json.loads(LEGACY_RECEIPT.read_bytes()))
+        self.assertEqual(receipts.exit_code(result), 3)
 
     def test_replay_requires_original_exhibits_and_exact_json_types(self):
         for field, value in (("version", True), ("technical_verdict", "FAIL"), ("review_status", "READY_FOR_REVIEW")):
@@ -122,7 +154,7 @@ class OffboardingReceiptCLITests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("ssh-keygen"), "OpenSSH signing is optional")
     def test_detached_signature_preserves_original_receipt_namespace(self):
         receipt = self.root / "receipt.json"
-        self.invoke(3, "receipt", *self.inputs, "--output", receipt)
+        receipt.write_bytes(LEGACY_RECEIPT.read_bytes())
         key = self.root / "reviewer.key"
         trust = self.root / "allowed_signers"
         subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key], check=True)

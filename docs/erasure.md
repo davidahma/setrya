@@ -1,14 +1,13 @@
-# Verify one test subject’s deletion
+# Archive: subject erasure v2
 
-Setrya follows one tenant-scoped subject through a disposable application. The journal records where your hooks saw a copy. Direct adapters also search every system in the inventory for subject-tagged records, including records the hooks missed. Untagged data outside those boundaries requires a separate discovery process.
+V2 receipts remain replayable. Use the [current v3 case model](erasure-v3.md) for new runs. The v0.16 fixture follows one tenant-scoped subject through a disposable application. The journal records where your hooks saw a copy. Direct adapters also search every system in the inventory for subject-tagged records, including records the hooks missed. Untagged data outside those boundaries requires a separate discovery process.
 
-## Run and review
+## Replay a v2 case
 
 ```sh
-python -m pip install 'setrya[erasure]'
-setrya erasure demo --example legacy --output alice
+python -m pip install setrya
+# Extract the subject-erasure.zip produced by v0.16.0 first.
 setrya replay alice/guarded
-setrya erasure init --example legacy --output subject-test
 ```
 
 The demo writes three independent evidence directories. Open a receipt’s `copies` array to see its location, handling labels, owner, and a pointer to the corresponding observations. Follow those pointers in the sibling evidence file. The `reads` section records both authenticated callers at each stage. The signed GitHub release includes all three runs. [Starter guide](erasure-starter.md) · [Adapters and isolation](erasure-adapters.md) · [Instrumenting an application](erasure-hooks.md)
@@ -71,6 +70,6 @@ Both signature commands first recompute the receipt from the supplied observatio
 
 ## Receipt v2 and the onboarding target
 
-The v2 format is specific to per-subject erasure. The existing tenant offboarding receipt uses its own v1 schema and replay command. The v2 receipt and evidence travel together. The format name, required fields, status meanings, and evidence links are fixed for v2. A change that would reinterpret existing evidence requires a new format version. [Receipt schema](../setrya/erasure/receipt-v2.schema.json)
+The v2 format is specific to per-subject erasure. Archived tenant receipts retain their v1 rules. New tenant and person receipts share the published v3 format. The v2 receipt and evidence travel together. The format name, required fields, status meanings, and evidence links are fixed for v2. A change that would reinterpret existing evidence requires a new format version. [Receipt schema](../setrya/erasure/receipt-v2.schema.json)
 
 `time_to_first_verdict_ms` measures the live drill from startup through the first computed decision. `unknown_copies` counts distinct observed store/key pairs with unknown disposition. Unobserved systems and missing reads are listed under `gaps`. Installation, hook wiring, and signing take additional time. The one-hour onboarding target needs a timed session with an engineer new to Setrya. The test suite separately connects the generated starter to an independently written application and checks both metrics.

@@ -224,7 +224,10 @@ class LangGraphPostgresCheckpointAdapter(_Direct):
 
 
 def memory_item_key(subject: Subject, namespace: tuple[str, ...], key: str) -> str:
-    root = memory_namespace(subject)
+    return _scoped_memory_key(memory_namespace(subject), namespace, key)
+
+
+def _scoped_memory_key(root, namespace, key):
     if tuple(namespace[:len(root)]) != root:
         raise InputError("memory item is outside the subject's namespace")
     key = identifier(key, "memory item key")

@@ -31,6 +31,9 @@ class ElasticsearchAdapter:
     def _query(self, subject):
         if not isinstance(subject, Subject):
             raise InputError("expected a tenant-scoped Subject")
+        return self.keyword_query(subject.ref)
+
+    def keyword_query(self, value):
         mapping = self.client.indices.get_mapping(index=self.index)
         if set(mapping) != {self.index}:
             raise ValueError("Elasticsearch aliases and data streams cannot identify a concrete index")
@@ -40,10 +43,10 @@ class ElasticsearchAdapter:
                 raise ValueError("the subject keyword must be outside nested documents")
             node = node.get("properties", {}).get(part) or node.get("fields", {}).get(part) or {}
         if (node.get("type") != "keyword" or node.get("index", True) is not True
-                or node.get("normalizer") or node.get("ignore_above", 64) < 64 or node.get("script")
+                or node.get("normalizer") or node.get("ignore_above", len(value)) < len(value) or node.get("script")
                 or node.get("null_value") is not None):
-            raise ValueError("expected an indexed, exact keyword mapping for 64-character subject references")
-        return {"term": {self.field: subject.ref}}
+            raise ValueError("expected an indexed, exact keyword mapping for the full scope value")
+        return {"term": {self.field: value}}
 
     def _copies(self, subject):
         query = self._query(subject)

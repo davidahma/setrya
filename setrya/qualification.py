@@ -56,7 +56,7 @@ def check_status(result, expected, text):
 
 def demo():
     started = monotonic()
-    completed = command("-m", "setrya", "demo", timeout=120)
+    completed = command("-m", "setrya", "demo", "refund", timeout=120)
     outcome(completed, 0, "Old write rejected")
     require(monotonic() - started < 120, "demo exceeded the two-minute target")
     for text in ("FAIL", "PASS", "NOT TESTED", "30 days", "14 days", "visibility evidence",

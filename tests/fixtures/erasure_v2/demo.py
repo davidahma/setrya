@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory
 from threading import Thread
 from typing import TypedDict
 
-from .worker_fixture import WorkerFixture
+from setrya.erasure.worker_fixture import WorkerFixture
 
 
 ALICE = "Alice · fictional chart A17"
@@ -97,7 +97,7 @@ class ChartApplication:
     def __init__(self, folder, subject, control, journal, *, guarded):
         from langgraph.checkpoint.sqlite import SqliteSaver
         from langgraph.store.memory import InMemoryStore
-        from .adapters import LangGraphMemoryAdapter, LangGraphSQLiteCheckpointAdapter, SQLiteAdapter
+        from setrya.erasure.adapters import LangGraphMemoryAdapter, LangGraphSQLiteCheckpointAdapter, SQLiteAdapter
 
         self.folder = Path(folder)
         self.subject, self.control, self.journal = subject, control, journal
@@ -131,7 +131,7 @@ class ChartApplication:
         self.source.close()
 
     def seed(self):
-        from .hooks import CopyHooks
+        from setrya.erasure.hooks import CopyHooks
 
         for subject, key, text in ((self.subject, "chart-a", ALICE), (self.control, "chart-b", BOB)):
             with self.source:
@@ -142,7 +142,7 @@ class ChartApplication:
             hooks.invoke_graph(self.graph, {"chart": text}, thread="chat", store="checkpoints", source=key)
 
     def snapshot_job(self, subject, before_write):
-        from .hooks import CopyHooks
+        from setrya.erasure.hooks import CopyHooks
 
         key, text = self.source.execute(
             "SELECT id, chart FROM charts WHERE setrya_subject = ?", (subject.ref,)
@@ -159,7 +159,7 @@ class ChartApplication:
     def reopen(self):
         from contextlib import closing
         from langgraph.checkpoint.sqlite import SqliteSaver
-        from .adapters import checkpoint_thread
+        from setrya.erasure.adapters import checkpoint_thread
 
         with closing(sqlite3.connect(self.folder / "chats.sqlite", check_same_thread=False)) as db:
             graph = _graph(SqliteSaver(db))
@@ -172,7 +172,7 @@ class ChartApplication:
             return result
 
     def read(self, subject, caller, question):
-        from . import Read
+        from setrya.erasure.model import Read
 
         token = next(token for token, principal in self.tokens.items() if principal == caller)
         client = http.client.HTTPConnection(*self.http.server_address, timeout=3)
@@ -188,9 +188,10 @@ class ChartApplication:
 
 
 def run_case(output, *, guarded, opaque=False):
-    from . import ErasureCase, run_erasure
-    from .journal import CopyJournal
-    from .subject import Subject
+    from setrya.erasure.model import ErasureCase
+    from .runner import run_erasure
+    from setrya.erasure.journal import CopyJournal
+    from setrya.erasure.subject import Subject
 
     with TemporaryDirectory(prefix="setrya-chart-app-") as scratch:
         folder = Path(scratch)

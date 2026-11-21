@@ -21,11 +21,11 @@ class ScopedCLI(unittest.TestCase):
                 self.assertIn(f"setrya erasure {action} --scope tenant", usage)
                 self.assertNotIn(legacy, usage)
 
-    def test_unconnected_legacy_starter_requires_late_write(self):
+    def test_unconnected_v3_starter_is_not_tested_in_either_mode(self):
         with TemporaryDirectory() as tmp:
             starter = init_erasure(Path(tmp) / "starter") / "test_erasure.py"
             args = ["run", "--starter", str(starter), "--output", f"{tmp}/output"]
-            self.assertEqual(main([*args, "--mode", "deletion"]), 2)
+            self.assertEqual(main([*args, "--mode", "deletion"]), 3)
             self.assertEqual(main([*args, "--mode", "late-write"]), 3)
 
     def test_no_trusted_pass_on_starter_exit_or_mode_mismatch(self):

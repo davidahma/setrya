@@ -46,7 +46,7 @@ class AccessDemoTests(unittest.TestCase):
             self.assertNotIn("Guarded cache · PASS", out.getvalue())
 
     def test_existing_search_demo_selection(self):
-        for args, selected in (([], None), (["--case", "opaque"], "opaque")):
+        for args, selected in ((["refund"], None), (["--case", "opaque"], "opaque")):
             with patch("setrya.cli.preflight") as preflight, patch("setrya.cli.demo", return_value=0) as demo:
                 self.assertEqual(main(["demo", *args]), 0)
                 preflight.assert_called_once_with()

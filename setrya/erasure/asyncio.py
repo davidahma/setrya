@@ -94,7 +94,7 @@ class _AsyncHooks:
 
         def call(*args, **kwargs):
             async def invoke():
-                if self.stopping.is_set() and name != "release_and_drain":
+                if self.stopping.is_set() and name not in ("release_and_drain", "cancel_and_drain"):
                     raise RuntimeError("erasure run cancelled")
                 task = asyncio.current_task()
                 interruptible = name in {"read", "inspect", "scan", "find", "verify_absent", "lineage", "checkpoint"}
@@ -152,9 +152,3 @@ async def arun_shared(subject, *, application, **kwargs):
     """Use async inspect, scan, read, erase and worker hooks with the shared-object v3 checker."""
     from .v3 import run_shared
     return await _run(run_shared, subject, application=application, **kwargs)
-
-
-async def arun_erasure(subject, *, application, adapters, **kwargs):
-    """Use async application and adapter methods with the exclusive-subject v2 checker."""
-    from .runner import run_erasure
-    return await _run(run_erasure, subject, application=application, adapters=adapters, **kwargs)

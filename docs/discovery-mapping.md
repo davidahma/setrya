@@ -35,7 +35,7 @@ The `setrya.discovery.mapping` version 1 manifest binds a single case to an expe
 | --- | --- |
 | `case_id`, `subject_ref`, `classification` | A case pointer, the tenant-scoped subject HMAC used by the fixture, and the customer's own handling label. Use opaque references that a reviewer can safely share. |
 | `environment`, `revision` | The disposable deployment identifier and the full Git commit ID of the application under test. |
-| `conversation`, `route`, `callers`, `questions` | The saved conversation, its answer route, two distinct authenticated caller aliases, and the digests of the target and control questions in that order. `SharedCase.spec()` supplies the question digests. |
+| `conversation`, `route`, `callers`, `questions` | The saved conversation, its answer route, one or more distinct authenticated caller aliases, and the digests of the target and control questions in that order. `SharedCase.spec()` supplies the question digests. |
 | `source` | The exact application `store`, `key`, source `revision`, and approved `action`. The application source revision and the S3 object generation are separate identifiers. |
 | `services` | Every service expected to participate, including services awaiting instrumentation. Give each a unique `id`, `role` and accountable `owner`. |
 

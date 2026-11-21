@@ -15,6 +15,13 @@ def route_id(value):
     return identifier(value, "route")
 
 
+def check_callers(callers):
+    require(isinstance(callers, list) and callers, "Declare at least one authenticated control caller.")
+    for caller in callers:
+        identifier(caller, "caller")
+    require(len(callers) == len(set(callers)), "Expected distinct authenticated callers.")
+
+
 def question_digest(question: str) -> str:
     require(isinstance(question, str) and 0 < len(question) <= 8192, "Expected a bounded test question.")
     return sha256(question.encode()).hexdigest()

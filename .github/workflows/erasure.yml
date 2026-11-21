@@ -18,6 +18,29 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install '.[erasure,celery-langchain]' boto3 anthropic 'mcp<2'
       - run: python -m pytest -q tests/test_erasure*.py tests/test_shared_investigation.py tests/test_discovery*.py
+      - name: Test the public commands outside the checkout
+        run: python -I scripts/verify-installed-v1.py
+      - name: Run the workspace demo and create a delete-only starter
+        run: |
+          setrya demo --output "$RUNNER_TEMP/workspace"
+          setrya init --output "$RUNNER_TEMP/fixture"
+      - uses: ./
+        id: action
+        with:
+          starter: ${{ runner.temp }}/fixture/test_erasure.py
+          output: ${{ runner.temp }}/delete-only
+      - name: Check the action result
+        env:
+          CODE: ${{ steps.action.outputs.exit-code }}
+          REVIEW: ${{ steps.action.outputs.review-status }}
+        run: |
+          test "$CODE" = 0
+          test "$REVIEW" = READY_FOR_REVIEW
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: checked-workspace
+          path: ${{ runner.temp }}/workspace
+          if-no-files-found: error
       - name: Run the installed shared investigation and check both exit contracts
         working-directory: ${{ runner.temp }}
         run: |
@@ -114,6 +137,26 @@ jobs:
         with:
           name: signed-erasure
           path: ${{ runner.temp }}/alice/
+          if-no-files-found: error
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: checked-workspace
+          path: ${{ runner.temp }}/workspace
+      - name: Sign the workspace receipts and verify signer and evidence
+        env:
+          TUF_ROOT: ${{ runner.temp }}/trust
+          SIGNER: ${{ github.server_url }}/${{ github.workflow_ref }}
+        run: |
+          for lane in guarded broken; do
+            d="$RUNNER_TEMP/workspace/$lane"
+            args=(--receipt "$d/erasure-receipt.json" --bundle "$d/receipt.sigstore.json")
+            python3 -m setrya erasure sign "${args[@]}"
+            python3 -m setrya verify "${args[@]}" --identity "$SIGNER" --issuer https://token.actions.githubusercontent.com --trusted-root "$TUF_ROOT/tuf-repo-cdn.sigstore.dev/targets/trusted_root.json"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: signed-workspace
+          path: ${{ runner.temp }}/workspace/
           if-no-files-found: error
       - name: Sign the finding-bound results
         run: |

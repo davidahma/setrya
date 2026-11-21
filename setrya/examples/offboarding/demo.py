@@ -31,7 +31,7 @@ def _exhibit(folder, digest, name, kind, text, **fields):
     )
 
 
-def _request_case(folder):
+def _request_case(folder, output):
     folder.mkdir()
     policy = folder / "policy.json"
     publish_new(fixture.policy(), policy)
@@ -51,10 +51,9 @@ def _request_case(folder):
     inputs = ["--request", request, "--expect-request", digest, "--policy", policy,
               "--evidence", evidence, "--record", folder / "provider.json", folder / "provider.txt",
               "--record", folder / "backups.json", folder / "backups.txt"]
-    receipt = folder / "receipt.json"
-    _command("receipt", *inputs, "--output", receipt, expected=3)
-    _command("verify-receipt", *inputs, "--receipt", receipt, expected=3)
-    result = json.loads(receipt.read_bytes())
+    _command("receipt", *inputs, "--output", output)
+    _command("replay", output, "--expect-request", digest, "--case-review", expected=3)
+    result = json.loads((output / "erasure-receipt.json").read_bytes())
     statuses = {item["id"]: item["status"] for item in result["items"]}
     if (result["technical_verdict"] != "PASS" or result["review_status"] != "OPEN_ITEMS"
             or statuses != {"provider": "PROVIDER_REPORTED", "backups": "SCHEDULED"}):
@@ -83,7 +82,7 @@ def run(output: Path, *, invocation=("setrya", "offboarding")) -> int:
                          "--expect-run", mode, "--expect-revision", fixture.revision(),
                          "--output", work / f"{mode}-decision.json", expected=code)
             print("\nDeletion receipt · separate staging request")
-            digest = _request_case(work / "receipt")
+            digest = _request_case(Path(directory) / "request-fixture", work / "receipt")
             # All full outputs are nonempty, so overlapping runs cannot replace a completed run.
             work.rename(output)
     except FileExistsError:
@@ -94,12 +93,8 @@ def run(output: Path, *, invocation=("setrya", "offboarding")) -> int:
         return 2
     print(f"\nEvidence saved to {output}")
     # Only known fixture basenames and a digest enter the review command.
-    review_command = [
-        *invocation, "verify-receipt", "--request", "request.json",
-        "--expect-request", digest, "--policy", "policy.json", "--evidence", "evidence.json",
-        "--receipt", "receipt.json", "--record", "provider.json", "provider.txt",
-        "--record", "backups.json", "backups.txt",
-    ]
+    cli = [*invocation, "replay"] if invocation[:1] != ("setrya",) else ["setrya", "replay"]
+    review_command = [*cli, ".", "--expect-request", digest, "--case-review"]
     print(f"From {output / 'receipt'}, replay the synthetic receipt with:")
     print(shlex.join(review_command))
     return 0

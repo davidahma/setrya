@@ -19,6 +19,25 @@ class OffboardingParser(argparse.ArgumentParser):
 def main(argv, *, invocation=("setrya", "offboarding"), command_prog=None):
     argv = list(argv)
     prog = shlex.join(invocation)
+    if argv[:1] in (["receipt"], ["replay"]):
+        from . import tenant_v3
+        from .inputs import InvalidReport
+
+        try:
+            if argv[0] == "receipt":
+                return tenant_v3.command(argv[1:], prog=f"{prog} receipt")
+            replay = OffboardingParser(prog=f"{prog} replay", description="Replay a v3 tenant bundle.")
+            replay.add_argument("directory", type=Path)
+            replay.add_argument("--expect-request")
+            replay.add_argument("--expect-job")
+            replay.add_argument("--case-review", action="store_true")
+            args = replay.parse_args(argv[1:])
+            result = tenant_v3.replay(args.directory, expected_request=args.expect_request, expected_job=args.expect_job)
+            return tenant_v3.report(result, case_review=args.case_review)
+        except (ValueError, OSError, RecursionError) as exc:
+            detail = str(exc) if isinstance(exc, InvalidReport) else type(exc).__name__
+            print(f"Invalid tenant evidence. {detail}", file=sys.stderr)
+            return 2
     if argv[:1] == ["drill"]:
         from setrya.scenarios import main as scenario_main
 
@@ -35,6 +54,8 @@ def main(argv, *, invocation=("setrya", "offboarding"), command_prog=None):
     demo.add_argument("--output", type=Path, required=True, help="a new directory for the example evidence")
     commands.add_parser("drill", help="drive a held worker through tenant deletion")
     gate.add_command(commands)
+    commands.add_parser("receipt", help="bundle evidence for one issued request")
+    commands.add_parser("replay", help="recompute a tenant receipt from its bundle")
     receipt_cli.add_commands(commands)
     signature.add_commands(commands)
     reference_demo = commands.add_parser("reference-demo", help="write a timestamped worker reference report")

@@ -6,21 +6,21 @@ from time import monotonic
 from uuid import uuid4
 
 from setrya.offboarding.inputs import publish_new, require
-from . import inventory as boundary
-from .journal import identifier
-from .model import Drain, Hold, Read, question_digest
-from .subject import Subject
+from setrya.erasure import inventory as boundary
+from setrya.erasure.journal import identifier
+from setrya.erasure.model import Drain, Hold, Read, question_digest
+from setrya.erasure.subject import Subject
 
 
 def run_erasure(subject, *, journal, inventory, adapters, application, case, output, dispositions=()):
-    from .receipt import EVIDENCE, MAX_BUNDLE_FILE_BYTES, RECEIPT, derive
+    from setrya.erasure.receipt import EVIDENCE, MAX_BUNDLE_FILE_BYTES, RECEIPT, derive
 
     start = monotonic()
     require(isinstance(subject, Subject), "Expected a tenant-bound test subject.")
     declared = boundary.load(Path(inventory))
     spec = case.spec()
     claims = [asdict(item) for item in dispositions]
-    from .receipt import validate_claims
+    from setrya.erasure.receipt import validate_claims
     validate_claims(claims, declared, subject.ref)
     destination = Path(output)
     destination.mkdir(parents=True, exist_ok=False)

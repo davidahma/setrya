@@ -116,6 +116,19 @@ class SharedReceiptTests(unittest.TestCase):
                     self.assertFalse(self.app.erased)
                     self.assertTrue(self.app.released)
 
+    def test_withheld_erasure_retires_a_held_writer_when_the_fixture_can_cancel(self):
+        cancelled = []
+        def cancel(subject, attempt):
+            cancelled.append(attempt)
+            return Drain(attempt, True)
+        self.app.cancel_and_drain = cancel
+        self.app.read = lambda *args: None
+        result = self.drill()
+        self.assertEqual(result["technical_verdict"], "NOT TESTED")
+        self.assertEqual(cancelled, ["w"])
+        self.assertFalse(self.app.released)
+        self.assertFalse(self.app.erased)
+
     def test_lineage_for_one_shared_artifact_cannot_cover_an_untracked_answer(self):
         source = {"store": "spool", "key": "unknown-copy-id", "revision": "v0"}
         summary = {"store": "notes", "key": "summary", "revision": "v1"}

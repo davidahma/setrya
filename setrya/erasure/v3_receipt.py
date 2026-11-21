@@ -6,13 +6,14 @@ import json
 from pathlib import Path
 
 from setrya.offboarding.inputs import keys_match, read_regular_bytes, require, unique_fields
+from .judges import check_observation, check_policy
 from .journal import identifier, validate_details
-from .model import route_id
+from .model import check_callers, route_id
 from .receipt import EVIDENCE, EXIT, MAX_BUNDLE_FILE_BYTES, RECEIPT, _hex, _timestamp
+from setrya.receipt_format import FORMAT_V3 as RECEIPT_FORMAT
 from .subject import Subject
 
 EVIDENCE_FORMAT = "setrya.erasure.evidence.v3"
-RECEIPT_FORMAT = "setrya.erasure.receipt.v3"
 
 
 def _fields(row, fields):
@@ -31,11 +32,13 @@ def _unique_ids(items, limit, name):
 
 
 def check_spec(spec):
-    _fields(spec, "conversation route callers questions artifacts scan_stores require_lineage")
+    judged = isinstance(spec, dict) and "judges" in spec
+    _fields(spec, "conversation route callers questions artifacts scan_stores require_lineage" + (" judges" if judged else ""))
+    if judged:
+        check_policy(spec["judges"])
     identifier(spec["conversation"], "conversation")
     route_id(spec["route"])
-    _unique_ids(spec["callers"], 2, "caller")
-    require(len(spec["callers"]) == 2, "Two authenticated callers are required.")
+    check_callers(spec["callers"])
     questions = spec["questions"]
     require(isinstance(questions, list) and len(questions) == 2 and all(_hex(q, 64) for q in questions)
             and questions[0] != questions[1], "Supply distinct target and control questions.")
@@ -48,7 +51,7 @@ def check_spec(spec):
         loc = identifier(a["store"], "store"), identifier(a["key"], "key")
         require(loc not in seen and a["action"] in ("delete", "rewrite", "preserve"), "Invalid artifact rule.")
         seen.add(loc)
-    require(any(a["action"] == "rewrite" for a in spec["artifacts"]), "Declare a shared artifact to rewrite.")
+    require(seen, "Declare at least one artifact to inspect.")
 
 
 def check_external(items, spec, subject_ref):
@@ -91,7 +94,7 @@ def discovered_keys(spec, scans):
     return sorted((store, key) for store, hits in scans.items() for key in (hits or []) if (store, key) not in known)
 
 
-def _check_stage(stage, spec, baseline_scans=None):
+def check_stage(stage, spec, baseline_scans=None):
     _fields(stage, "stored answers scans discovered")
     require(isinstance(stage["stored"], list) and len(stage["stored"]) == len(spec["artifacts"]), "Missing store slots.")
     for row, artifact in zip(stage["stored"], spec["artifacts"]):
@@ -106,11 +109,16 @@ def _check_stage(stage, spec, baseline_scans=None):
     for row, (store, key) in zip(stage["discovered"], discovered):
         if row is not None:
             check_stored(row, store, key)
-    require(isinstance(stage["answers"], list) and len(stage["answers"]) == 4, "Missing endpoint slots.")
-    roles = [(c, q) for c in spec["callers"] for q in spec["questions"]]
-    for row, (caller, question) in zip(stage["answers"], roles):
+    count = len(spec["questions"])
+    require(isinstance(stage["answers"], list) and len(stage["answers"]) == len(spec["callers"]) * count,
+            "Missing endpoint slots.")
+    for i, row in enumerate(stage["answers"]):
         if row is not None:
-            _fields(row, "caller conversation route question target_present control_present")
+            caller, question = spec["callers"][i // count], spec["questions"][i % count]
+            fields = "caller conversation route question target_present control_present"
+            _fields(row, fields + (" judgments" if "judges" in spec else ""))
+            if "judges" in spec:
+                check_observation(row, spec["judges"])
             require((row["caller"], row["conversation"], row["route"], row["question"]) ==
                     (caller, spec["conversation"], spec["route"], question), "Wrong endpoint observation.")
             fact_flags(row)
@@ -317,6 +325,34 @@ def _artifact_index(e):
     return rows
 
 
+def lineage_gaps(e, external):
+    spec = e["case"]
+    gaps = set()
+    checked_versions = {(row["store"], row["key"], row["revision"]) for row in e["baseline"]["stored"] + e["baseline"]["discovered"]
+                        if row and row["exists"]}
+    if e["lineage"] is not None:
+        affected = check_lineage(e["lineage"])
+        needs_derivation = any(a["action"] == "rewrite" for a in spec["artifacts"])
+        if spec["require_lineage"] and (not affected or (needs_derivation and not e["lineage"]["derivations"])):
+            gaps.add("Missing source-to-artifact provenance.")
+        if spec["require_lineage"]:
+            for a, before in zip(spec["artifacts"], e["baseline"]["stored"]):
+                if before and before["exists"]:
+                    ref = (a["store"], a["key"], before["revision"])
+                    if a["action"] == "rewrite" and ref not in affected:
+                        gaps.add(f"Missing provenance for required rewrite {ref[0]}/{ref[1]}@{ref[2]}.")
+                    elif a["action"] == "delete" and not needs_derivation and ref not in affected:
+                        gaps.add(f"Missing provenance for required deletion {ref[0]}/{ref[1]}@{ref[2]}.")
+                    elif a["action"] == "preserve" and ref in affected:
+                        gaps.add(f"Preserved artifact {ref[0]}/{ref[1]} is in the affected lineage.")
+        for store, key, version in affected - checked_versions:
+            if (store, key) not in external:
+                gaps.add(f"Affected version {store}/{key}@{version} lacks a matching baseline inspection.")
+    elif spec["require_lineage"]:
+        gaps.add("Missing source-to-artifact provenance.")
+    return gaps
+
+
 def derive(e, digest):
     _fields(e, "format run scope observed_at subject mode case worker external lineage baseline erased immediate final "
                "expected_producers coverage journal errors drill_duration_ms")
@@ -331,10 +367,10 @@ def derive(e, digest):
     check_external(e["external"], spec, e["subject"]["ref"])
     require(type(e["drill_duration_ms"]) is int and e["drill_duration_ms"] >= 0, "Invalid drill duration.")
     require(e["mode"] in ("late-write", "deletion"), "Invalid drill mode.")
-    _check_stage(e["baseline"], spec)
-    _check_stage(e["final"], spec, e["baseline"]["scans"])
+    check_stage(e["baseline"], spec)
+    check_stage(e["final"], spec, e["baseline"]["scans"])
     if e["immediate"] is not None:
-        _check_stage(e["immediate"], spec, e["baseline"]["scans"])
+        check_stage(e["immediate"], spec, e["baseline"]["scans"])
     _fields(e["worker"], "held checkpoint pre_release drained")
     worker = e["worker"]
     for attempt in worker.values():
@@ -351,25 +387,7 @@ def derive(e, digest):
     declared.update(discovered_keys(spec, e["baseline"]["scans"]))
     external = {(x["store"], x["key"]) for x in e["external"]}
     _journal(e, declared | external, external, gaps)
-    checked_versions = {(row["store"], row["key"], row["revision"]) for row in e["baseline"]["stored"] + e["baseline"]["discovered"]
-                        if row and row["exists"]}
-    if e["lineage"] is not None:
-        affected = check_lineage(e["lineage"])
-        if spec["require_lineage"] and (not affected or not e["lineage"]["derivations"]):
-            gaps.add("Missing source-to-artifact provenance.")
-        if spec["require_lineage"]:
-            for a, before in zip(spec["artifacts"], e["baseline"]["stored"]):
-                if before and before["exists"]:
-                    ref = (a["store"], a["key"], before["revision"])
-                    if a["action"] == "rewrite" and ref not in affected:
-                        gaps.add(f"Missing provenance for required rewrite {ref[0]}/{ref[1]}@{ref[2]}.")
-                    elif a["action"] == "preserve" and ref in affected:
-                        gaps.add(f"Preserved artifact {ref[0]}/{ref[1]} is in the affected lineage.")
-        for store, key, version in affected - checked_versions:
-            if (store, key) not in external:
-                gaps.add(f"Affected version {store}/{key}@{version} lacks a matching baseline inspection.")
-    elif spec["require_lineage"]:
-        gaps.add("Missing source-to-artifact provenance.")
+    gaps.update(lineage_gaps(e, external))
     for store, key in _unconfirmed_deletions(spec, e["baseline"]):
         gaps.add(f"Deletion of {store}/{key} requires an observed absence of the retained finding. "
                  "Declare a rewrite for a shared artifact.")
@@ -428,7 +446,7 @@ def summary(receipt):
              f"Drill duration {receipt['drill_duration_ms']} ms"]
     if receipt["technical_verdict"] == "PASS":
         callers = ", ".join(receipt["case"]["callers"])
-        lines.append(f"{callers} reopened the same conversation. Both lost the erased fact and kept the control fact.")
+        lines.append(f"Reopened {receipt['case']['conversation']} as {callers}. Each caller lost the erased fact and kept the control fact.")
     for row in receipt["artifact_checks"]:
         if row["discovered_by"] == "canary":
             lines.append(f"Canary located {row['store']}/{row['key']}.")

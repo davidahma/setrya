@@ -188,6 +188,13 @@ def _replay_answers(directory: Path):
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
+    from .front import dispatch
+
+    primary = dispatch(argv)
+    if primary is not None:
+        return primary
+    if argv[:2] == ["demo", "refund"]:
+        argv = ["demo", *argv[2:]]
     if argv[:1] == ["discovery"]:
         from .discovery.cli import main as discovery_main
 
@@ -259,6 +266,9 @@ def main(argv=None) -> int:
     check.add_argument("--revision", help="record the full Git commit ID supplying the application")
     replay = commands.add_parser("replay", help="recompute a verdict from saved observations")
     replay.add_argument("report")
+    replay.add_argument("--expect-request", help="independent tenant request SHA-256 digest")
+    replay.add_argument("--expect-job", help="expected tenant job ID")
+    replay.add_argument("--case-review", action="store_true", help="also gate on open case items")
     diagnose = commands.add_parser("diagnose", help="show the verdict and the first missing observation")
     diagnose.add_argument("report")
     comparison = commands.add_parser("compare", help="tell whether a before-and-after pair establishes a fix")
@@ -294,14 +304,19 @@ def main(argv=None) -> int:
         if args.command in {"replay", "diagnose"}:
             directory = Path(args.report)
             manifest = bundle_manifest(directory) if directory.is_dir() else None
-            if manifest == "case-result.json":
-                from .discovery.cli import report
+            receipt_names = ("case-result.json", "erasure-receipt.json", "receipt.json")
+            receipt_file = directory.is_file() and directory.name in receipt_names
+            historical = directory.is_dir() and manifest is None and (directory / "receipt.json").is_file()
+            if manifest in receipt_names or receipt_file or historical:
+                from .receipts import replay as replay_receipt, report as receipt_report
 
-                return report(directory)
-            if manifest == "erasure-receipt.json":
-                from .erasure.cli import replay_directory
-
-                return replay_directory(directory)
+                receipt = replay_receipt(directory, expected_request=getattr(args, "expect_request", None),
+                                        expected_job=getattr(args, "expect_job", None))
+                return receipt_report(receipt, case_review=getattr(args, "case_review", False))
+            if getattr(args, "expect_request", None) or getattr(args, "expect_job", None):
+                raise InputError("Tenant pins require a tenant receipt.")
+            if getattr(args, "case_review", False):
+                raise InputError("--case-review requires a deletion receipt.")
             if manifest == "endpoint-reads.json":
                 from .endpoint_reads import replay as replay_reads
 

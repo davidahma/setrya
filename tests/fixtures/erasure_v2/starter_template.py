@@ -7,7 +7,9 @@ from secrets import token_bytes
 from shlex import quote
 from tempfile import TemporaryDirectory
 
-from setrya.erasure import CopyJournal, ErasureCase, Subject, run_erasure
+from setrya.erasure import CopyJournal, Subject
+from setrya.erasure.model import ErasureCase
+from fixtures.erasure_v2.runner import run_erasure
 from setrya.erasure.worker_fixture import WorkerFixture
 
 

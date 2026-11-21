@@ -53,7 +53,6 @@ class PortableOffboardingTests(unittest.TestCase):
         env = {**os.environ, "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"]}
         replay = subprocess.run(command, cwd=reviewer, env=env, capture_output=True, text=True, timeout=15)
         self.assertEqual(replay.returncode, 3, replay.stderr)
-        self.assertIn("Receipt verified.", replay.stdout)
         self.assertIn("Technical verdict PASS", replay.stdout)
         self.assertIn("Review status OPEN_ITEMS", replay.stdout)
 

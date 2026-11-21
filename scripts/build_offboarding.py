@@ -35,6 +35,8 @@ PACKAGE_FILES = (
     "setrya/offboarding/cli.py",
     "setrya/offboarding/gate.py",
     "setrya/offboarding/inputs.py",
+    "setrya/receipt_format.py",
+    "setrya/offboarding/tenant_v3.py",
     "setrya/offboarding/receipt.py",
     "setrya/offboarding/receipt_cli.py",
     "setrya/offboarding/signature.py",

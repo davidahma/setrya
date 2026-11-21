@@ -159,7 +159,7 @@ class CopyHooks:
         details = dict(provider=provider, model=model, region=region, invocation_logging=invocation_logging,
                        prompt_caching=True if requested_cache else prompt_caching, evidence_level="configuration",
                        sources=list(sources), operation=operation,
-                       components=sorted(name for name in ("messages", "system", "tools", "body", "toolConfig", "tool_choice")
+                       components=sorted(name for name in ("input", "instructions", "messages", "system", "tools", "body", "toolConfig", "tool_choice")
                                          if name in request), **self._fingerprint(request))
         self._attempt(store, key, source, "sent", **details)
         result = call(**request)

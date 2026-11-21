@@ -1,3 +1,4 @@
-"""Regression tests for retrieval after document updates and tenant offboarding."""
+"""Erasure regression tests for AI applications."""
 
-__version__ = "0.18.0"
+__version__ = "1.0.0"
+POSITIONING = "Test whether your AI assistant can still reveal a customer's deleted information."
