@@ -35,7 +35,7 @@ class HarnessTests(unittest.TestCase):
     def test_native_runner_local_session_and_responses_request(self):
         import httpx
         from agents import Agent, Model, ModelResponse, RunConfig, SQLiteSession, Usage
-        from openai import OpenAI
+        from openai import AsyncOpenAI, OpenAI
         from openai.types.responses import ResponseOutputMessage, ResponseOutputText
 
         class FixtureModel(Model):
@@ -77,6 +77,15 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(copy.details["components"], ["input"])
         self.assertEqual(copy.details["evidence_level"], "configuration")
         self.assertNotIn(MARKER, repr(copy))
+
+        async_client = AsyncOpenAI(api_key="fixture", http_client=httpx.AsyncClient(transport=httpx.MockTransport(transport)))
+        try:
+            with self.assertRaisesRegex(InputError, "synchronous"):
+                openai_response(self.hooks, async_client, {"model": "fixture-model", "input": MARKER},
+                                store="provider", key="async-request", source="ticket")
+            self.assertFalse(any(record.key == "async-request" for record in self.journal.copies(self.subject)))
+        finally:
+            asyncio.run(async_client.close())
 
     @unittest.skipUnless(importlib.util.find_spec("claude_agent_sdk"), "install agent-claude")
     def test_native_claude_client_dispatches_both_hooks(self):

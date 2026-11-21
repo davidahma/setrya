@@ -160,8 +160,13 @@ class DiscoveryCaseTests(TestCase):
                      "source": "main", "details": {"evidence_level": "configuration", "provider": "anthropic",
                          "operation": "messages.create", "sources": ["main@7"], "stage": "attempted"}}
         returned = {**attempted, "details": {**attempted["details"], "stage": "returned"}}
-        def status(events):
-            return discovery._provider_invocations({**e, "journal": events}, self.binding)[("provider", "one-call")]["status"]
+        def status(events, version=2):
+            proof = discovery._provider_invocations({**e, "journal": events}, self.binding, packet_version=version)
+            return proof[("provider", "one-call")]["status"]
+        responses = [{**ev, "details": {**ev["details"], "provider": "openai", "operation": "responses.create"}}
+                     for ev in (attempted, returned)]
+        self.assertEqual(status(responses, version=1), "UNOBSERVED")
+        self.assertEqual(status(responses, version=2), "SDK_RETURNED")
         self.assertEqual(status([attempted, returned]), "SDK_RETURNED")
         self.assertEqual(status([attempted, returned, attempted]), "UNOBSERVED")
         self.assertEqual(status([{**attempted, "details": {**attempted["details"], "operation": "langchain.start"}}]),

@@ -2,7 +2,7 @@
 
 Report suspected vulnerabilities privately using [GitHub's vulnerability reporting form](https://github.com/davidahma/setrya/security/advisories/new). Include the affected Setrya version, what you observed, and a minimal synthetic reproduction. Keep credentials, customer queries, passages, and private system details out of public issues.
 
-The current release series receives fixes. Setrya loads adapter code from the local Python environment, so review the drill and its dependencies before executing it. Use the installed `setrya replay` command or `python -I -m setrya replay` to inspect downloaded evidence. The installed console adds the working checkout to Python’s import path only for live adapter checks.
+The current release series receives fixes. Setrya loads adapter code from the local Python environment, so review the drill and its dependencies before executing it. Use the installed `setrya replay` command or `python -I -m setrya replay` to inspect downloaded evidence. Running a starter or checking its fixture wiring executes trusted application code. Replay of saved evidence requires no fixture imports.
 
 ## Tenant offboarding evidence
 
@@ -12,7 +12,7 @@ Setrya checks the files, request binding, and internal consistency. Someone who 
 
 ## Subject erasure evidence
 
-Run destructive adapters against disposable test subjects. Only propagate subject headers, trace baggage and LangGraph configuration across trusted application boundaries. A tenant-keyed subject reference is linkable pseudonymous data. Store keys, labels, caller aliases, model names and source IDs must be safe to share before publishing a receipt. The observer, its inventory, and its credentials define the scope of a verified result. [Evidence and signature verification](docs/erasure.md)
+Run destructive adapters against disposable test subjects. Only propagate subject headers, trace baggage and LangGraph configuration across trusted application boundaries. A tenant-keyed subject reference is linkable pseudonymous data. Store keys, labels, caller aliases, model names and source IDs must be safe to share before publishing a receipt. The observer, its inventory, and its credentials define the scope of a verified result. The default judge capture stores digests. Excerpt capture records matched text and can disclose the fact under test to anyone who receives the receipt bundle. [Evidence and signature verification](docs/receipt-format.md)
 
 ## Python dependency checks
 
@@ -23,10 +23,10 @@ Core Setrya has no runtime dependencies. CI audits the resolved packages used by
 Starting with 0.9.1, the offline qualification workflow attests the source archive after testing the checkout and its unpacked contents. Download the archive, set `EXPECTED_COMMIT` to the full Git commit from your approved release record, and verify the artifact before installing it.
 
 ```sh
-gh attestation verify setrya-0.17.0.tar.gz --repo davidahma/setrya \
+gh attestation verify setrya-1.0.0.tar.gz --repo davidahma/setrya \
   --signer-workflow davidahma/setrya/.github/workflows/qualification.yml \
   --source-ref refs/heads/main --source-digest "$EXPECTED_COMMIT" --deny-self-hosted-runners
-python -m pip install ./setrya-0.17.0.tar.gz
+python -m pip install ./setrya-1.0.0.tar.gz
 ```
 
 ## Verify a downloaded offboarding tool

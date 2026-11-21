@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from collections.abc import Mapping
 from typing import Any
@@ -153,6 +154,8 @@ class CopyHooks:
                   prompt_caching, sources, operation):
         if not isinstance(request, Mapping):
             raise InputError("provider request must be a mapping of SDK arguments")
+        if inspect.iscoroutinefunction(call) or inspect.iscoroutinefunction(inspect.unwrap(call)):
+            raise InputError("provider observation requires a synchronous SDK operation")
         requested_cache = _cache_hint(request)
         if requested_cache is True and prompt_caching is False:
             raise InputError("request contains a cache directive but prompt_caching was declared off")
@@ -163,6 +166,10 @@ class CopyHooks:
                                          if name in request), **self._fingerprint(request))
         self._attempt(store, key, source, "sent", **details)
         result = call(**request)
+        if inspect.isawaitable(result):
+            if inspect.iscoroutine(result):
+                result.close()
+            raise InputError("provider operation returned an awaitable instead of an SDK response")
         self._record(store, key, source, "sent", stage="returned", **details)
         return result
 

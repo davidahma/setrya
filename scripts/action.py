@@ -60,7 +60,8 @@ def comment():
             or not run_id.isascii() or not run_id.isdecimal() or event["pull_request"]["base"]["repo"]["full_name"] != repo):
         raise ValueError("invalid pull request coordinates")
     body = summary(os.environ["SETRYA_CODE"], os.environ["SETRYA_REVIEW"])
-    body += f"\n\n[Open the run and download the receipt](https://github.com/{repo}/actions/runs/{run_id})."
+    link = "Open the workflow run" if os.environ["SETRYA_REVIEW"] == "UNAVAILABLE" else "Open the run and download the receipt"
+    body += f"\n\n[{link}](https://github.com/{repo}/actions/runs/{run_id})."
     subprocess.run(["gh", "api", "--hostname", "github.com", "--method", "POST", f"repos/{repo}/issues/{number}/comments",
                     "--input", "-", "--silent"], input=json.dumps({"body": body}), text=True, check=True)
     return 0

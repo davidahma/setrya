@@ -1,4 +1,5 @@
 """Exact-marker reads of full LangGraph checkpoints and declared memory namespaces."""
+import json
 from collections.abc import Mapping
 
 from setrya.drill import InputError
@@ -49,6 +50,10 @@ def _checkpoint_hits(rows, scope, marker):
         kind, payload, metadata = row.values() if isinstance(row, Mapping) else row
         if index >= LIMIT or kind not in {"bytes", "msgpack", "json", "null", "empty"}:
             raise InputError("oversized checkpoint scan or unsupported checkpoint encoding")
+        if kind == "json" and isinstance(payload, bytes):
+            payload = json.loads(payload)
+        if isinstance(metadata, bytes):
+            metadata = json.loads(metadata)
         found |= contains_marker(payload, marker) or contains_marker(metadata, marker)
     return {scope} if found else set()
 
@@ -57,6 +62,9 @@ class LangGraphMemoryCanaryScanner:
     """Scan all readable memory values at and below a declared LangGraph namespace."""
 
     def __init__(self, store, *, namespace=()):
+        from langgraph.store.memory import InMemoryStore
+        if not isinstance(store, InMemoryStore):
+            raise TypeError("use PostgresMemoryCanaryScanner for persisted LangGraph memory")
         self.store = store
         self.namespace = tuple(identifier(part, "memory namespace") for part in namespace)
 

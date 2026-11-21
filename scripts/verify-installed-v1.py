@@ -1,5 +1,6 @@
 """Exercise the public CLI from an empty directory with only the installed distribution."""
 from importlib.metadata import metadata
+from importlib.util import find_spec
 from pathlib import Path
 import json
 import subprocess
@@ -17,6 +18,9 @@ def call(cwd, *args, code=0):
 
 with TemporaryDirectory() as tmp:
     path = Path(tmp)
+    for module in ("demo", "runner", "starter_template"):
+        if find_spec("setrya.erasure." + module) is not None:
+            raise RuntimeError("Distribution contains a retired v2 writer: " + module)
     if metadata("setrya")["Summary"] not in call(path, "--help"):
         raise RuntimeError("Installed package summary and CLI help differ.")
     call(path, "demo")
@@ -24,6 +28,14 @@ with TemporaryDirectory() as tmp:
     call(path, "replay", "workspace/guarded")
     call(path, "replay", "workspace/guarded", "--case-review", code=3)
     call(path, "init")
+    # A consumer's fixture commonly lives in tests/ or setrya-case/ and imports
+    # an application package in the root of a checkout that is not pip-installed.
+    starter = path / "setrya-case" / "test_erasure.py"
+    (path / "application_fixture.py").write_text(
+        "from setrya.examples.workspace import SIMPLE as CASE, open_fixture\n", encoding="utf-8")
+    starter.write_text(starter.read_text().replace("from setrya.examples.workspace import SIMPLE as CASE",
+                                                   "from application_fixture import CASE").replace(
+        "from setrya.examples.workspace import open_fixture", "from application_fixture import open_fixture"))
     fixture = ("--starter", "setrya-case/test_erasure.py")
     for mode in ("deletion", "late-write"):
         call(path, "doctor", *fixture, "--mode", mode)

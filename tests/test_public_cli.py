@@ -37,6 +37,15 @@ class PublicCLI(unittest.TestCase):
             self.assertEqual(main(["run", *args, "--output", f"{tmp}/case"]), 0)
             self.assertIn("READY", log.getvalue())
 
+    def test_primary_options_route_with_equals_or_separate_arguments(self):
+        with TemporaryDirectory() as tmp, contextlib.redirect_stdout(StringIO()):
+            self.assertEqual(main(["demo", "--mode=deletion", f"--output={tmp}/workspace"]), 0)
+            self.assertTrue(Path(tmp, "workspace/guarded/erasure-receipt.json").is_file())
+            self.assertEqual(main(["init", "--scope=tenant", f"--output={tmp}/policy"]), 0)
+            self.assertTrue(Path(tmp, "policy/policy.json").is_file())
+            self.assertEqual(main(["demo", "--scope=tenant", f"--output={tmp}/tenant"]), 0)
+            self.assertTrue(Path(tmp, "tenant/receipt/erasure-receipt.json").is_file())
+
     def test_public_help_names_only_primary_commands(self):
         with contextlib.redirect_stdout(StringIO()) as out, self.assertRaises(SystemExit):
             main(["--help"])
@@ -62,6 +71,10 @@ class PublicCLI(unittest.TestCase):
                 self.assertEqual(action.comment(), 0)
                 self.assertIn("repos/owner/repo/issues/3/comments", api.call_args.args[0])
                 self.assertIn("FAIL", json.loads(api.call_args.kwargs["input"])["body"])
+                self.assertIn("https://github.com/owner/repo/actions/runs/12", api.call_args.kwargs["input"])
+                with patch.dict(os.environ, {"SETRYA_CODE": "3", "SETRYA_REVIEW": "UNAVAILABLE"}):
+                    self.assertEqual(action.comment(), 0)
+                    self.assertNotIn("download the receipt", api.call_args.kwargs["input"])
                 api.reset_mock()
                 with patch.dict(os.environ, {"SETRYA_CODE": "0\nPASS"}), self.assertRaises(ValueError):
                     action.comment()

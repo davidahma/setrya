@@ -38,7 +38,7 @@ def doctor(argv):
     source = args.starter.resolve(strict=True)
     original = sys.path
     try:
-        sys.path = [str(source.parent), *original]
+        sys.path = [str(source.parent), str(Path.cwd()), *original]
         hooks = runpy.run_path(str(source))
         with hooks["open_fixture"]() as (subject, app, items):
             case = hooks["CASE"]
@@ -68,16 +68,20 @@ def dispatch(argv):
     if not argv or argv in (["--help"], ["-h"], ["--version"]):
         help_parser().parse_args(argv)
     cmd, args = argv[0], argv[1:]
+    # Route old commands only when explicitly named. Let argparse validate all
+    # other spellings, including --option=value, against the primary interface.
+    options = {arg.partition("=")[0] for arg in args if arg.startswith("--")}
+    first = args[0] if args else None
     try:
         if cmd == "doctor":
             return doctor(args)
         if cmd in ("run", "verify"):
             from .erasure.cli import main
             return main([cmd, *args], prog="setrya")
-        if cmd == "demo" and "--scope" in args:
+        if cmd == "demo" and "--scope" in options:
             from .erasure.cli import main
             return main(argv, prog="setrya")
-        if cmd == "demo" and (not args or args[0] in ("workspace", "analyst", "--help", "-h", "--output", "--mode")):
+        if cmd == "demo" and first not in ("refund", "erasure", "access") and "--case" not in options:
             parser = argparse.ArgumentParser(prog="setrya demo", description="Run a synthetic deletion test and save both results.")
             parser.add_argument("example", choices=("workspace", "analyst"), nargs="?", default="workspace")
             parser.add_argument("--mode", choices=("deletion", "late-write"), default="late-write")
@@ -88,7 +92,7 @@ def dispatch(argv):
                 return run_demo(opts.output or Path("investigation"), mode=opts.mode)
             from .examples.workspace import demo
             return demo(opts.output or Path("workspace"), opts.mode)
-        if cmd == "init" and (not args or args[0].startswith("-") and "--scope" not in args):
+        if cmd == "init" and first not in ("endpoint", "erasure") and "--scope" not in options:
             parser = argparse.ArgumentParser(prog="setrya init", description="Create a runnable, synthetic delete-only starter.")
             parser.add_argument("--output", type=Path, default=Path("setrya-case"))
             path = parser.parse_args(args).output
@@ -99,7 +103,7 @@ def dispatch(argv):
             print("Created a synthetic fixture. Replace CASE and open_fixture to test your app.")
             print(join(["setrya", "doctor", "--starter", str(starter)]))
             return 0
-        if cmd == "init" and "--scope" in args:
+        if cmd == "init" and "--scope" in options:
             from .erasure.cli import main
             return main(argv, prog="setrya")
     except FileExistsError:

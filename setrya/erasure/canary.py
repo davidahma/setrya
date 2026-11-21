@@ -162,13 +162,17 @@ class AnswerCacheCanaryScanner:
         keys = self.cache.cached_keys(self.tenant, scope)
         if len(keys) > LIMIT:
             raise InputError("answer cache canary scan exceeds the key limit")
-        found = set()
+        found, seen = set(), set()
         for key in keys:
+            location = identifier(f"{key.tenant}:{key.access_scope}:{key.request}", "answer key")
+            if location in seen:
+                raise InputError("ambiguous answer cache copy key")
+            seen.add(location)
             answer = self.cache.get(key)
             if answer is None:
                 raise InputError("answer changed during the canary scan")
             if marker in answer.answer:
-                found.add(identifier(f"{key.tenant}:{key.access_scope}:{key.request}", "answer key"))
+                found.add(location)
         if set(keys) != set(self.cache.cached_keys(self.tenant, scope)):
             raise InputError("cache keys changed during the canary scan")
         return found

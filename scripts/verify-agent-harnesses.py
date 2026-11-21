@@ -1,5 +1,6 @@
 """Run the native harness tests against a temporary, loopback-only Langfuse stack."""
 import hashlib
+from importlib.util import find_spec
 import json
 import os
 from pathlib import Path
@@ -26,6 +27,9 @@ IMAGES = {
 
 
 def qualify(directory):
+    for module in ("agents", "claude_agent_sdk", "langfuse"):
+        if find_spec(module) is None:
+            raise RuntimeError("install the agent-openai, agent-claude and traces-langfuse extras")
     original = directory / "upstream.yml"
     with urlopen(COMPOSE_URL, timeout=30) as response:
         content = response.read()

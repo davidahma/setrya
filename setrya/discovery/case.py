@@ -240,7 +240,7 @@ def _baseline_status(service, evidence, direct, source):
     return "CONFIRMED" if positive else "INCOMPLETE"
 
 
-def _provider_invocations(e, binding):
+def _provider_invocations(e, binding, *, packet_version):
     """Join an outbound SDK observation to one source-linked invocation key."""
     lineage = e["lineage"]
     affected = _descendants(binding["source"], lineage)
@@ -255,6 +255,10 @@ def _provider_invocations(e, binding):
         loc = _location(event)
         if loc in providers and event["action"] == "sent":
             journal[loc].append((i, event))
+    sdk_operations = {"anthropic": ("messages.create",),
+                      "bedrock": ("converse", "invoke_model", "converse_stream", "invoke_model_with_response_stream")}
+    if packet_version >= 2:
+        sdk_operations["openai"] = ("responses.create",)
     proof = {}
     for loc in providers:
         status, pointers = "UNOBSERVED", []
@@ -264,21 +268,19 @@ def _provider_invocations(e, binding):
             versions = {(r["key"], f"{r['key']}@{r['revision']}") for r in edge["inputs"] if _version(r) in affected}
             if versions:
                 pointers.append(f"{DRILL}/{EVIDENCE}#/lineage/derivations/{index}")
-                status, event_links = _sdk_exchange(journal[loc], binding["classification"], versions, edge)
+                status, event_links = _sdk_exchange(journal[loc], binding["classification"], versions, edge, sdk_operations)
                 pointers.extend(event_links)
         proof[loc] = {"status": status, "evidence": pointers}
     return proof
 
 
-def _sdk_exchange(events, classification, versions, edge):
+def _sdk_exchange(events, classification, versions, edge, sdk_operations):
     """Attribute one client call. Reused keys and framework start callbacks are ambiguous."""
     stages = [event["details"].get("stage") for _, event in events]
     if stages not in (["attempted"], ["attempted", "returned"], ["returned", "attempted"]):
         return "UNOBSERVED", []
     first = events[0][1]
     details = first["details"]
-    sdk_operations = {"anthropic": ("messages.create",), "openai": ("responses.create",),
-                      "bedrock": ("converse", "invoke_model", "converse_stream", "invoke_model_with_response_stream")}
     if (details.get("evidence_level") != "configuration"
             or details.get("operation") not in sdk_operations.get(details.get("provider"), ())):
         return "UNOBSERVED", []
@@ -363,7 +365,7 @@ def _derive(folder, expected_binding):
     direct = {_location(a): i for i, a in enumerate(e["case"]["artifacts"])}
     external = {_location(item): (i, item) for i, item in enumerate(e["external"])}
     services = []
-    invocations = _provider_invocations(e, binding)
+    invocations = _provider_invocations(e, binding, packet_version=packet["version"])
     external_open = False
     for service in binding["services"]:
         if service["role"] == "endpoint":

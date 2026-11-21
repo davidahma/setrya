@@ -5,6 +5,7 @@ from dataclasses import replace
 import json
 import os
 from pathlib import Path
+import shlex
 import signal
 import sqlite3
 import subprocess
@@ -318,20 +319,19 @@ def offboarding():
     cli = ("-m", "setrya", "offboarding")
     with TemporaryDirectory(prefix="setrya-offboarding-") as directory:
         bundle = Path(directory) / "example"
-        outcome(command(*cli, "demo", "--output", bundle, timeout=45), 0, "")
+        printed = command(*cli, "demo", "--output", bundle, timeout=45)
+        outcome(printed, 0, "")
+        reviewer = shlex.split(printed.stdout.strip().splitlines()[-1])
+        require(reviewer[:4] == ["setrya", "replay", ".", "--expect-request"] and len(reviewer) == 6 and
+                reviewer[-1] == "--case-review", "demo omitted the request-bound reviewer command")
         for case, code, verdict in (("broken", 1, "FAIL"), ("fixed", 0, "PASS"),
                                     ("inconclusive", 3, "NOT TESTED")):
             replay = command(*cli, "gate", "--policy", bundle / "policy.json",
                              "--observations", bundle / f"{case}.json", "--expect-run", case)
             outcome(replay, code, f"Gate {verdict}")
         case_dir = bundle / "receipt"
-        checked = command(*cli, "verify-receipt", "--policy", case_dir / "policy.json",
-                          "--request", case_dir / "request.json", "--receipt", case_dir / "receipt.json",
-                          "--expect-request", (case_dir / "request.sha256").read_text().strip(),
-                          "--evidence", case_dir / "evidence.json",
-                          "--record", case_dir / "provider.json", case_dir / "provider.txt",
-                          "--record", case_dir / "backups.json", case_dir / "backups.txt")
-        outcome(checked, 3, "Receipt verified.")
+        checked = command("-m", "setrya", "replay", case_dir, *reviewer[3:])
+        outcome(checked, 3, "OPEN_ITEMS")
         require("Technical verdict PASS" in checked.stdout and "Review status OPEN_ITEMS" in checked.stdout,
                 "offboarding replay lost the distinction between a technical pass and an open review")
 

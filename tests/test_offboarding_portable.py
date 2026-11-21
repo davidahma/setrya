@@ -50,7 +50,12 @@ class PortableOffboardingTests(unittest.TestCase):
         shutil.copytree(evidence / "receipt", reviewer)
         command = shlex.split(demo.stdout.splitlines()[-1])
         self.assertEqual(command[:3], ["python3", "-I", str(self.archive.resolve())])
-        env = {**os.environ, "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"]}
+        # Versioned Homebrew interpreters need not have a sibling named python3.
+        # Supply the reviewer machine's known interpreter under the portable name.
+        reviewer_bin = self.work / "bin"
+        reviewer_bin.mkdir()
+        (reviewer_bin / "python3").symlink_to(sys.executable)
+        env = {**os.environ, "PATH": str(reviewer_bin) + os.pathsep + os.environ["PATH"]}
         replay = subprocess.run(command, cwd=reviewer, env=env, capture_output=True, text=True, timeout=15)
         self.assertEqual(replay.returncode, 3, replay.stderr)
         self.assertIn("Technical verdict PASS", replay.stdout)

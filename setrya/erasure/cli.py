@@ -84,13 +84,11 @@ def main(argv, *, prog="setrya erasure"):
             if not args.starter.is_file() or os.path.lexists(args.output):
                 raise InputError("Choose a trusted starter file and a fresh output directory.")
             selected_mode = args.mode or "deletion"
-            # A source checkout is importable via python -m in its root. A starter
-            # in another directory needs that same path in its child interpreter.
+            # A trusted starter can import its own siblings and application modules
+            # in the caller's checkout, including when Setrya was installed from PyPI.
             child_env = os.environ.copy()
-            package_root = Path(__file__).resolve().parents[2]
-            if package_root == Path.cwd().resolve():
-                paths = [str(package_root), child_env.get("PYTHONPATH", "")]
-                child_env["PYTHONPATH"] = os.pathsep.join(filter(None, paths))
+            paths = [str(Path.cwd()), child_env.get("PYTHONPATH", "")]
+            child_env["PYTHONPATH"] = os.pathsep.join(filter(None, paths))
             code = subprocess.run([sys.executable, str(args.starter.resolve()), "--mode", selected_mode,
                                    "--output", str(args.output.resolve())], stdout=subprocess.DEVNULL,
                                   env=child_env).returncode

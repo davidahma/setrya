@@ -141,3 +141,31 @@ class ElasticTest(unittest.TestCase):
         client.index(index=index, id="missing", document={"workspace": "trial"})
         with self.assertRaises(KeyError):
             scan.find(scope="trial", marker=MARKER)
+
+
+class CacheCanaryTests(unittest.TestCase):
+    def exercise(self, cache):
+        from setrya.erasure.canary import AnswerCacheCanaryScanner
+        from setrya.local_cache import CacheKey
+        from setrya.store_signals import passage_metadata
+        for tenant in ("trial", "other"):
+            key = CacheKey(tenant, "reviewer", "room", "saved")
+            self.assertTrue(cache.publish(cache.begin(key), MARKER, chunks=[passage_metadata("ticket", "1", "0")]))
+        scanner = AnswerCacheCanaryScanner(cache, tenant="trial")
+        self.assertEqual(scanner.find(scope="room", marker=MARKER), {"trial:reviewer:saved"})
+        cache.invalidate_retrieval("trial", "room")
+        self.assertEqual(scanner.find(scope="room", marker=MARKER), set())
+        self.assertEqual(AnswerCacheCanaryScanner(cache, tenant="other").find(scope="room", marker=MARKER),
+                         {"other:reviewer:saved"})
+
+    def test_published_local_answers(self):
+        from setrya.local_cache import LocalAnswerCache
+        self.exercise(LocalAnswerCache())
+
+    @unittest.skipUnless(os.getenv("SETRYA_REDIS_URL") and installed("redis"), "configure disposable Redis")
+    def test_published_redis_answers(self):
+        from redis import Redis
+        from setrya.redis_cache import RedisAnswerCache
+        client = Redis.from_url(os.environ["SETRYA_REDIS_URL"])
+        self.addCleanup(client.close)
+        self.exercise(RedisAnswerCache(client, namespace="canary-" + secrets.token_hex(8), ttl_seconds=60))
