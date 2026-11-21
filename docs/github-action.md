@@ -1,56 +1,62 @@
-# Put the erasure receipt on a pull request
+# Get a deletion verdict on your first pull request
 
-Commit the connected starter and its disposable fixture to the application repository. This workflow runs the same test as the developer, retains its receipt on failure and posts the engineering verdict and case-review status to the PR. Change the Python installation step to include the dependencies your fixture needs.
+The first PR runs a synthetic fixture shipped with Setrya. Once you see a verdict and can replay its receipt, connect the same workflow to your application.
 
-```yaml
-name: Erasure
-on: pull_request
-permissions: {}
-jobs:
-  drill:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      code: ${{ steps.erasure.outputs.exit-code }}
-      review: ${{ steps.erasure.outputs.review-status }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
-        with:
-          python-version: '3.13'
-      - run: python -m pip install setrya==1.0.1
-      - id: erasure
-        uses: davidahma/setrya@v1.0.1
-        with:
-          starter: setrya-case/test_erasure.py
-          mode: late-write
-          output: ${{ runner.temp }}/setrya-receipt
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        if: ${{ !cancelled() && steps.erasure.outputs.review-status != '' && steps.erasure.outputs.review-status != 'UNAVAILABLE' }}
-        with:
-          name: setrya-receipt
-          path: ${{ runner.temp }}/setrya-receipt/
-          if-no-files-found: error
-  comment:
-    needs: drill
-    if: ${{ !cancelled() && needs.drill.outputs.code != '' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-    steps:
-      - uses: davidahma/setrya@v1.0.1
-        with:
-          operation: comment
-          token: ${{ github.token }}
-          exit-code: ${{ needs.drill.outputs.code }}
-          review-status: ${{ needs.drill.outputs.review }}
+## First PR with the sample
+
+Use Python 3.11 or later in a virtual environment. From the root of a GitHub repository, check out a new branch. The commands create `setrya-case/test_erasure.py` and download the release workflow to `.github/workflows/setrya.yml`; start with both paths unused.
+
+```sh
+python -m pip install setrya==1.0.2
+setrya init --output setrya-case
+setrya doctor --starter setrya-case/test_erasure.py --mode deletion
+mkdir -p .github/workflows
+curl -fsSL https://raw.githubusercontent.com/davidahma/setrya/v1.0.2/docs/examples/first-pr/setrya.yml -o .github/workflows/setrya.yml
+git add setrya-case/test_erasure.py .github/workflows/setrya.yml
+git commit -m "Run the Setrya deletion check on pull requests"
+git push -u origin HEAD
 ```
 
-The action uses the installed Python package for the drill and recomputes the result from the receipt. GitHub marks a nonzero step as failed. The `exit-code` output preserves the distinction between a residual (1), an error (2), and missing evidence (3). PASS is 0. When the fixture cannot create a receipt, the case-review status is `UNAVAILABLE`.
+Open a PR against your default branch. The [workflow](examples/first-pr/setrya.yml) installs `setrya==1.0.2` and runs `davidahma/setrya@v1.0.2` in `deletion` mode. It asks as the sample reader, calls the deletion operation, and checks the store and the answers again. No worker hook is required.
 
-The second job uses the GitHub CLI on the hosted Ubuntu runner. It posts two enumerated statuses and the link to the run. It never checks out the PR or reads answer text. Fork PRs still get the job summary and available artifacts with read-only permissions. Pin the Setrya action to the full release commit in repositories that require immutable action references. Use synthetic subjects in public CI and review what your fixture puts in artifacts before enabling upload.
+In the PR’s **Checks** tab, open the **Setrya erasure** run. Expect **PASS · READY_FOR_REVIEW** and the `setrya-receipt` artifact. Same-repository PRs also get a comment linking to the run. Fork PRs get the check summary and artifact; the comment job requires write permission and runs separately. [Example PR comment](https://github.com/davidahma/setrya/pull/35#issuecomment-7064370996)
 
-A reviewer downloads and unzips the artifact, then runs `setrya replay PATH` on the directory containing `erasure-receipt.json`. Add `--case-review` when an outstanding provider or backup obligation should block release. The exit code printed by a fixture is checked against the evidence it emits. [GitHub action metadata](https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax) · [GitHub PR comment permissions](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment)
+Download and unzip `setrya-receipt`. In the directory containing `erasure-receipt.json`, run:
+
+```sh
+setrya replay .
+```
+
+## Switch from the sample to your app
+
+Keep the workflow and generated starter. Add an application-owned fixture that opens an isolated instance of your app, then change the two imports in `setrya-case/test_erasure.py`:
+
+```diff
+-from setrya.examples.workspace import SIMPLE as CASE
+-from setrya.examples.workspace import open_fixture
++from helpdesk_fixture import CASE, open_fixture
+```
+
+The [working adapter](examples/first-pr/helpdesk_fixture.py) connects a [Flask help desk](examples/first-pr/helpdesk.py) to the starter. Its case declares a duty agent, the `/desk/answer` route, a customer note to delete and a team note to preserve. Its `open_fixture()` seeds a fresh SQLite database and yields `(subject, application, external_items)`. The application object supplies three methods:
+
+| Method | What the help-desk fixture does |
+| --- | --- |
+| `inspect(subject, store, key)` | Reads the SQLite row at the declared key and records its revision and which facts it contains. A missing row is an observed absence. |
+| `read(subject, caller, conversation, question)` | Uses the duty agent’s test session to call the Flask answer route. Returns the caller, route, conversation, question and text from the response. |
+| `erase(subject)` | Calls the application's customer-deletion route using the test owner's session. |
+
+To try the exact switch in the sample PR, save the linked files as `helpdesk.py` and `helpdesk_fixture.py` in the repository root, make the import edit above, and install `'Flask>=3.1,<4'` locally. Add the same dependency to the **drill** job’s Python install step. For your service, use its normal test dependencies and fixtures. Use disposable data and review receipt contents before sharing them.
+
+```sh
+setrya doctor --starter setrya-case/test_erasure.py --mode deletion
+setrya run --starter setrya-case/test_erasure.py --mode deletion --output desk-receipt
+setrya replay desk-receipt
+```
+
+Commit the application fixture, the starter edit and the job’s dependency change. Push to the same PR. In this example the duty agent can see depot code `Harbor-17` before deletion, then loses it while still getting `Thursday` for dispatch. If the deletion route removes the row but leaves the old answer cached, the drill returns **FAIL · RESIDUAL_FOUND**.
+
+## Add the worker race
+
+The first PR establishes what happens after ordinary deletion. To test a delayed write, connect the fixture's worker hooks, then change the workflow's `mode: deletion` to `mode: late-write`. Setrya holds the worker before its write, runs the deletion, releases it and checks again. A missing checkpoint yields **NOT TESTED**. [Worker and observation contract](erasure-v3.md#required-evidence)
+
+The Action returns 0 for PASS, 1 for FAIL, 2 for ERROR and 3 for NOT TESTED. The workflow keeps verified receipts on failure. To include outstanding provider or retention obligations in the release decision, use `setrya replay . --case-review`. Repositories that require immutable Action refs can pin the full release commit in both jobs.

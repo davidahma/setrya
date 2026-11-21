@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2
+
+- The Marketplace quickstart gives a first PR a runnable deletion test and a workflow that saves its receipt. The guide shows how to connect the same starter to an application’s own store, authenticated answer route and deletion operation.
+
 ## 1.0.1
 
 - A live person drill now checks that its starter returned the evidence issued by that invocation. Replay and signing honor an explicit person or tenant scope. A bundle with competing receipts is rejected, including inside a discovery case. Supported historical receipts still replay under their original rules.

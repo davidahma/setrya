@@ -1,4 +1,4 @@
 """Erasure regression tests for AI applications."""
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 POSITIONING = "Test whether your AI assistant can still reveal a customer's deleted information."
