@@ -49,3 +49,27 @@ with closing(sqlite3.connect(":memory:")) as db:
 Implement the synchronous `ErasureAdapter` protocol. Set `proof = "direct"` when the adapter can read the actual partition. `find(subject)` returns its logical copy keys. `delete(subject)` erases only that subject and can be retried. `verify_absent(subject)` performs a fresh read and returns the keys still present. An empty set means the read completed and found no copies. Raise an error on timeouts, missing credentials, or partial observations so replay can report the gap. Use `configuration` or `none` for systems where a direct read is unavailable.
 
 Run `check_erasure_adapter` only against fixtures you can erase. It checks the exact key sets for two seeded subjects, deletes the first subject twice, and confirms the second subject survives both operations.
+
+## Install the store integration
+
+| Fixture | Install |
+| --- | --- |
+| Local LangGraph with SQLite | `python -m pip install 'setrya[erasure]'` |
+| LangGraph with PostgreSQL checkpoints and memory | `python -m pip install 'setrya[erasure,erasure-postgres]'` |
+| Elasticsearch | `python -m pip install 'setrya[erasure-elasticsearch]'` |
+| Standalone Redis | `python -m pip install 'setrya[redis]'` |
+
+## Async LangGraph applications
+
+Import `arun_shared` from `setrya.erasure.asyncio` to test an async shared investigation. Supply the same case, required stores, mode, external items and journal as the synchronous runner. Implement its application methods as coroutines. The checker calls the ASGI serving path and PostgreSQL through your async hooks on the event loop that owns those clients. Both runners produce the same replayable receipt. In a late-write drill, the application must hold a real task before its write and await completion of the released task and any downstream refreshes. [Shared investigation](shared-investigation.md)
+
+```python
+from setrya.erasure.asyncio import arun_shared
+
+async def test_my_investigation(subject, case, application, tmp_path):
+    receipt = await arun_shared(subject, case=case, application=application,
+                                mode="late-write", output=tmp_path / "receipt")
+    assert receipt["technical_verdict"] == "PASS", receipt
+```
+
+For subject-exclusive storage, use `AsyncPostgresCheckpointAdapter(saver)` with `AsyncPostgresSaver` and `AsyncPostgresMemoryAdapter(store)` with `AsyncPostgresStore`. Import both adapters from `setrya.erasure.asyncio`. Their `find`, `delete` and `verify_absent` methods are coroutines. Use a dedicated, idle, autocommit psycopg async connection or a pool configured for autocommit. Read permissions must cover the declared tables. The memory adapter includes expired rows and embeddings. The checkpoint adapter includes blobs and pending writes. `arun_erasure` accepts these adapters for the v2 subject-exclusive API. A shared conversation needs an application rewrite that preserves the retained finding and addresses readable historical checkpoints.

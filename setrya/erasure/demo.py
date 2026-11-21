@@ -225,7 +225,7 @@ def run_demo(output: Path) -> int:
         receipt = run_case(output / mode, guarded=mode != "broken", opaque=mode == "opaque")
         verdict = receipt["verdict"]
         unknown = receipt['unknown_copies']
-        print(f"{mode}: {verdict} · {receipt['time_to_first_verdict_ms']} ms to first verdict · "
+        print(f"{mode}: {verdict} · {receipt['time_to_first_verdict_ms']} ms drill duration · "
               f"{unknown} unknown {'copy' if unknown == 1 else 'copies'}")
         evidence = json.loads((output / mode / "erasure-evidence.json").read_bytes())
         if evidence["worker"]["drained"]:

@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Setrya shared subject erasure receipt v3",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "setrya.erasure.receipt.v3"
+    },
+    "version": {
+      "const": 3
+    },
+    "scope": {
+      "const": "person"
+    },
+    "run": {
+      "$ref": "#/$defs/id"
+    },
+    "subject": {
+      "$ref": "#/$defs/subject"
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "case": {
+      "$ref": "#/$defs/case"
+    },
+    "mode": {
+      "enum": [
+        "deletion",
+        "late-write"
+      ]
+    },
+    "race": {
+      "enum": [
+        "not exercised",
+        "incomplete",
+        "exercised"
+      ]
+    },
+    "technical_verdict": {
+      "enum": [
+        "FAIL",
+        "PASS",
+        "ERROR",
+        "NOT TESTED"
+      ]
+    },
+    "review_status": {
+      "enum": [
+        "READY_FOR_REVIEW",
+        "OPEN_ITEMS",
+        "RESIDUAL_FOUND"
+      ]
+    },
+    "open_items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/openItem"
+      },
+      "maxItems": 512
+    },
+    "artifact_checks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifactCheck"
+      }
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "$ref": "#/$defs/id"
+          },
+          "error": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "required": [
+          "operation",
+          "error"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "drill_duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "const": "erasure-evidence.json"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "file",
+        "sha256"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "format",
+    "version",
+    "scope",
+    "run",
+    "subject",
+    "observed_at",
+    "case",
+    "mode",
+    "race",
+    "technical_verdict",
+    "review_status",
+    "open_items",
+    "artifact_checks",
+    "failures",
+    "gaps",
+    "errors",
+    "drill_duration_ms",
+    "evidence"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "maxLength": 1024,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_./:@+-]*$"
+    },
+    "artifact": {
+      "type": "object",
+      "properties": {
+        "store": {
+          "$ref": "#/$defs/id"
+        },
+        "key": {
+          "$ref": "#/$defs/id"
+        },
+        "action": {
+          "enum": [
+            "delete",
+            "rewrite",
+            "preserve"
+          ]
+        }
+      },
+      "required": [
+        "store",
+        "key",
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    "artifactCheck": {
+      "type": "object",
+      "properties": {
+        "store": {
+          "$ref": "#/$defs/id"
+        },
+        "key": {
+          "$ref": "#/$defs/id"
+        },
+        "action": {
+          "enum": [
+            "delete",
+            "rewrite",
+            "preserve"
+          ]
+        },
+        "discovered_by": {
+          "enum": [
+            "case",
+            "canary"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "store",
+        "key",
+        "action",
+        "discovered_by",
+        "evidence"
+      ],
+      "additionalProperties": false
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "subject": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/sha256"
+        },
+        "classification": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "ref",
+        "classification"
+      ],
+      "additionalProperties": false
+    },
+    "case": {
+      "type": "object",
+      "properties": {
+        "conversation": {
+          "$ref": "#/$defs/id"
+        },
+        "route": {
+          "type": "string",
+          "minLength": 1
+        },
+        "callers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sha256"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifact"
+          },
+          "minItems": 1,
+          "maxItems": 512
+        },
+        "scan_stores": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "require_lineage": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "conversation",
+        "route",
+        "callers",
+        "questions",
+        "artifacts",
+        "scan_stores",
+        "require_lineage"
+      ],
+      "additionalProperties": false
+    },
+    "openItem": {
+      "type": "object",
+      "properties": {
+        "store": {
+          "$ref": "#/$defs/id"
+        },
+        "key": {
+          "$ref": "#/$defs/id"
+        },
+        "owner": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "configuration",
+            "attested",
+            "retained"
+          ]
+        },
+        "evidence": {
+          "$ref": "#/$defs/id"
+        },
+        "follow_up": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "subject_ref": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "store",
+        "key",
+        "owner",
+        "kind",
+        "evidence",
+        "follow_up",
+        "subject_ref"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

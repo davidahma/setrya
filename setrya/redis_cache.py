@@ -292,6 +292,14 @@ class RedisAnswerCache(AnswerCache):
         revisions = [(chunk.document, chunk.revision) for chunk in record.chunks]
         return self._complete(fill, "publish", json.dumps(docs), data, self._ttl, json.dumps(revisions), int(self._strict))
 
+    def unregistered_documents(self, tenant, *documents):
+        prefix = self._prefix(label(tenant, "tenant"))
+        checked = sorted({label(doc, "document") for doc in documents})
+        if not checked:
+            return ()
+        revisions = self._client.hmget(prefix + "revisions", checked)
+        return tuple(doc for doc, revision in zip(checked, revisions) if revision is None)
+
     def set_document_revision(self, tenant: str, document: str, revision: str | None) -> int:
         return int(self._drop_doc(keys=[self._prefix(label(tenant, "tenant"))],
                                   args=[label(document, "document"), 1000 * _MAX_LEASE_SECONDS,

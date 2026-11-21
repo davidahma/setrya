@@ -90,17 +90,20 @@ class CopyJournal:
         row = Copy(identifier(store, "store"), identifier(key, "copy key"), identifier(source, "source"),
                    action, subject.classification, datetime.now(timezone.utc).isoformat(), validate_details(details))
         with closing(sqlite3.connect(self.path)) as db, db:
-            db.execute("""INSERT INTO copy_events(subject, store, copy_key, source, action, classification,
+            result = db.execute("""INSERT INTO copy_events(subject, store, copy_key, source, action, classification,
                            observed_at, details) VALUES(?,?,?,?,?,?,?,?)""",
                        (subject.ref, row.store, row.key, row.source, row.action, row.classification,
                         row.observed_at, json.dumps(row.details, separators=(",", ":"), sort_keys=True)))
         if self.export_trace_events:
             from opentelemetry import trace
-            attributes = {**subject.metadata(), "store": row.store, "copy_key": row.key,
+            attributes = {**subject.metadata(), **self._trace_identity(result.lastrowid), "store": row.store, "copy_key": row.key,
                           "source": row.source, "action": row.action, "observed_at": row.observed_at,
                           "details_json": json.dumps(row.details, separators=(",", ":"), sort_keys=True)}
             trace.get_current_span().add_event("setrya.copy.v1", attributes)
         return row
+
+    def _trace_identity(self, sequence):
+        return {}
 
     def _read(self, subject, latest, max_bytes=None):
         if not isinstance(subject, Subject):

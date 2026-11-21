@@ -116,7 +116,7 @@ class ErasureAcceptanceTests(unittest.TestCase):
                                   env={**os.environ, "DISPATCH_GUARD": setting})
                     self.assertEqual(result.returncode, code, result.stderr + result.stdout)
                     self.assertIn("0 unknown copies", result.stdout)
-                    self.assertIn("ms to first verdict", result.stdout)
+                    self.assertIn("ms drill duration", result.stdout)
                     receipt, evidence = self._check_bundle(folder / setting, expected, 0)
                     self.assertEqual(evidence["case"]["callers"], ["coordinator", "dispatcher"])
                     memory = next(row for row in receipt["copies"] if row["store"] == "memory")

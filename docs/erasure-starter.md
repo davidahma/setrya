@@ -8,7 +8,7 @@ Use Python 3.11 or later. The demo runs on loopback with a SQLite source table, 
 
 ```sh
 python -m pip install 'setrya[erasure]'
-setrya demo erasure --output chart-trial
+setrya erasure demo --example legacy --output chart-trial
 setrya replay chart-trial/guarded
 ```
 
@@ -25,7 +25,7 @@ Each run writes `erasure-evidence.json` and `erasure-receipt.json`. Send both fi
 Use an isolated test environment. The drill deletes the subject’s rows, cache entries and subject-exclusive graph threads through the adapters you register.
 
 ```sh
-setrya init erasure --output app-erasure
+setrya erasure init --example legacy --output app-erasure
 cd app-erasure
 ```
 

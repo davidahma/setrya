@@ -13,12 +13,14 @@ from .inputs import MAX_JSON_BYTES, InvalidReport, read_regular_bytes, unique_fi
 MAX_SIGSTORE_BYTES = 32 * 1024 * 1024
 
 
-def add_commands(commands, *, local_keys=False):
+def add_commands(commands, *, local_keys=False, aliases=False):
     for name, help_text in (
         ("sign-receipt", "create a keyless Sigstore bundle for a deletion receipt"),
         ("verify-signature", "verify the exact receipt bytes and signer offline"),
     ):
-        command = commands.add_parser(name, help=help_text)
+        command = commands.add_parser(name, help=help_text, aliases=[name.split("-")[0]] if aliases else [])
+        if aliases:
+            command.add_argument("--scope", choices=("person", "tenant"), default="person")
         command.add_argument("--receipt", required=True, type=Path)
         command.add_argument("--bundle", required=True, type=Path)
         if local_keys:

@@ -6,9 +6,9 @@ Setrya follows one tenant-scoped subject through a disposable application. The j
 
 ```sh
 python -m pip install 'setrya[erasure]'
-setrya demo erasure --output alice
+setrya erasure demo --example legacy --output alice
 setrya replay alice/guarded
-setrya init erasure --output subject-test
+setrya erasure init --example legacy --output subject-test
 ```
 
 The demo writes three independent evidence directories. Open a receipt’s `copies` array to see its location, handling labels, owner, and a pointer to the corresponding observations. Follow those pointers in the sibling evidence file. The `reads` section records both authenticated callers at each stage. The signed GitHub release includes all three runs. [Starter guide](erasure-starter.md) · [Adapters and isolation](erasure-adapters.md) · [Instrumenting an application](erasure-hooks.md)
@@ -57,7 +57,7 @@ setrya erasure verify-signature --key cosign.pub \
 setrya replay alice/guarded
 ```
 
-The local key flow creates a detached signature. CI uses a GitHub Actions identity and a Sigstore transparency-log bundle. Download `subject-erasure.zip` from the release, extract it, and use a Sigstore trusted root obtained independently. From the extracted directory run:
+The local key flow creates a detached signature. CI uses a GitHub Actions identity and a Sigstore transparency-log bundle. Download `subject-erasure.zip` from v0.16.0, extract it, and use a Sigstore trusted root obtained independently. From the extracted directory run:
 
 ```sh
 setrya erasure verify-signature --receipt guarded/erasure-receipt.json \

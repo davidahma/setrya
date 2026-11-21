@@ -38,6 +38,18 @@ class HandoffStudyTests(unittest.TestCase):
     def report(self):
         return summarize(self.data)
 
+    def test_erasure_wall_clock_and_missing_humans(self):
+        stamps = self.data["erasure_timing"]
+        stamps.update(install_started="2026-11-21T11:00:00-05:00", first_verdict="2026-11-21T16:10:00+00:00",
+                      reviewer_received="2026-11-21T16:30:00+00:00", first_correct_review="2026-11-21T16:31:00+00:00")
+        self.assertIn("Erasure install to first correct review: 1860s", self.report())
+        self.assertIn("Erasure independent review: 60s", self.report())
+        self.data["independent_reviewer"] = ""
+        self.assertIn("Erasure install to first correct review: unmeasured", self.report())
+        stamps["reviewer_received"] = stamps["install_started"]
+        with self.assertRaises(ValueError):
+            self.report()
+
     def test_assigned_change_is_separate_from_observed_reuse(self):
         self.assertIn("Own-application activation: observed", self.report())
         self.assertIn("later change: unmeasured", self.report())

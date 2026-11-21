@@ -196,6 +196,15 @@ class LangGraphSQLiteCheckpointAdapter(_Direct):
             self.saver.delete_thread(thread)
 
 
+def _checkpoint_rows(subject):
+    prefix = f"setrya:{_ref(subject)}:"
+    tables = ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
+    query = " UNION ".join(
+        f"SELECT thread_id AS copy_key FROM {table} WHERE starts_with(thread_id, %s)" for table in tables
+    )
+    return query, (prefix,) * len(tables)
+
+
 class LangGraphPostgresCheckpointAdapter(_Direct):
     """The full PostgresSaver layout, including blobs and writes orphaned from their checkpoints."""
 
@@ -206,13 +215,8 @@ class LangGraphPostgresCheckpointAdapter(_Direct):
         self.saver = saver
 
     def find(self, subject):
-        prefix = f"setrya:{_ref(subject)}:"
-        tables = ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
-        query = " UNION ".join(
-            f"SELECT thread_id AS copy_key FROM {table} WHERE starts_with(thread_id, %s)" for table in tables
-        )
         with self.saver.lock, _pg_connection(self.saver.conn) as conn:
-            return _keys(conn.execute(query, (prefix,) * len(tables)))
+            return _keys(conn.execute(*_checkpoint_rows(subject)))
 
     def delete(self, subject):
         for thread in self.find(subject):
@@ -263,6 +267,43 @@ class LangGraphMemoryAdapter(_Direct):
             self.store.delete(namespace, key)
 
 
+_MEMORY_SCHEMA = """SELECT n.nspname AS schema FROM pg_catalog.pg_class c
+                    JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE c.oid = 'store'::regclass"""
+
+
+def _memory_relations(row):
+    schema = _sql_name(row["schema"] if isinstance(row, Mapping) else row[0])
+    return schema + '."store"', schema + '."store_vectors"'
+
+
+def _memory_tables(table, vectors, row, index_config):
+    present = row["present"] if isinstance(row, Mapping) else row[0]
+    if present:
+        return (table, vectors)
+    if index_config:
+        raise ValueError("LangGraph memory has no embedding table in its schema")
+    return (table,)
+
+
+def _memory_rows(tables, subject):
+    root = ".".join(memory_namespace(subject))
+    query = " UNION ".join(
+        f"SELECT prefix, key FROM {table} WHERE prefix = %s OR starts_with(prefix, %s)" for table in tables
+    )
+    return query, (root, root + ".") * len(tables)
+
+
+def _memory_keys(rows, subject):
+    result = set()
+    for row in rows:
+        prefix, key = (row["prefix"], row["key"]) if isinstance(row, Mapping) else row
+        logical = memory_item_key(subject, tuple(prefix.split(".")), key)
+        if logical in result:
+            raise ValueError("duplicate LangGraph memory copy key")
+        result.add(logical)
+    return result
+
+
 class LangGraphPostgresMemoryAdapter(_Direct):
     """Read persisted items (including expired items) and optional embedding rows."""
 
@@ -273,36 +314,13 @@ class LangGraphPostgresMemoryAdapter(_Direct):
         self.store = store
 
     def _tables(self, conn):
-        row = conn.execute(
-            """SELECT n.nspname AS schema FROM pg_catalog.pg_class c
-               JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE c.oid = 'store'::regclass"""
-        ).fetchone()
-        schema = _sql_name(row["schema"] if isinstance(row, Mapping) else row[0])
-        table = schema + '."store"'
-        vectors = schema + '."store_vectors"'
+        table, vectors = _memory_relations(conn.execute(_MEMORY_SCHEMA).fetchone())
         row = conn.execute("SELECT to_regclass(%s) IS NOT NULL AS present", (vectors,)).fetchone()
-        present = row["present"] if isinstance(row, Mapping) else row[0]
-        if present:
-            return (table, vectors)
-        if self.store.index_config:
-            raise ValueError("LangGraph memory has no embedding table in its schema")
-        return (table,)
+        return _memory_tables(table, vectors, row, self.store.index_config)
 
     def find(self, subject):
-        root = ".".join(memory_namespace(subject))
         with _pg_connection(self.store.conn) as conn:
-            tables = self._tables(conn)
-            query = " UNION ".join(
-                f"SELECT prefix, key FROM {table} WHERE prefix = %s OR starts_with(prefix, %s)" for table in tables
-            )
-            result = set()
-            for row in conn.execute(query, (root, root + ".") * len(tables)):
-                prefix, key = (row["prefix"], row["key"]) if isinstance(row, Mapping) else row
-                logical = memory_item_key(subject, tuple(prefix.split(".")), key)
-                if logical in result:
-                    raise ValueError("duplicate LangGraph memory copy key")
-                result.add(logical)
-            return result
+            return _memory_keys(conn.execute(*_memory_rows(self._tables(conn), subject)), subject)
 
     def delete(self, subject):
         root = ".".join(memory_namespace(subject))

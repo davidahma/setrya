@@ -70,6 +70,10 @@ class AnswerCache:
         """Register the current revision, or None on deletion, at the write boundary."""
         raise NotImplementedError
 
+    def unregistered_documents(self, tenant: str, *documents: str) -> tuple[str, ...]:
+        """Audit a batch of known document IDs before enabling strict publication."""
+        raise NotImplementedError
+
     def invalidate_retrieval(self, tenant: str, *scopes: str) -> int:
         raise NotImplementedError
 
@@ -310,6 +314,12 @@ class LocalAnswerCache(AnswerCache):
             self._slots.move_to_end(fill.key)
             self._end_pending(fill.key, slot)
             return True
+
+    def unregistered_documents(self, tenant, *documents):
+        tenant = label(tenant, "tenant")
+        checked = sorted({label(doc, "document") for doc in documents})
+        with self._changed:
+            return tuple(doc for doc in checked if (tenant, doc) not in self._revisions)
 
     def set_document_revision(self, tenant: str, document: str, revision: str | None) -> int:
         key = label(tenant, "tenant"), label(document, "document")

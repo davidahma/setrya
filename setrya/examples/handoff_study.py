@@ -1,6 +1,7 @@
 """Keep one private, paired human handoff study in a local JSON file."""
 
 import argparse
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,7 @@ def session():
         "repository": "", "own_application": None, "engineer": "", "independent_reviewer": "",
         "date": "", "first_arm": "", "agent_model_tools_and_budget_for_both": "",
         "arms": {name: {"first_change": change(), "assigned_second_change": change()} for name in ARMS},
+        "erasure_timing": dict(install_started="", first_verdict="", reviewer_received="", first_correct_review=""),
         "later_setrya_use": {"commit": "", "evidence": "", "use": "", "without_facilitator": None,
                              "team_chose_to_reuse": None},
     }
@@ -54,6 +56,26 @@ def observation(row):
     if not (correct and observed and setup is not None and review is not None):
         return False, "incomplete"
     return True, f"correct · setup {setup}s · independent review {review}s"
+
+
+def erasure_timing(data, eligible):
+    timing = data.get("erasure_timing", {})
+    stamps = []
+    for key in ("install_started", "first_verdict", "reviewer_received", "first_correct_review"):
+        raw = text(timing, key)
+        stamp = datetime.fromisoformat(raw) if raw else None
+        if stamp is not None and stamp.utcoffset() is None:
+            raise ValueError("record ISO timestamps with an explicit UTC offset")
+        stamps.append(stamp)
+    for before, after in zip(stamps, stamps[1:]):
+        if after is not None and (before is None or after < before):
+            raise ValueError("erasure handoff timestamps must follow the observed sequence")
+    started, verdict, received, reviewed = stamps
+    def duration(begin, end):
+        return f"{(end - begin).total_seconds():g}s" if eligible and begin and end else "unmeasured"
+    return [f"Erasure install to first verdict: {duration(started, verdict)}",
+            f"Erasure install to first correct review: {duration(started, reviewed)}",
+            f"Erasure independent review: {duration(received, reviewed)}"]
 
 
 def summarize(data):
@@ -109,6 +131,7 @@ def summarize(data):
     reused = bool(activated and independent and team_choice and kind and later_commit and text(later, "evidence"))
     lines.append("Own-application activation: " + ("observed" if activated else "unmeasured"))
     lines.append("Independent use on a later change: " + (kind if reused else "unmeasured"))
+    lines.extend(erasure_timing(data, people and own and bool(text(data, "repository"))))
     return "\n".join(lines)
 
 

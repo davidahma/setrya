@@ -57,7 +57,7 @@ def run(output):
 
 def summary(receipt, output):
     return (f"{receipt['verdict']} · {receipt['unknown_copies']} unknown copies · "
-            f"{receipt['time_to_first_verdict_ms']} ms to first verdict\n"
+            f"{receipt['time_to_first_verdict_ms']} ms drill duration\n"
             f"Replay: setrya replay {quote(str(output))}")
 
 

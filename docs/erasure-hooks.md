@@ -90,3 +90,29 @@ When LangChain owns the SDK call, pass `hooks.langchain_callback(store="bedrock"
 `journal.history(subject)` returns each event, including attempted writes and returned calls. `journal.copies(subject)` returns the latest observation at each store and key. Direct adapter scans can also discover locations that had no journal entry. A read-only provider, a missing hook, a payload copied to an untagged row, and an unlisted system each limit what a receipt can establish. Declare the actual storage and observation boundaries in the inventory. For application-owned writes, call `journal.record(subject, store="charts", key=opaque_key, source=source_key, action="stored")` at that boundary.
 
 To propagate the reference and label over an approved tracing link, inject `subject.otel_context()` with the OpenTelemetry W3C baggage propagator. Restore it with `Subject.from_baggage(extracted_context)`. Keep baggage inside the intended trust boundary. By default the journal writes only to the local SQLite file. `CopyJournal(path, export_trace_events=True)` also emits a `setrya.copy.v1` event on the current span. It contains the two subject fields, store, copy key, source, action, observed time and allowlisted details. Enable it only for a collector approved for this classification. A dropped or sampled span leaves the durable local journal intact.
+
+## Collect journals across worker processes
+
+Give each expected producer a stable name, its own SQLite file, and the same fresh run ID and tenant-keyed test subject. `WorkerJournal` accepts the instrumentation used with `CopyJournal`. Keep the file on durable storage throughout the drill. Its event identity combines the run, producer and a sequence assigned by SQLite. A restarted worker must reopen its original file.
+
+```python
+from setrya.erasure.journal_merge import CollectedJournal, WorkerJournal
+
+worker = WorkerJournal("worker.sqlite", run_id=run_id, producer="summarizer")
+worker.record(subject, store="memory", key="incident-41", source="finding-a", action="derived")
+# Seal after this worker has finished every operation for the subject, including late writes.
+digest = worker.seal(subject, "summarizer.json")
+```
+
+Transfer each sealed JSON packet over your authenticated CI artifact channel. Bind the producer name to the channel that supplied the packet. A SHA-256 received separately from that producer can also be checked. The packet contains pseudonymous identifiers and source metadata. Keep private runs in authorized storage. Once sealed, SQLite rejects additional writes for the subject. A producer that saw no copies can explicitly seal an empty packet.
+
+```python
+collector = CollectedJournal("review.sqlite", run_id=run_id)
+collector.ingest("summarizer.json", producer="summarizer", expected_sha256=digest)
+collector.ingest("api.json", producer="api")
+coverage = collector.coverage(subject, run_id=run_id, expected_producers=("api", "summarizer"))
+```
+
+Pass `journal=collector`, `run_id=run_id`, and `expected_producers=("api", "summarizer")` to `run_shared` or `arun_shared`. For a live drill, use the optional `application.collect_journals(subject)` hook to flush, seal, and import packets **after the final endpoint and storage reads**. The checker can report a missing producer even when every direct read looked clear. Redelivering an identical packet is safe. Conflicting event identities or differing final packets from the same producer raise an error. The receiver trusts the authorized exporter to have instrumented its writes.
+
+A `WorkerJournal` constructed with `export_trace_events=True` includes the durable event identity in its OpenTelemetry `setrya.copy.v1` events. Pass a trusted event’s attributes to `collector.ingest_trace(attributes, producer="summarizer")` to record an observed copy. Only a sealed producer packet completes its coverage slot. A trace from an undeclared producer opens a coverage gap even if it records a previously observed key. Historical trace events lacking a run, producer or sequence cannot complete a distributed drill.

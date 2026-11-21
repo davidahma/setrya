@@ -196,6 +196,10 @@ def main(argv=None) -> int:
         from .examples.answer_cache.drill import main as answer_cache_main
 
         return answer_cache_main(argv[1:])
+    if argv[:2] in (["demo", "erasure"], ["init", "erasure"]):
+        from .erasure.cli import main as erasure_main
+
+        return erasure_main([argv[0], *argv[2:]])
     if argv[:1] == ["erasure"]:
         from .erasure.cli import main as erasure_main
 
@@ -223,7 +227,7 @@ def main(argv=None) -> int:
     starters = init.add_subparsers(dest="starter", required=True)
     erasure = starters.add_parser("erasure", help="test deletion through a LangGraph application")
     erasure.add_argument("--output", type=Path, default=Path("setrya-erasure"))
-    commands.add_parser("erasure", help="sign or verify a subject erasure receipt")
+    commands.add_parser("erasure", help="test person or tenant erasure and review signed evidence")
     endpoint = starters.add_parser(
         "endpoint", help="test your answer endpoint as a revoked user and a retained colleague",
         description="Write a pytest starter to verify two authenticated endpoint reads, then exercise the delayed cache-fill worker.",
@@ -273,14 +277,6 @@ def main(argv=None) -> int:
     error_summary = None
 
     try:
-        if args.command == "init" and args.starter == "erasure":
-            from .erasure.starter import init_erasure
-
-            init_erasure(args.output)
-            print(f"Created {args.output}")
-            print("Connect open_fixture, snapshot_job and read_chat, then run  " + shlex.join(
-                ["python", "-m", "pytest", "-q", "-s", "--", str(args.output / "test_erasure.py")]))
-            return 0
         if args.command == "init":
             from .starter import write_endpoint_test
 
@@ -294,10 +290,9 @@ def main(argv=None) -> int:
             directory = Path(args.report)
             manifest = bundle_manifest(directory) if directory.is_dir() else None
             if manifest == "erasure-receipt.json":
-                from .erasure.cli import report as print_erasure
-                from .erasure.receipt import replay as replay_erasure
+                from .erasure.cli import replay_directory
 
-                return print_erasure(replay_erasure(directory))
+                return replay_directory(directory)
             if manifest == "endpoint-reads.json":
                 from .endpoint_reads import replay as replay_reads
 
@@ -396,10 +391,6 @@ def main(argv=None) -> int:
                 _write_summary(summary_path, result.report.rules.id, summary)
             return result.verdict.status.exit_code
         if args.command == "demo":
-            if args.example == "erasure":
-                from .erasure.demo import run_demo
-
-                return run_demo(args.output or Path("erasure-example"))
             if args.output is not None:
                 raise InputError("--output requires demo erasure")
             if args.example == "access":
