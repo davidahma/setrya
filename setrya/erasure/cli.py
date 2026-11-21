@@ -115,8 +115,16 @@ def main(argv):
             if not args.starter.is_file() or os.path.lexists(args.output):
                 raise InputError("Choose a trusted starter file and a fresh output directory.")
             selected_mode = args.mode or "deletion"
+            # A source checkout is importable via python -m in its root. A starter
+            # in another directory needs that same path in its child interpreter.
+            child_env = os.environ.copy()
+            package_root = Path(__file__).resolve().parents[2]
+            if package_root == Path.cwd().resolve():
+                paths = [str(package_root), child_env.get("PYTHONPATH", "")]
+                child_env["PYTHONPATH"] = os.pathsep.join(filter(None, paths))
             code = subprocess.run([sys.executable, str(args.starter.resolve()), "--mode", selected_mode,
-                                   "--output", str(args.output.resolve())], stdout=subprocess.DEVNULL).returncode
+                                   "--output", str(args.output.resolve())], stdout=subprocess.DEVNULL,
+                                  env=child_env).returncode
             if code in (2, 3) and not (args.output / RECEIPT).is_file():
                 return code
             receipt = load_directory(args.output)
