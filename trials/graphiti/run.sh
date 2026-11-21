@@ -23,9 +23,9 @@ for spec in 0.31.1:5961293865a57844fe13d4eb061deb3501971fb2:1 0.31.2:d72407dceda
   python3 -m venv "$work/$version"
   py="$work/$version/bin/python"
   "$py" -m pip install --quiet "graphiti-core @ git+https://github.com/getzep/graphiti.git@$revision" "openai<3" "$repo"
-  code=0
-  "$py" "$folder/trial.py" "$out/$version.json" --port "${endpoint##*:}" || code=$?
-  test "$code" -eq "$expected"
+  decision=PASS
+  if test "$expected" -eq 1; then decision=FAIL; fi
+  "$py" "$folder/trial.py" "$out/$version.json" --port "${endpoint##*:}" --expect "$decision"
   code=0
   "$py" -I -m setrya replay "$out/$version.receipt" || code=$?
   test "$code" -eq "$expected"

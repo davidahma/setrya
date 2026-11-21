@@ -3,7 +3,7 @@ import argparse
 import asyncio
 from datetime import datetime, timezone
 from hashlib import sha256
-from importlib.metadata import version
+from importlib.metadata import distribution
 import json
 import os
 from pathlib import Path
@@ -51,8 +51,12 @@ async def exercise(port, output):
         async def rank(self, *args, **kwargs):
             raise AssertionError("unexpected ranking call")
 
-    release = version("graphiti-core")
-    sha = VERSIONS[release]
+    installed = distribution("graphiti-core")
+    release = installed.version
+    provenance = json.loads(installed.read_text("direct_url.json") or "{}")
+    sha = provenance.get("vcs_info", {}).get("commit_id")
+    if release not in VERSIONS or sha != VERSIONS[release]:
+        raise ValueError("install the pinned Graphiti Git revision before recording evidence")
     graph = Graphiti(f"bolt://127.0.0.1:{port}", "neo4j", "", llm_client=Summarizer(None),
                      embedder=Embedder(), cross_encoder=Ranker())
     group = "trial_" + uuid4().hex
@@ -156,6 +160,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("--port", type=int, help="exercise Graphiti using loopback Neo4j and save new observations")
+    parser.add_argument("--expect", choices=("PASS", "FAIL"), help="exit successfully only for this observed verdict")
     args = parser.parse_args()
     if args.port:
         packet = asyncio.run(exercise(args.port, args.output.with_suffix(".receipt")))
@@ -167,4 +172,6 @@ if __name__ == "__main__":
     if packet.get("setrya_verdict") != decision:
         raise ValueError("Native observations disagree with the Setrya verdict")
     print(f"Graphiti {packet['graphiti_version']} {decision}  {packet['after']}")
+    if args.expect:
+        raise SystemExit(0 if decision == args.expect else 2)
     raise SystemExit({"FAIL": 1, "PASS": 0, "NOT TESTED": 3}[decision])

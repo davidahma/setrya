@@ -163,27 +163,41 @@ class CollectedJournal:
             self._insert(db, producer, seq, subject.ref, record)
 
     def coverage(self, subject, *, run_id, expected_producers):
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute("BEGIN")
+            return self._coverage(db, subject, run_id, expected_producers)
+
+    def _coverage(self, db, subject, run_id, expected_producers):
         require(run_id == self.run_id and isinstance(subject, Subject), "Wrong run or subject for worker coverage.")
         require(isinstance(expected_producers, (tuple, list, set, frozenset)) and expected_producers,
                 "Declare the expected durable producers.")
         expected = sorted(identifier(p, "expected producer") for p in expected_producers)
         require(len(set(expected)) == len(expected), "Duplicate expected producer.")
-        with closing(sqlite3.connect(self.path)) as db:
-            db.execute("BEGIN")
-            received = [p for (p,) in db.execute("SELECT producer FROM collected_seals WHERE ref=? ORDER BY producer",
-                                                  (subject.ref,))]
-            observed = {p for (p,) in db.execute("SELECT DISTINCT producer FROM collected_events WHERE ref=?", (subject.ref,))}
+        received = [p for (p,) in db.execute("SELECT producer FROM collected_seals WHERE ref=? ORDER BY producer",
+                                              (subject.ref,))]
+        observed = {p for (p,) in db.execute("SELECT DISTINCT producer FROM collected_events WHERE ref=?", (subject.ref,))}
         sealed = set(received)
         return {"run_id": run_id, "expected": expected, "received": received, "missing": sorted(set(expected) - sealed),
                 "unsealed": sorted(observed - sealed)}
 
     def history(self, subject, *, max_bytes=MAX_BYTES):
+        with closing(sqlite3.connect(self.path)) as db:
+            return self._history(db, subject, max_bytes)
+
+    @staticmethod
+    def _history(db, subject, max_bytes):
         require(isinstance(subject, Subject) and type(max_bytes) is int and max_bytes > 0, "Invalid journal read.")
         rows, size = [], 0
-        with closing(sqlite3.connect(self.path)) as db:
-            for (record,) in db.execute("SELECT record FROM collected_events WHERE ref=? ORDER BY producer,sequence",
-                                        (subject.ref,)):
-                size += len(record.encode())
-                require(size <= max_bytes, "Collected subject history exceeds the drill journal budget.")
-                rows.append(Copy(**json.loads(record)))
+        for (record,) in db.execute("SELECT record FROM collected_events WHERE ref=? ORDER BY producer,sequence",
+                                    (subject.ref,)):
+            size += len(record.encode())
+            require(size <= max_bytes, "Collected subject history exceeds the drill journal budget.")
+            rows.append(Copy(**json.loads(record)))
         return tuple(rows)
+
+    def snapshot(self, subject, *, run_id, expected_producers, max_bytes=MAX_BYTES):
+        """Read the producer roster and its events at one SQLite snapshot."""
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute("BEGIN")
+            coverage = self._coverage(db, subject, run_id, expected_producers)
+            return coverage, self._history(db, subject, max_bytes)

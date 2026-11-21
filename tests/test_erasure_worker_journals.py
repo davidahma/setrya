@@ -7,6 +7,7 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from setrya.erasure.journal_merge import CollectedJournal, WorkerJournal
 from setrya.erasure.subject import Subject
@@ -73,6 +74,28 @@ journal.seal(subject, root/(producer+".json"))
         worker = WorkerJournal(self.root / "web.db", run_id=self.run, producer="web")
         with self.assertRaisesRegex(sqlite3.IntegrityError, "sealed"):
             worker.record(self.subject, store="web", key="late", source="doc-7", action="stored")
+
+    def test_concurrent_packet_cannot_split_roster_and_events_across_snapshots(self):
+        from contextlib import closing
+        with closing(sqlite3.connect(self.collector.path)) as db:
+            db.execute("PRAGMA journal_mode=WAL")
+        self.collector.ingest(self.emit("web"), producer="web")
+        packet = self.emit("worker")
+        read_coverage = self.collector._coverage
+
+        def receive_after_roster(*args):
+            roster = read_coverage(*args)
+            self.collector.ingest(packet, producer="worker")
+            return roster
+
+        options = {"run_id": self.run, "expected_producers": ("web", "worker")}
+        with patch.object(self.collector, "_coverage", side_effect=receive_after_roster):
+            roster, rows = self.collector.snapshot(self.subject, **options)
+        self.assertEqual(roster["received"], ["web"])
+        self.assertEqual([row.store for row in rows], ["web"])
+        roster, rows = self.collector.snapshot(self.subject, **options)
+        self.assertEqual(roster["received"], ["web", "worker"])
+        self.assertEqual([row.store for row in rows], ["web", "worker"])
 
     def test_malformed_packet_cannot_partially_import_and_empty_producer_can_close(self):
         packet = self.emit("web")

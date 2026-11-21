@@ -41,7 +41,7 @@ Import `Artifact`, `SharedCase`, `Stored`, `Answer`, `ExternalItem` and `run_sha
 | `lineage(subject)` | Optional mapping with `roots` and `derivations`. Every version is a `store`, `key`, `revision` triple. Each derivation identifies an `artifact` and its `inputs`. |
 | `collect_journals(subject)` | Optional hook after final reads to seal and import durable worker packets before coverage is evaluated. |
 
-For distributed coverage, supply `journal`, `run_id` and `expected_producers` to `run_shared`. Missing or unexpected producers prevent PASS. Recorded copy locations outside the declared observations and external review items are gaps.
+For distributed coverage, supply a `CollectedJournal`, `run_id` and `expected_producers` to `run_shared`. The checker reads the producer roster and copy records from one SQLite snapshot after collection. Missing or unexpected producers prevent PASS, including producers observed only in traces. Recorded copy locations outside the declared observations and external review items are gaps.
 
 ## Offline replay
 

@@ -16,6 +16,6 @@ bash trials/graphiti/run.sh graphiti-run
 setrya replay graphiti-run/0.31.2.receipt
 ```
 
-The script checks exit 1 for the old revision and exit 0 for the fixed revision, both live and on replay. Each lane writes its native before/after observations in `<version>.json` and a portable Setrya v3 evidence bundle in `<version>.receipt/`. A reviewer with only core Setrya can replay either bundle after the database shuts down.
+The script verifies the installed Git commit and requires the native observations to agree with the live Setrya verdict, `FAIL` for the old revision and `PASS` for the fix. It then checks for exit 1 and 0 respectively on replay. Each lane writes its native before/after observations in `<version>.json` and a portable Setrya v3 evidence bundle in `<version>.receipt/`. A reviewer with only core Setrya can replay either bundle after the database shuts down.
 
 The source-to-node relationships and the summary under review come from Graphiti. The small ASGI answer route belongs to the trial and authenticates two synthetic callers. This deletion-only test covers the shared-node regeneration behavior of those open-source revisions. It leaves worker races unexercised. Hosted Zep deployments and customer reuse are separate trials. [Zep’s published deletion behavior](https://help.getzep.com/deleting-data-from-the-graph)

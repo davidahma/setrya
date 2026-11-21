@@ -40,10 +40,12 @@ class HandoffStudyTests(unittest.TestCase):
 
     def test_erasure_wall_clock_and_missing_humans(self):
         stamps = self.data["erasure_timing"]
-        stamps.update(install_started="2026-11-21T11:00:00-05:00", first_verdict="2026-11-21T16:10:00+00:00",
+        stamps.update(engineer_new_to_setrya=True, install_started="2026-11-21T11:00:00-05:00", first_verdict="2026-11-21T16:10:00+00:00",
                       reviewer_received="2026-11-21T16:30:00+00:00", first_correct_review="2026-11-21T16:31:00+00:00")
         self.assertIn("Erasure install to first correct review: 1860s", self.report())
         self.assertIn("Erasure independent review: 60s", self.report())
+        self.data["arms"]["setrya"]["first_change"]["correct"] = False
+        self.assertIn("Erasure independent review: unmeasured", self.report())
         self.data["independent_reviewer"] = ""
         self.assertIn("Erasure install to first correct review: unmeasured", self.report())
         stamps["reviewer_received"] = stamps["install_started"]

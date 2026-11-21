@@ -36,12 +36,20 @@ def replay_directory(directory, *, case_review=False):
     return report(load_directory(directory), case_review=case_review)
 
 
+def receipt_exit(receipt, *, case_review=False):
+    if receipt["version"] == 3:
+        from .v3_receipt import exit_code
+
+        return exit_code(receipt, case_review=case_review)
+    return EXIT[receipt["verdict"]]
+
+
 def report(receipt, *, case_review=False):
     if receipt["version"] == 3:
-        from .v3_receipt import exit_code, summary
+        from .v3_receipt import summary
 
         print(summary(receipt))
-        return exit_code(receipt, case_review=case_review)
+        return receipt_exit(receipt, case_review=case_review)
     print(f"{receipt['verdict']}  {receipt['unknown_copies']} unknown copies  "
           f"drill duration {receipt['time_to_first_verdict_ms']} ms")
     for copy in receipt["copies"]:
@@ -86,7 +94,7 @@ def main(argv):
             from setrya.offboarding.cli import main as tenant_main
 
             return tenant_main([{"replay": "verify-receipt", "run": "gate"}[argv[0]], *rest],
-                               invocation=("setrya", "erasure", argv[0], "--scope", "tenant"))
+                               command_prog=f"setrya erasure {argv[0]} --scope tenant")
     args = parser.parse_args(argv)
     try:
         if args.action in ("sign-receipt", "sign", "verify-signature", "verify"):
@@ -108,14 +116,14 @@ def main(argv):
                 raise InputError("Choose a trusted starter file and a fresh output directory.")
             selected_mode = args.mode or "deletion"
             code = subprocess.run([sys.executable, str(args.starter.resolve()), "--mode", selected_mode,
-                                   "--output", str(args.output.resolve())]).returncode
-            if code == 3 and not (args.output / RECEIPT).is_file():
-                return 3
+                                   "--output", str(args.output.resolve())], stdout=subprocess.DEVNULL).returncode
+            if code in (2, 3) and not (args.output / RECEIPT).is_file():
+                return code
             receipt = load_directory(args.output)
-            computed = report(receipt)
-            if code != computed or receipt.get("mode") != selected_mode:
+            recorded_mode = receipt["mode"] if receipt["version"] == 3 else "late-write"
+            if code != receipt_exit(receipt) or recorded_mode != selected_mode:
                 raise InputError("Starter exit or recorded mode differs from the requested drill.")
-            return computed
+            return report(receipt)
         if args.scope == "tenant" and (args.example or getattr(args, "mode", None)):
             raise InputError("Use person scope to select a shared investigation mode.")
         if args.action == "demo":

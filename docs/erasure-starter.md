@@ -29,7 +29,7 @@ setrya erasure init --example legacy --output app-erasure
 cd app-erasure
 ```
 
-Edit `test_erasure.py` and its neighboring `inventory.toml`. The unconnected starter exits 3 and names the first function to implement.
+Edit `test_erasure.py` and its neighboring `inventory.toml`. The unconnected starter exits 3 and names the first function to implement. Run the connected v2 starter with `setrya erasure run --starter test_erasure.py --mode late-write --output erasure-run`. V2 requires a held worker.
 
 1. **Seed the app in `open_fixture(subject, journal)`.** Return a context manager that seeds the test subject and a separate retained record, then yields your app and the deletion adapters. Both test callers need access to both records at the start. Bind the subject to your normal checkpoint and long-term memory writes. Register the same store names in the inventory.
 2. **Pause your real job in `snapshot_job(app, subject, before_write)`.** Call `before_write()` after the job captures the old data and immediately before its write. Once released, let the job take its normal commit or discard path. Return after the work, queue and read-model refresh have settled. The starter runs a synchronous job on a local thread. A job in another process needs an application checkpoint and a terminal acknowledgment from that worker.

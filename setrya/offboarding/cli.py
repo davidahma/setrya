@@ -16,7 +16,7 @@ class OffboardingParser(argparse.ArgumentParser):
         self.exit(2, f"Invalid arguments. Run '{self.prog} --help' for usage.\n")
 
 
-def main(argv, *, invocation=("setrya", "offboarding")):
+def main(argv, *, invocation=("setrya", "offboarding"), command_prog=None):
     argv = list(argv)
     prog = shlex.join(invocation)
     if argv[:1] == ["drill"]:
@@ -49,6 +49,8 @@ def main(argv, *, invocation=("setrya", "offboarding")):
         opendesk.add_command(commands)
     else:
         commands.add_parser("opendesk", help="run or replay the pinned OpenDesk trial")
+    if command_prog is not None:
+        commands.choices[argv[0]].prog = command_prog
     args = parser.parse_args(argv)
 
     if args.offboarding_action == "gate":

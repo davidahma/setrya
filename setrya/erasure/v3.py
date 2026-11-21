@@ -84,7 +84,8 @@ def run_shared(subject, *, case, application, output, mode="late-write", externa
     rules.check_external(external, spec, subject.ref)
     expected = sorted(identifier(p, "producer") for p in expected_producers)
     require(len(expected) <= 256 and len(expected) == len(set(expected)), "Invalid expected producer list.")
-    require(not hasattr(journal, "coverage") or expected, "Declare expected producers for a collected journal.")
+    if hasattr(journal, "snapshot"):
+        require(expected, "Declare expected producers for a collected journal.")
     require(not expected or run_id is not None, "Distributed journals need the run ID used by their producers.")
     destination = Path(output)
     destination.mkdir(parents=True, exist_ok=False)
@@ -180,9 +181,16 @@ def run_shared(subject, *, case, application, output, mode="late-write", externa
     if journal is not None:
         if expected and hasattr(application, "collect_journals"):
             observe("collect_journals", lambda: application.collect_journals(subject))
+        budget = 2 * 1024 * 1024
         if expected:
-            coverage = observe("coverage", lambda: journal.coverage(subject, run_id=run, expected_producers=expected))
-        events = observe("journal", lambda: [asdict(row) for row in journal.history(subject, max_bytes=2 * 1024 * 1024)])
+            def snapshot():
+                manifest, rows = journal.snapshot(subject, run_id=run, expected_producers=expected, max_bytes=budget)
+                return manifest, [asdict(row) for row in rows]
+            observation = observe("journal", snapshot)
+            if observation is not None:
+                coverage, events = observation
+        else:
+            events = observe("journal", lambda: [asdict(row) for row in journal.history(subject, max_bytes=budget)])
     evidence = {"format": rules.EVIDENCE_FORMAT, "run": run, "scope": "person",
                 "observed_at": datetime.now(timezone.utc).isoformat(), "subject": asdict(subject),
                 "mode": mode, "case": spec, "worker": worker, "external": external,

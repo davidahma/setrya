@@ -147,11 +147,9 @@ class SharedReceiptTests(unittest.TestCase):
         self.assertEqual((r["technical_verdict"], r["race"]), ("NOT TESTED", "incomplete"))
         self.app = Application()
         class Partial:
-            def coverage(self, subject, *, run_id, expected_producers):
+            def snapshot(self, subject, *, run_id, expected_producers, max_bytes):
                 return {"run_id": run_id, "expected": list(expected_producers), "received": ["web"],
-                        "missing": ["job"], "unsealed": []}
-            def history(self, *args, **kwargs):
-                return []
+                        "missing": ["job"], "unsealed": []}, []
         r = self.drill("distributed", journal=Partial(), expected_producers=("web", "job"), run_id="suite-17")
         self.assertEqual(r["technical_verdict"], "NOT TESTED")
         self.assertIn("Missing durable journal for job.", r["gaps"])

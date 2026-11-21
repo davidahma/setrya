@@ -20,7 +20,7 @@ def session():
         "repository": "", "own_application": None, "engineer": "", "independent_reviewer": "",
         "date": "", "first_arm": "", "agent_model_tools_and_budget_for_both": "",
         "arms": {name: {"first_change": change(), "assigned_second_change": change()} for name in ARMS},
-        "erasure_timing": dict(install_started="", first_verdict="", reviewer_received="", first_correct_review=""),
+        "erasure_timing": dict(engineer_new_to_setrya=None, install_started="", first_verdict="", reviewer_received="", first_correct_review=""),
         "later_setrya_use": {"commit": "", "evidence": "", "use": "", "without_facilitator": None,
                              "team_chose_to_reuse": None},
     }
@@ -60,6 +60,11 @@ def observation(row):
 
 def erasure_timing(data, eligible):
     timing = data.get("erasure_timing", {})
+    new_engineer = timing.get("engineer_new_to_setrya")
+    if new_engineer is not None and type(new_engineer) is not bool:
+        raise ValueError("engineer_new_to_setrya must be true, false, or null")
+    first = data["arms"]["setrya"]["first_change"]
+    eligible = eligible and new_engineer is True and text(first, "commit") and text(first, "evidence")
     stamps = []
     for key in ("install_started", "first_verdict", "reviewer_received", "first_correct_review"):
         raw = text(timing, key)
@@ -71,11 +76,12 @@ def erasure_timing(data, eligible):
         if after is not None and (before is None or after < before):
             raise ValueError("erasure handoff timestamps must follow the observed sequence")
     started, verdict, received, reviewed = stamps
-    def duration(begin, end):
-        return f"{(end - begin).total_seconds():g}s" if eligible and begin and end else "unmeasured"
+    correct = flag(first, "correct") and text(first, "reviewer_answer")
+    def duration(begin, end, observed=True):
+        return f"{(end - begin).total_seconds():g}s" if eligible and observed and begin and end else "unmeasured"
     return [f"Erasure install to first verdict: {duration(started, verdict)}",
-            f"Erasure install to first correct review: {duration(started, reviewed)}",
-            f"Erasure independent review: {duration(received, reviewed)}"]
+            f"Erasure install to first correct review: {duration(started, reviewed, correct)}",
+            f"Erasure independent review: {duration(received, reviewed, correct)}"]
 
 
 def summarize(data):
