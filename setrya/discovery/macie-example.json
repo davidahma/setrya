@@ -1,0 +1,46 @@
+{
+  "version": "0",
+  "source": "aws.macie",
+  "detail-type": "Macie Finding",
+  "id": "d7185714-834f-4692-90d9-7f293888e2aa",
+  "account": "111122223333",
+  "region": "us-east-1",
+  "time": "2026-11-20T14:30:00Z",
+  "resources": [],
+  "detail": {
+    "schemaVersion": "1.0",
+    "id": "d015bca0-0104-4475-8240-bf3e6d953001",
+    "type": "SensitiveData:S3Object/CustomIdentifier",
+    "category": "CLASSIFICATION",
+    "accountId": "111122223333",
+    "partition": "aws",
+    "region": "us-east-1",
+    "createdAt": "2026-11-20T14:30:00Z",
+    "updatedAt": "2026-11-20T14:30:00Z",
+    "sample": true,
+    "archived": false,
+    "resourcesAffected": {
+      "s3Bucket": {"arn": "arn:aws:s3:::setrya-example-findings", "name": "setrya-example-findings"},
+      "s3Object": {
+        "bucketArn": "arn:aws:s3:::setrya-example-findings",
+        "key": "investigations/source-17.json",
+        "path": "setrya-example-findings/investigations/source-17.json",
+        "versionId": "fixture-source-v1",
+        "etag": "94c5e4ac3cbb798116e54bb906127c56"
+      }
+    },
+    "classificationDetails": {
+      "result": {
+        "status": {"code": "COMPLETE"},
+        "customDataIdentifiers": {
+          "totalCount": 1,
+          "detections": [{
+            "name": "fictional-device-reference",
+            "arn": "arn:aws:macie2:us-east-1:111122223333:custom-data-identifier/bfca321c687a44eaabe284391c063b60",
+            "count": 1
+          }]
+        }
+      }
+    }
+  }
+}

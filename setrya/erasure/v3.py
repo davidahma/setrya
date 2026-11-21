@@ -73,7 +73,8 @@ class SharedCase:
 
 
 def run_shared(subject, *, case, application, output, mode="late-write", external_items=(),
-               journal=None, run_id=None, expected_producers=()):
+               journal=None, run_id=None, expected_producers=(), authorize_erase=None, authorize_hold=None,
+               cancel_hold=None, erase_action=None):
     """Run trusted callbacks only against a disposable, authorized application fixture."""
     start = monotonic()
     require(isinstance(subject, Subject) and isinstance(case, SharedCase), "Expected a subject and shared case.")
@@ -148,7 +149,7 @@ def run_shared(subject, *, case, application, output, mode="late-write", externa
     erase = None
     immediate = None
     lineage = None
-    if mode == "late-write":
+    if mode == "late-write" and (authorize_hold is None or observe("authorize_hold", authorize_hold) is True):
         worker["held"] = observe("hold", lambda: held_by(application.hold))
     try:
         baseline = stage()
@@ -160,16 +161,35 @@ def run_shared(subject, *, case, application, output, mode="late-write", externa
             lineage = observe("lineage", get_lineage)
         if mode == "late-write":
             worker["checkpoint"] = observe("checkpoint", lambda: held_by(application.checkpoint))
-        if rules.baseline_ready(spec, baseline) and rules.ready_for_mode(mode, worker):
+        ready = rules.baseline_ready(spec, baseline) and rules.ready_for_mode(mode, worker)
+        if ready and authorize_erase is not None:
+            ready = observe("authorize_erase", lambda: authorize_erase(spec, baseline, lineage)) is True
+        if ready:
             def delete():
-                application.erase(subject)
-                return True
-            erase = observe("erase", delete) is True
-            immediate = stage(rules.discovered_keys(spec, baseline["scans"]))
-            if mode == "late-write":
-                worker["pre_release"] = observe("checkpoint", lambda: held_by(application.checkpoint))
+                if erase_action is None:
+                    application.erase(subject)
+                    return True
+                applied = erase_action(subject)
+                require(type(applied) is bool, "A scoped erase must acknowledge commit or atomic refusal.")
+                return applied
+            applied = observe("erase", delete)
+            # False from the scoped adapter is an atomic compare-and-write refusal:
+            # it made no changes. An exception may follow a partial mutation.
+            if applied is not False:
+                erase = applied is True
+                immediate = stage(rules.discovered_keys(spec, baseline["scans"]))
+                if mode == "late-write":
+                    worker["pre_release"] = observe("checkpoint", lambda: held_by(application.checkpoint))
     finally:
-        if worker["held"] is not None:
+        if worker["held"] is not None and cancel_hold is not None and (
+            erase is not True or worker["pre_release"] != worker["held"]
+        ):
+            def cancel():
+                result = cancel_hold(subject, worker["held"])
+                require(isinstance(result, Drain) and result.attempt == worker["held"] and result.drained is True,
+                        "Cancellation must confirm the exact retired worker.")
+            observe("cancel_and_drain", cancel)
+        elif worker["held"] is not None:
             def release():
                 result = application.release_and_drain(subject, worker["held"])
                 if isinstance(result, Drain) and result.attempt == worker["held"] and result.drained is True:

@@ -246,31 +246,48 @@ def _journal(e, declared, external, gaps):
             gaps.add(f"Provider observation needs its own external item: {location[0]}/{location[1]}.")
 
 
+def stored_outcome(r, a, before, name, failures, gaps):
+    """Apply one declared store rule to an observation after erasure."""
+    loc = f"{a['store']}/{a['key']}"
+    if r is None:
+        gaps.add(f"Missing direct read of {loc} at {name}.")
+        return
+    if a["action"] == "delete":
+        if r["exists"]:
+            failures.add(f"{loc} still exists at {name}.")
+        return
+    if not r["exists"] or r["control_present"] is False:
+        failures.add(f"{loc} lost the retained finding at {name}.")
+    elif r["control_present"] is None:
+        gaps.add(f"Unobserved retained finding in {loc} at {name}.")
+    if r["target_present"] is True:
+        failures.add(f"{loc} contains the erased finding at {name}.")
+    elif r["exists"] and r["target_present"] is None:
+        gaps.add(f"Unobserved subject finding in {loc} at {name}.")
+    if r["exists"] and a["action"] == "rewrite" and r["revision"] == before["revision"]:
+        gaps.add(f"No distinct rewritten version of {loc} at {name}.")
+    if r["exists"] and a["action"] == "preserve" and r["revision"] != before["revision"]:
+        failures.add(f"Unrelated artifact {loc} changed at {name}.")
+
+
+def answer_outcome(r, caller, control_question, name, failures, gaps):
+    if r is None or r["target_present"] is None:
+        gaps.add(f"Missing {caller}'s subject-fact observation at {name}.")
+    elif r["target_present"]:
+        failures.add(f"{caller} recovered the erased finding at {name}.")
+    if control_question:
+        if r is None or r["control_present"] is None:
+            gaps.add(f"Missing {caller}'s retained-fact observation at {name}.")
+        elif not r["control_present"]:
+            failures.add(f"{caller} lost the retained finding at {name}.")
+
+
 def _after(stage, name, e, failures, gaps):
     if stage is None:
         gaps.add(f"No {name} observations.")
         return
     for r, a, before in zip(stage["stored"], e["case"]["artifacts"], e["baseline"]["stored"]):
-        loc = f"{a['store']}/{a['key']}"
-        if r is None:
-            gaps.add(f"Missing direct read of {loc} at {name}.")
-            continue
-        if a["action"] == "delete":
-            if r["exists"]:
-                failures.add(f"{loc} still exists at {name}.")
-            continue
-        if not r["exists"] or r["control_present"] is False:
-            failures.add(f"{loc} lost the retained finding at {name}.")
-        elif r["control_present"] is None:
-            gaps.add(f"Unobserved retained finding in {loc} at {name}.")
-        if r["target_present"] is True:
-            failures.add(f"{loc} contains the erased finding at {name}.")
-        elif r["exists"] and r["target_present"] is None:
-            gaps.add(f"Unobserved subject finding in {loc} at {name}.")
-        if r["exists"] and a["action"] == "rewrite" and r["revision"] == before["revision"]:
-            gaps.add(f"No distinct rewritten version of {loc} at {name}.")
-        if r["exists"] and a["action"] == "preserve" and r["revision"] != before["revision"]:
-            failures.add(f"Unrelated artifact {loc} changed at {name}.")
+        stored_outcome(r, a, before, name, failures, gaps)
     for (store, key), row in zip(discovered_keys(e["case"], e["baseline"]["scans"]), stage["discovered"]):
         if row is None:
             gaps.add(f"Missing direct read of discovered {store}/{key} at {name}.")
@@ -283,16 +300,7 @@ def _after(stage, name, e, failures, gaps):
             for key in hits:
                 failures.add(f"Canary found in {store}/{key} at {name}.")
     for i, r in enumerate(stage["answers"]):
-        caller = e["case"]["callers"][i // 2]
-        if r is None or r["target_present"] is None:
-            gaps.add(f"Missing {caller}'s subject-fact observation at {name}.")
-        elif r["target_present"]:
-            failures.add(f"{caller} recovered the erased finding at {name}.")
-        if i % 2:
-            if r is None or r["control_present"] is None:
-                gaps.add(f"Missing {caller}'s retained-fact observation at {name}.")
-            elif not r["control_present"]:
-                failures.add(f"{caller} lost the retained finding at {name}.")
+        answer_outcome(r, e["case"]["callers"][i // 2], i % 2, name, failures, gaps)
 
 
 def _artifact_index(e):

@@ -85,26 +85,32 @@ class VersionLineage:
             db.executemany("INSERT INTO lineage_inputs VALUES(?,?)", [(version_id, i) for i in parent_ids])
             db.executemany("INSERT INTO lineage_subjects VALUES(?,?)", [(version_id, s) for s in owners])
 
-    def affected(self, subject: Subject) -> dict:
-        """Return observed roots and their downstream revisions, with retained inputs on shared artifacts."""
+    def affected(self, subject: Subject, *, source: VersionRef | None = None) -> dict:
+        """Follow registered subject roots, optionally starting with just one approved source revision."""
         if not isinstance(subject, Subject):
             raise InputError("expected a Subject")
+        root_filter = "v.namespace=? AND s.subject=?"
+        params = (self.namespace, subject.ref)
+        if source is not None:
+            if not isinstance(source, VersionRef):
+                raise InputError("expected a source VersionRef")
+            root_filter += " AND v.store=? AND v.key=? AND v.revision=?"
+            params += (source.store, source.key, source.revision)
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("BEGIN")
-            roots = db.execute("""SELECT v.store,v.key,v.revision FROM lineage_versions v
-                JOIN lineage_subjects s ON v.id=s.version WHERE v.namespace=? AND s.subject=? ORDER BY v.id LIMIT 4097""",
-                               (self.namespace, subject.ref)).fetchall()
-            rows = db.execute("""
+            roots = db.execute(f"""SELECT v.store,v.key,v.revision FROM lineage_versions v
+                JOIN lineage_subjects s ON v.id=s.version WHERE {root_filter} ORDER BY v.id LIMIT 4097""", params).fetchall()
+            rows = db.execute(f"""
                 WITH RECURSIVE affected(id) AS (
                     SELECT v.id FROM lineage_versions v JOIN lineage_subjects s ON v.id=s.version
-                    WHERE v.namespace=? AND s.subject=?
+                    WHERE {root_filter}
                     UNION
                     SELECT i.artifact FROM lineage_inputs i JOIN affected a ON a.id=i.input
                 )
                 SELECT c.store,c.key,c.revision,p.store,p.key,p.revision FROM affected a
                 JOIN lineage_versions c ON c.id=a.id JOIN lineage_inputs i ON i.artifact=c.id
                 JOIN lineage_versions p ON p.id=i.input ORDER BY c.id,p.id LIMIT 4097
-            """, (self.namespace, subject.ref)).fetchall()
+            """, params).fetchall()
         if len(roots) > 4096 or len(rows) > 4096:
             raise InputError("lineage exceeds the 4096-entry drill budget")
         dependencies = defaultdict(list)

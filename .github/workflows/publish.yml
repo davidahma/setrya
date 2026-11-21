@@ -88,6 +88,9 @@ jobs:
               "$envdir/bin/setrya" init erasure --output "$envdir/starter"
               "$envdir/bin/setrya" demo erasure --output "$envdir/alice"
               "$envdir/bin/setrya" replay "$envdir/alice/guarded"
+              if test -f "$GITHUB_WORKSPACE/scripts/verify-installed-discovery.py"; then
+                "$envdir/bin/python" -I "$GITHUB_WORKSPACE/scripts/verify-installed-discovery.py"
+              fi
             fi
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -151,4 +154,7 @@ jobs:
             public-install/bin/setrya init erasure
             public-install/bin/setrya demo erasure --output alice
             public-install/bin/setrya replay alice/guarded
+            if test -f "$GITHUB_WORKSPACE/scripts/verify-installed-discovery.py"; then
+              public-install/bin/python -I "$GITHUB_WORKSPACE/scripts/verify-installed-discovery.py"
+            fi
           fi

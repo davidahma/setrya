@@ -1,0 +1,97 @@
+{
+  "format": "setrya.discovery.mapping",
+  "version": 1,
+  "catalog": "aws-macie",
+  "sample": true,
+  "finding_sha256": "8f8793126fac8a1fea564167d892597fe53b7fefa77c8456b5ee672c341bce45",
+  "categories": ["CUSTOM_IDENTIFIER"],
+  "case_id": "SEC-417",
+  "finding_id": "d015bca0-0104-4475-8240-bf3e6d953001",
+  "asset_sha256": "4363fc6f7e89400cb2bfb2246c2cd74d2a505e3fe38f292dd9dbb442aa29499f",
+  "finding_type": "SensitiveData:S3Object/CustomIdentifier",
+  "observed_at": "2026-11-20T14:30:00Z",
+  "subject_ref": "dd079f6170d24e719b06017c7bd8f35f24c06cb494601a3c21e82f39fbc40a0e",
+  "classification": "restricted",
+  "environment": "fixture-workspace",
+  "revision": "faba5b7caa3c011d72543e3c8126c9b59d943885",
+  "conversation": "incident-41",
+  "route": "/investigations/incident-41/ask",
+  "callers": [
+    "analyst-east",
+    "analyst-west"
+  ],
+  "questions": [
+    "f0b84f593b14ee4986f28de34882e15be36c9b1d6b8db6d29c862216221076a0",
+    "e235ca1b4457313d5e4a2d341ec2d3e68ba55c21ae8fd2cfd431a609e493779a"
+  ],
+  "source": {
+    "store": "source",
+    "key": "finding-17",
+    "revision": "1",
+    "action": "delete"
+  },
+  "services": [
+    {
+      "id": "finding-store",
+      "role": "source",
+      "owner": "incident-team",
+      "store": "source",
+      "key": "finding-17",
+      "action": "delete"
+    },
+    {
+      "id": "retained-finding",
+      "role": "store",
+      "owner": "incident-team",
+      "store": "source",
+      "key": "finding-28",
+      "action": "preserve"
+    },
+    {
+      "id": "handoff-summarizer",
+      "role": "summary",
+      "owner": "memory-team",
+      "store": "summaries",
+      "key": "incident-41",
+      "action": "rewrite"
+    },
+    {
+      "id": "conversation-memory",
+      "role": "checkpoint",
+      "owner": "memory-team",
+      "store": "checkpoints",
+      "key": "incident-41",
+      "action": "rewrite"
+    },
+    {
+      "id": "answer-cache",
+      "role": "cache",
+      "owner": "assistant-team",
+      "store": "answers",
+      "key": "incident-41",
+      "action": "rewrite"
+    },
+    {
+      "id": "analyst-cache",
+      "role": "cache",
+      "owner": "case-platform",
+      "store": "analyst-cache",
+      "key": "handoff-41",
+      "action": "rewrite"
+    },
+    {
+      "id": "model-host",
+      "role": "provider",
+      "owner": "provider-owner",
+      "store": "model-provider",
+      "key": "sample-invocation",
+      "action": "external"
+    },
+    {
+      "id": "investigation-api",
+      "role": "endpoint",
+      "owner": "assistant-team",
+      "route": "/investigations/incident-41/ask"
+    }
+  ]
+}

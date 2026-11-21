@@ -88,6 +88,11 @@ def save(report, path):
 
 def publish_new(data, path, *, max_bytes=MAX_JSON_BYTES):
     raw = (json.dumps(data, indent=2) + "\n").encode("utf-8")
+    return publish_new_bytes(raw, path, max_bytes=max_bytes)
+
+
+def publish_new_bytes(raw, path, *, max_bytes=MAX_JSON_BYTES):
+    """Publish exact, validated bytes without replacing existing evidence."""
     if len(raw) > max_bytes:
         raise InvalidReport(f"Output exceeds the {max_bytes // (1024 * 1024)} MiB replay limit.")
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -212,6 +212,9 @@ class Investigation:
     def release_and_drain(self, subject, attempt):
         return self.worker.release_and_drain(subject, attempt)
 
+    def cancel_and_drain(self, subject, attempt):
+        return self.worker.cancel_and_drain(subject, attempt)
+
     def lineage(self, subject):
         return self.versions.affected(subject)
 

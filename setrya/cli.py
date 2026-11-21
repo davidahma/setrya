@@ -188,6 +188,10 @@ def _replay_answers(directory: Path):
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["discovery"]:
+        from .discovery.cli import main as discovery_main
+
+        return discovery_main(argv[1:])
     if argv[:1] == ["cache-metrics"]:
         from .examples.answer_cache.metrics import main as metrics_main
 
@@ -223,6 +227,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="setrya", description="Test what an AI assistant or search endpoint returns after access revocation, a document update, or tenant offboarding.")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("discovery", help="verify a catalog finding through a disposable AI application")
     init = commands.add_parser("init", help="create a starter test in your application checkout")
     starters = init.add_subparsers(dest="starter", required=True)
     erasure = starters.add_parser("erasure", help="test deletion through a LangGraph application")
@@ -289,6 +294,10 @@ def main(argv=None) -> int:
         if args.command in {"replay", "diagnose"}:
             directory = Path(args.report)
             manifest = bundle_manifest(directory) if directory.is_dir() else None
+            if manifest == "case-result.json":
+                from .discovery.cli import report
+
+                return report(directory)
             if manifest == "erasure-receipt.json":
                 from .erasure.cli import replay_directory
 
