@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "setrya"
-version = "1.0.2"
+version = "1.0.3"
 description = "Test whether your AI assistant can still reveal a customer's deleted information."
 readme = "README.md"
 requires-python = ">=3.11"

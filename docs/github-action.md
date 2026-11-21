@@ -10,19 +10,19 @@ Start in the root of a GitHub repository with Python 3.11 or later on macOS or L
 git switch -c try-setrya
 python3 -m venv .venv-setrya
 . .venv-setrya/bin/activate
-python -m pip install setrya==1.0.2
+python -m pip install setrya==1.0.3
 setrya init --output setrya-case
 setrya doctor --starter setrya-case/test_erasure.py --mode deletion
 mkdir -p .github/workflows
-curl -fsSL https://raw.githubusercontent.com/davidahma/setrya/v1.0.2/docs/examples/first-pr/setrya.yml -o .github/workflows/setrya.yml
+curl -fsSL https://raw.githubusercontent.com/davidahma/setrya/v1.0.3/docs/examples/first-pr/setrya.yml -o .github/workflows/setrya.yml
 git add setrya-case/test_erasure.py .github/workflows/setrya.yml
 git commit -m "Run the Setrya deletion check on pull requests"
 git push -u origin HEAD
 ```
 
-Open a PR against your default branch. The [workflow](examples/first-pr/setrya.yml) installs `setrya==1.0.2` and runs `davidahma/setrya@v1.0.2` in `deletion` mode. It asks as the sample reader, calls the deletion operation, and checks the store and the answers again. No worker hook is required.
+Open a PR against your default branch. The [workflow](examples/first-pr/setrya.yml) installs `setrya==1.0.3` and runs `davidahma/setrya@v1.0.3` in `deletion` mode. It asks as the sample reader, calls the deletion operation, and checks the store and the answers again. No worker hook is required.
 
-In the PR’s **Checks** tab, open the **Setrya erasure** run. Expect **PASS · READY_FOR_REVIEW** and the `setrya-receipt` artifact. Same-repository PRs also get a comment linking to the run. Fork PRs get the check summary and artifact; the comment job requires write permission and runs separately. [Example PR comment](https://github.com/davidahma/setrya/pull/35#issuecomment-7064370996)
+In the PR’s **Checks** tab, open the **Setrya erasure** run. Expect **PASS · READY_FOR_REVIEW** and the `setrya-receipt` artifact. Same-repository PRs also get a comment linking to the run. Fork PRs get the check summary and artifact; the comment job requires write permission and runs separately. [Example PR comment](https://github.com/davidahma/setrya/pull/38#issuecomment-7065545463)
 
 Download and unzip `setrya-receipt`. In the directory containing `erasure-receipt.json`, run:
 
@@ -56,7 +56,7 @@ setrya run --starter setrya-case/test_erasure.py --mode deletion --output desk-r
 setrya replay desk-receipt
 ```
 
-Commit the application fixture, the starter edit and the job’s dependency change. Push to the same PR. In this example the duty agent can see depot code `Harbor-17` before deletion, then loses it while still getting `Thursday` for dispatch. If the deletion route removes the row but leaves the old answer cached, the drill returns **FAIL · RESIDUAL_FOUND**.
+Commit the application fixture, the starter edit and the job’s dependency change. Push to the same PR. In this example the duty agent can see depot code `Harbor-17` before deletion, then loses it while still getting `Thursday` for dispatch. If the deletion route removes the row but leaves the old answer cached, the drill returns **FAIL · RESIDUAL_FOUND**. [Follow the sample, application failure and fix on one PR](https://github.com/davidahma/setrya/pull/38)
 
 ## Add the worker race
 

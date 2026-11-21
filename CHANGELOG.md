@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- Shorten the Action description to fit GitHub Marketplace and check the publishing limit in CI.
+
 ## 1.0.2
 
 - The Marketplace quickstart gives a first PR a runnable deletion test and a workflow that saves its receipt. The guide shows how to connect the same starter to an application’s own store, authenticated answer route and deletion operation.

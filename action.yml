@@ -1,5 +1,5 @@
 name: Setrya erasure drill
-description: Catch deleted customer data resurfacing in AI answers when an old background job finishes. Get a verdict and replayable evidence on your pull request.
+description: Catch deleted data resurfacing in AI answers after a background job finishes. Get a PR verdict and replayable receipt.
 inputs:
   operation:
     description: Run a fixture or post its result from a separate job (run or comment).

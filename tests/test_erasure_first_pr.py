@@ -16,6 +16,13 @@ def installation_block(path):
 
 
 class FirstPrInstructions(unittest.TestCase):
+    def test_marketplace_description_fits_the_publishing_limit(self):
+        lines = (ROOT / "action.yml").read_text().splitlines()
+        description = next(line.removeprefix("description: ").strip() for line in lines
+                           if line.startswith("description: "))
+        self.assertTrue(description)
+        self.assertLess(len(description), 125)
+
     def test_two_committed_files_match_the_release_workflow(self):
         commands = installation_block("README.md")
         self.assertEqual(commands, installation_block("docs/github-action.md"))
