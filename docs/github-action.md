@@ -4,9 +4,12 @@ The first PR runs a synthetic fixture shipped with Setrya. Once you see a verdic
 
 ## First PR with the sample
 
-Use Python 3.11 or later in a virtual environment. From the root of a GitHub repository, check out a new branch. The commands create `setrya-case/test_erasure.py` and download the release workflow to `.github/workflows/setrya.yml`; start with both paths unused.
+Start in the root of a GitHub repository with Python 3.11 or later on macOS or Linux. The commands create a branch and a virtual environment, generate `setrya-case/test_erasure.py` and download the release workflow to `.github/workflows/setrya.yml`. Start with an unused starter directory and workflow path.
 
 ```sh
+git switch -c try-setrya
+python3 -m venv .venv-setrya
+. .venv-setrya/bin/activate
 python -m pip install setrya==1.0.2
 setrya init --output setrya-case
 setrya doctor --starter setrya-case/test_erasure.py --mode deletion
@@ -29,7 +32,7 @@ setrya replay .
 
 ## Switch from the sample to your app
 
-Keep the workflow and generated starter. Add an application-owned fixture that opens an isolated instance of your app, then change the two imports in `setrya-case/test_erasure.py`:
+Keep the workflow and generated starter. Add an application-owned fixture that opens an isolated instance of your app, then change the two imports in `setrya-case/test_erasure.py`.
 
 ```diff
 -from setrya.examples.workspace import SIMPLE as CASE

@@ -6,9 +6,12 @@ A customer deletes their onboarding notes. Yesterday’s background job finishes
 
 ## Get your first PR verdict
 
-From your repository root on a new branch, run the commands below in a Python 3.11+ virtual environment. Start with fresh paths for the starter and workflow. The generated fixture uses synthetic data and needs no credentials.
+Start in the root of your GitHub repository with Python 3.11+ on macOS or Linux. These commands create a branch, a virtual environment and two files for your PR. Use an unused starter directory and workflow path. The sample uses synthetic data and needs no application credentials.
 
 ```sh
+git switch -c try-setrya
+python3 -m venv .venv-setrya
+. .venv-setrya/bin/activate
 python -m pip install setrya==1.0.2
 setrya init --output setrya-case
 setrya doctor --starter setrya-case/test_erasure.py --mode deletion
@@ -23,7 +26,7 @@ Open a pull request. In **Checks → Setrya erasure**, the sample should report 
 
 ## Test your application
 
-In `setrya-case/test_erasure.py`, replace the sample imports with your own fixture:
+In `setrya-case/test_erasure.py`, replace the sample imports with your own fixture.
 
 ```diff
 -from setrya.examples.workspace import SIMPLE as CASE
@@ -31,7 +34,7 @@ In `setrya-case/test_erasure.py`, replace the sample imports with your own fixtu
 +from helpdesk_fixture import CASE, open_fixture
 ```
 
-For example, seed a test customer’s depot code and a team dispatch day. Have `inspect` read the note from your store, `read` ask your authenticated answer route and `erase` call your deletion operation. Push the fixture and its test dependencies. The same PR now checks whether the depot code disappears and the dispatch day survives. Start with `deletion`; switch to `late-write` once you can pause and release the worker that captured the old note. [Runnable help-desk fixture and wiring instructions](https://github.com/davidahma/setrya/blob/v1.0.2/docs/github-action.md#switch-from-the-sample-to-your-app)
+For example, seed a test customer’s depot code and a team dispatch day. Have `inspect` read the note from your store, `read` ask your authenticated answer route and `erase` call your deletion operation. Push the fixture and its test dependencies. The same PR now checks whether the depot code disappears and the dispatch day survives. Start with `deletion` and switch to `late-write` once you can pause and release the worker that captured the old note. [Runnable help-desk fixture and wiring instructions](https://github.com/davidahma/setrya/blob/v1.0.2/docs/github-action.md#switch-from-the-sample-to-your-app)
 
 ## Try the broken and fixed versions
 
