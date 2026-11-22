@@ -19,6 +19,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: python -m pip install setrya==1.2.0
+      - run: python -m pip install -r requirements.txt
       - id: erasure
         uses: davidahma/setrya@ece14daa47dac822524800e93027f66be80511f4 # 1.2.0
         with:
