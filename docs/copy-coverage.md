@@ -54,7 +54,9 @@ A new `cache.set(key, answer)` on a receiver built with `redis.Redis.from_url` a
 }
 ```
 
-Save the map to `setrya-copy-coverage.json` at the repository root. For a TypeScript app, point `test` at the HTTP case YAML or the fixture that runs the write-back drill. A map records an operator-reviewed association between one call and a case artifact. The copy check displays candidate map changes for review. A candidate-proposed map alone cannot close its own finding. For a map already approved in the merge base, add `--receipt path/to/bundle` to the copy check. Setrya replays the evidence and requires a clean candidate checkout, a test entrypoint bound to that commit, and a passing local person drill for the exact store and key with a delete or rewrite action. A separate failing or incomplete matching receipt keeps the finding open. Replaying a matching receipt confirms what the test observed for the approved binding.
+Save the map to `setrya-copy-coverage.json` at the repository root. A map records an operator-reviewed association between one call and a case artifact. The copy check displays candidate map changes for review. A candidate-proposed map alone cannot close its own finding.
+
+The suggested TypeScript YAML path lets the reviewer find the HTTP case and replay its deletion result. That case leaves the copy site advisory open. To mark a site as `evidence-replayed`, use the entrypoint of a trusted local Python fixture as the mapping's `test`. With the map already approved in the merge base, pass `--receipt path/to/bundle`. Setrya requires a clean candidate checkout, a test entrypoint bound to that commit, and a passing local person drill for the exact store and key with a delete or rewrite action. A separate failing or incomplete matching receipt keeps the finding open.
 
 ## Run it in a pull request
 

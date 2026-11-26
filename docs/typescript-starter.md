@@ -37,4 +37,4 @@ setrya run ts-fixture/case.yml --output my-app-receipt
 setrya replay my-app-receipt
 ```
 
-This case exercises deletion and direct readback. To hold a background writer across the deletion, use the write-back drill with worker hooks. [HTTP case settings](http-cases.md) · [Write-back drills](write-back.md) · [Copy-site scanning](copy-coverage.md)
+This case exercises deletion and direct readback. Replay its receipt to see what the app returned. For a copy-site review that closes a finding automatically, use a commit-bound local Python fixture. To hold a background writer across the deletion, use the write-back drill with worker hooks. [HTTP case settings](http-cases.md) · [Write-back drills](write-back.md) · [Copy-site scanning](copy-coverage.md#review-a-new-redis-answer-cache)
