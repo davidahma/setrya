@@ -1,0 +1,24 @@
+{
+  "format": "setrya.control-mapping.v1",
+  "version": "example.1",
+  "supports": [
+    {
+      "check": "synthetic-erasure",
+      "framework": "Support governance",
+      "edition": "Fictional 1",
+      "reference": "ERASURE-07",
+      "control_id": "demo-erase",
+      "applicability": "Review the declared application and store observations for the fictional customer-note removal.",
+      "source": "https://example.invalid/controls/erasure-07"
+    },
+    {
+      "check": "artifact-preserve",
+      "framework": "Support governance",
+      "edition": "Fictional 1",
+      "reference": "RETAIN-03",
+      "control_id": "demo-retain",
+      "applicability": "Review the direct reads that followed erasure for the separately retained calendar record.",
+      "source": "https://example.invalid/controls/retain-03"
+    }
+  ]
+}

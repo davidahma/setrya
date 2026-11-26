@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "setrya"
-version = "1.13.0"
+version = "1.15.0"
 description = "Find where your app and AI agents copy customer data, and prove deletion reaches the copies you test, including stale copies a background job writes back."
 readme = "README.md"
 requires-python = ">=3.11"

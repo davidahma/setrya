@@ -1,0 +1,24 @@
+{
+  "assessment-plan": {
+    "uuid": "25112732-985b-4cdf-9227-f21915b4a146",
+    "metadata": {
+      "title": "Fictional support application assessment plan",
+      "last-modified": "2026-11-26T12:00:00Z",
+      "version": "1",
+      "oscal-version": "1.2.0"
+    },
+    "import-ssp": {
+      "href": "fictional-system-security-plan.json"
+    },
+    "reviewed-controls": {
+      "control-selections": [
+        {
+          "include-controls": [
+            {"control-id": "demo-erase"},
+            {"control-id": "demo-retain"}
+          ]
+        }
+      ]
+    }
+  }
+}
