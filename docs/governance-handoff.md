@@ -51,7 +51,7 @@ Treat a successfully generated attachment as evidence ready to review. Use the s
   --key "$scratch/reviewer/trusted-issuer.pub" --case-review
 ```
 
-Keep the control or ticket reference separate from your governance decision. Decide whether the observed stores, answers, and writer satisfy the external control, and route the remaining item to its recorded owner. [Receipt exchange](receipt-exchange.md)
+Use the observed stores, answers and writer as supporting evidence for your governance decision. Route the remaining item to its recorded owner. For a portable assessment artifact, export the same signed exchange with your Assessment Plan and control mapping. [Receipt exchange](receipt-exchange.md) · [OSCAL export](oscal.md)
 
 ## Attach a vendor result
 

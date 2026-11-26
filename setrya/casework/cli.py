@@ -30,16 +30,25 @@ def command(argv):
 
         verify = commands.add_parser("verify-exchange", help="authenticate and replay a draft v1 exchange offline")
         verify.add_argument("bundle", type=Path)
-        verify.add_argument("--key", type=Path, help="independently trusted Cosign public key")
-        verify.add_argument("--identity", help="exact trusted Sigstore certificate identity")
-        verify.add_argument("--issuer", help="exact trusted Sigstore OIDC issuer")
-        verify.add_argument("--trusted-root", type=Path, help="independently provisioned Sigstore root JSON")
-        verify.add_argument("--expect-ticket", help="expected completed ticket ID from the originating case")
-        verify.add_argument("--expect-frame", help="expected SHA-256 of the completed request export")
-        verify.add_argument("--expect-provenance", type=Path, help="independent provenance JSON record")
-        verify.add_argument("--expect-app-commit", help="expected clean local application checkout Git commit")
-        verify.add_argument("--expect-deployment", type=Path, help="independent HTTP deployment identity JSON")
         verify.add_argument("--case-review", action="store_true", help="treat outstanding obligations as exit 3")
+        oscal = commands.add_parser("export-oscal", help="export authenticated evidence as OSCAL Assessment Results")
+        oscal.add_argument("bundle", type=Path, help="signed, replayable receipt exchange")
+        oscal.add_argument("--assessment-plan", type=Path, required=True, help="local OSCAL Assessment Plan JSON")
+        oscal.add_argument("--mapping", type=Path, required=True, help="versioned Setrya check-to-control mapping JSON")
+        oscal.add_argument("--output", type=Path, required=True, help="new OSCAL Assessment Results JSON file")
+        oscal.add_argument("--ticket", help="opaque governance ticket receiving the evidence")
+        oscal.add_argument("--expect-plan-sha256", help="independently supplied exact Assessment Plan digest")
+        oscal.add_argument("--expect-mapping-sha256", help="independently supplied exact mapping digest")
+        for command in (verify, oscal):
+            command.add_argument("--key", type=Path, help="independently trusted Cosign public key")
+            command.add_argument("--identity", help="exact trusted Sigstore certificate identity")
+            command.add_argument("--issuer", help="exact trusted Sigstore OIDC issuer")
+            command.add_argument("--trusted-root", type=Path, help="independently provisioned Sigstore root JSON")
+            command.add_argument("--expect-ticket", help="expected completed ticket ID from the originating case")
+            command.add_argument("--expect-frame", help="expected SHA-256 of the completed request export")
+            command.add_argument("--expect-provenance", type=Path, help="independent provenance JSON record")
+            command.add_argument("--expect-app-commit", help="expected clean local application checkout Git commit")
+            command.add_argument("--expect-deployment", type=Path, help="independent HTTP deployment identity JSON")
 
         args = parser.parse_args(tail)
         if args.action == "pack":
@@ -48,18 +57,27 @@ def command(argv):
                           key=args.key, synthetic=args.synthetic)
             print(f"Signed draft receipt exchange in {args.output}")
             return 0
-        if args.action == "verify-exchange":
+        if args.action in ("verify-exchange", "export-oscal"):
             from setrya.core.deployment import read_pin as read_deployment
             from setrya.core.provenance import read_pin
-            from setrya.receipts import exit_code
 
+            trust = dict(key=args.key, identity=args.identity, issuer=args.issuer, trusted_root=args.trusted_root,
+                         expect_ticket=args.expect_ticket, expect_frame=args.expect_frame,
+                         expected_provenance=read_pin(args.expect_provenance), expected_app_commit=args.expect_app_commit,
+                         expected_deployment=read_deployment(args.expect_deployment))
+            if args.action == "export-oscal":
+                from .oscal import export_results
+
+                export_results(args.bundle, assessment_plan=args.assessment_plan, mapping=args.mapping,
+                               output=args.output, ticket=args.ticket, expect_plan_sha256=args.expect_plan_sha256,
+                               expect_mapping_sha256=args.expect_mapping_sha256, **trust)
+                print(f"Saved OSCAL Assessment Results in {args.output}")
+                return 0
+
+            from setrya.receipts import exit_code
             from . import exchange
-            result = exchange.verify(args.bundle, key=args.key, identity=args.identity, issuer=args.issuer,
-                                     trusted_root=args.trusted_root, expect_ticket=args.expect_ticket,
-                                     expect_frame=args.expect_frame,
-                                     expected_provenance=read_pin(args.expect_provenance),
-                                     expected_app_commit=args.expect_app_commit,
-                                     expected_deployment=read_deployment(args.expect_deployment))
+
+            result = exchange.verify(args.bundle, **trust)
             print(exchange.summary(result))
             return exit_code(result, case_review=args.case_review)
         print(receipt_summary(args.bundle, audience=args.audience, output_format=args.output_format, case_id=args.case_id))

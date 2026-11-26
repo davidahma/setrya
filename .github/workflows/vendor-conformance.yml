@@ -45,7 +45,7 @@ jobs:
           docker exec "$SERVICE_ID" psql -U setrya -d setrya_fixture -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'
           cosign generate-key-pair --output-key-prefix "$RUNNER_TEMP/vendor-key"
       - name: Test conformance verdicts, including retained and re-keyed copies
-        run: python -m pytest -q tests/test_vendor_conformance.py tests/test_provider_readback.py
+        run: python -m pytest -q tests/test_vendor_conformance.py tests/test_provider_readback.py tests/test_oscal_export.py
       - name: Check the Action against a disposable PostgreSQL vector index
         uses: ./
         env:
@@ -137,6 +137,32 @@ jobs:
             .vendor.target == "mem0" and .vendor.execution.operator == "setrya-ci" and
             any(.vendor.checks[]; .surface == "history" and .status == "FAIL")' \
             --arg fingerprint "$fingerprint" vendor-ticket.json
+      - name: Export offline and validate against the pinned NIST OSCAL schemas
+        run: |
+          schema="$RUNNER_TEMP/oscal-schemas"
+          validator="$RUNNER_TEMP/oscal-validator"
+          example="$GITHUB_WORKSPACE/docs/examples/governance-handoff"
+          mkdir "$schema" "$validator"
+          npm install --prefix "$validator" --ignore-scripts --no-package-lock --no-audit --no-fund ajv@8.20.0 ajv-formats@3.0.1
+          (
+            cd "$schema"
+            for model in assessment-plan assessment-results; do
+              file="oscal_${model}_schema.json"
+              curl -fsSL --retry 3 "https://github.com/usnistgov/OSCAL/releases/download/v1.2.0/$file" -o "$file"
+            done
+            sha256sum -c <<'SUMS'
+          0c83b6b85f8d06c786feb5dd3bdafb44dcf5c0feff4f47ca5cb95cf5379438a5  oscal_assessment-plan_schema.json
+          a587b1580651f435a376d04dde78aaba6783c58ceb6f93f482d0b61d0c8afa59  oscal_assessment-results_schema.json
+          SUMS
+          )
+          offline=(sudo -n -- /usr/bin/unshare --net /usr/bin/setpriv --reuid "$(id -u)" \
+            --regid "$(id -g)" --clear-groups --no-new-privs /usr/bin/env "PATH=$PATH")
+          cd "$RUNNER_TEMP/governance-handoff/reviewer"
+          "${offline[@]}" setrya receipt export-oscal exchange --key trusted-issuer.pub \
+            --assessment-plan "$example/oscal-assessment-plan.json" \
+            --mapping "$example/oscal-control-mapping.json" --ticket GOV-204 --output oscal-assessment-results.json
+          "${offline[@]}" node "$GITHUB_WORKSPACE/scripts/verify-oscal-schema.mjs" "$validator" "$schema" \
+            "$example/oscal-assessment-plan.json" oscal-assessment-results.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: ${{ !cancelled() }}
         with:

@@ -293,6 +293,17 @@ def _assert_pins(receipt, manifest, *, expect_ticket, expect_frame, expected_pro
 def verify(directory, *, key=None, identity=None, issuer=None, trusted_root=None, expect_ticket=None, expect_frame=None,
            expected_provenance=None, expected_app_commit=None, expected_deployment=None):
     """Authenticate and independently replay one exchange with caller-owned trust."""
+    manifest, _, _ = verify_source(
+        directory, key=key, identity=identity, issuer=issuer, trusted_root=trusted_root,
+        expect_ticket=expect_ticket, expect_frame=expect_frame, expected_provenance=expected_provenance,
+        expected_app_commit=expected_app_commit, expected_deployment=expected_deployment,
+    )
+    return manifest
+
+
+def verify_source(directory, *, key=None, identity=None, issuer=None, trusted_root=None, expect_ticket=None,
+                  expect_frame=None, expected_provenance=None, expected_app_commit=None, expected_deployment=None):
+    """Return the manifest, receipt and observations from the same verified snapshot."""
     folder = Path(directory)
     _check(folder.is_dir() and not folder.is_symlink(), "UNEXPECTED_FILES", "Supply an exchange bundle directory.")
     raw = _bundle_bytes(folder / MANIFEST, MAX_JSON_BYTES)
@@ -315,7 +326,7 @@ def verify(directory, *, key=None, identity=None, issuer=None, trusted_root=None
     _assert_pins(receipt, result, expect_ticket=expect_ticket, expect_frame=expect_frame,
                  expected_provenance=expected_provenance, expected_app_commit=expected_app_commit,
                  expected_deployment=expected_deployment)
-    return result
+    return result, receipt, data
 
 
 def summary(manifest):

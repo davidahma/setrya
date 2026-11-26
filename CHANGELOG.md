@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.0
+
+- Export OSCAL 1.2.0 Assessment Results from a signed and replayed receipt exchange. Record the evidence, selected Assessment Plan, mapping version, signer, verdict and open items for governance review.
+
 ## 1.13.0
 
 - Compare separately signed vendor runs by verdict and surface. A disagreement requires review before accepting the newer result. Check the fixture version before starting a linked rerun.

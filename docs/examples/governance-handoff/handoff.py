@@ -2,18 +2,16 @@
 
 import argparse
 from dataclasses import replace
-from datetime import datetime, timezone
-from hashlib import sha256
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from setrya.casework import exchange
-from setrya.core.inputs import InvalidReport, read_regular_bytes, require
-from setrya.core.signing import trusted_public_key
+from setrya.casework.handoff import verify_handoff
+from setrya.core.inputs import InvalidReport, require
 from setrya.erasure import run_shared
 from setrya.examples.workspace import CASE, open_fixture
-from setrya.receipt_format import MAX_BUNDLE_FILE_BYTES, RECEIPT
+from setrya.receipt_format import RECEIPT
 
 
 CONTROL = {"framework": "Support governance", "reference": "ERASURE-07"}
@@ -33,11 +31,9 @@ def issue(output, key):
 
 
 def attachment(bundle, key, *, ticket=None, framework=None, reference=None):
-    with trusted_public_key(key) as (snapshot, fingerprint):
-        manifest = exchange.verify(bundle, key=snapshot)
+    verified = verify_handoff(bundle, key=key)
+    manifest = verified.manifest
     digest = manifest["files"][RECEIPT]
-    raw = read_regular_bytes(bundle / RECEIPT, "verified receipt", MAX_BUNDLE_FILE_BYTES)
-    require(sha256(raw).hexdigest() == digest, "The receipt changed after exchange verification.")
     kind = manifest["evidence_kind"]
     if kind == "vendor-attestation":
         require(all(isinstance(value, str) and value.strip() for value in (ticket, framework, reference)),
@@ -47,7 +43,7 @@ def attachment(bundle, key, *, ticket=None, framework=None, reference=None):
     else:
         require(not any(value is not None for value in (ticket, framework, reference)),
                 "The sample drill uses the control already recorded in its receipt.")
-        require(CONTROL in json.loads(raw).get("controls", []),
+        require(CONTROL in verified.receipt.get("controls", []),
                 "The verified receipt lacks the expected governance control.")
         ticket, control, source = "GOV-204", CONTROL, "receipt"
     return {
@@ -57,8 +53,8 @@ def attachment(bundle, key, *, ticket=None, framework=None, reference=None):
         "evidence_kind": kind,
         "exchange_attachment": bundle.name,
         "receipt_sha256": digest,
-        "signer": {"type": "cosign-public-key", "sha256": fingerprint},
-        "verified_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "signer": verified.signer,
+        "verified_at": verified.verified_at,
         "technical_verdict": manifest["technical_verdict"],
         "review_status": manifest["review_status"],
         "open_items": manifest["open_items"],
