@@ -64,6 +64,12 @@ class ExternalItem:
 
 
 @dataclass(frozen=True)
+class Maintenance:
+    """Acknowledge that the named maintenance operation finished."""
+    step: str
+
+
+@dataclass(frozen=True)
 class SharedCase:
     conversation: str
     route: str
@@ -79,6 +85,7 @@ class SharedCase:
     control_variants: tuple[str, ...] = ()
     model_backed: bool | None = None
     controls: tuple[dict[str, str], ...] = ()
+    maintenance_steps: tuple[str, ...] = ()
 
     def questions(self):
         require(all(isinstance(group, tuple) and len(group) <= 7 for group in
@@ -104,6 +111,9 @@ class SharedCase:
         if self.controls:
             from setrya.control_references import validate_controls
             spec["controls"] = validate_controls(list(self.controls))
+        require(isinstance(self.maintenance_steps, tuple), "Use a tuple of maintenance step names.")
+        if self.maintenance_steps:
+            spec["maintenance_steps"] = list(self.maintenance_steps)
         rules.check_spec(spec)
         _check_answer_budget(spec, self.judges)
         return spec
@@ -203,6 +213,8 @@ def observe_baseline(subject, case, application, *, external_items=(), on_gap=No
     baseline = _stage(subject, case, application, spec, observe)
     rules.check_stage(baseline, spec)
     issues = set(rules.baseline_issues(spec, baseline))
+    if case.maintenance_steps and not callable(observe("maintain", lambda: getattr(application, "maintain", None))):
+        issues.add(("maintain", None, None, "Connect maintain(subject, step) for the declared maintenance steps."))
     if on_warning is not None:
         for store, details in baseline.get("scan_details", {}).items():
             if details.get("skipped"):
@@ -269,10 +281,13 @@ def run_shared(subject, *, case, application, output, mode="late-write", externa
     worker = dict(held=None, checkpoint=None, pre_release=None, drained=None)
     erase = None
     immediate = None
+    maintenance = [None] * len(case.maintenance_steps)
+    maintain = observe("maintain", lambda: getattr(application, "maintain", None)) if maintenance else None
+    maintenance_ready = not maintenance or callable(maintain)
     lineage = None
     release_mark = None
     local_journal = isinstance(journal, CopyJournal) and not expected
-    if mode == "late-write" and (authorize_hold is None or observe("authorize_hold", authorize_hold) is True):
+    if maintenance_ready and mode == "late-write" and (authorize_hold is None or observe("authorize_hold", authorize_hold) is True):
         worker["held"] = observe("hold", lambda: held_by(application.hold))
     try:
         baseline = _stage(subject, case, application, spec, observe)
@@ -284,7 +299,7 @@ def run_shared(subject, *, case, application, output, mode="late-write", externa
             lineage = observe("lineage", get_lineage)
         if worker["held"] is not None:
             worker["checkpoint"] = observe("checkpoint", lambda: held_by(application.checkpoint))
-        ready = rules.baseline_ready(spec, baseline) and rules.ready_for_mode(mode, worker)
+        ready = maintenance_ready and rules.baseline_ready(spec, baseline) and rules.ready_for_mode(mode, worker)
         if ready and authorize_erase is not None:
             ready = observe("authorize_erase", lambda: authorize_erase(spec, baseline, lineage)) is True
         if ready:
@@ -301,6 +316,14 @@ def run_shared(subject, *, case, application, output, mode="late-write", externa
             if applied is not False:
                 erase = applied is True
                 immediate = _stage(subject, case, application, spec, observe, rules.discovered_keys(spec, baseline["scans"]))
+                if erase:
+                    for index, step in enumerate(case.maintenance_steps):
+                        completed = observe("maintain", lambda: maintain(subject, step))
+                        if not isinstance(completed, Maintenance) or completed.step != step:
+                            break
+                        stored = [observe("inspect", lambda: _inspect(subject, application, a.store, a.key))
+                                  for a in case.artifacts]
+                        maintenance[index] = {"step": step, "stored": stored}
                 if mode == "late-write":
                     worker["pre_release"] = observe("checkpoint", lambda: held_by(application.checkpoint))
                     if erase and worker["pre_release"] == worker["held"] and local_journal:
@@ -365,6 +388,8 @@ def run_shared(subject, *, case, application, output, mode="late-write", externa
                 "immediate": rules.group_samples(immediate, spec), "final": rules.group_samples(final, spec),
                 "expected_producers": expected, "coverage": coverage, "journal": events, "journal_chain": chain,
                 "errors": errors, "drill_duration_ms": 0, "provenance": producer}
+    if maintenance:
+        evidence["maintenance"] = maintenance
     if deployment_evidence is not None:
         evidence.update(format=rules.DEPLOYMENT_EVIDENCE_FORMAT, deployment=deployment_evidence)
     if window and window["start"] < window["stop"]:

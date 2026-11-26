@@ -23,6 +23,7 @@ EVIDENCE_FORMAT = "setrya.erasure.evidence.v3.2"
 DEPLOYMENT_EVIDENCE_FORMAT = "setrya.erasure.evidence.v3.3"
 GROUPED_EVIDENCE_FORMATS = (GROUPED_V31_FORMAT, EVIDENCE_FORMAT, DEPLOYMENT_EVIDENCE_FORMAT)
 MAX_JOURNAL_OBSERVATIONS = 16384
+MAX_MAINTENANCE_STEPS = 8
 
 
 def _fields(row, fields):
@@ -45,8 +46,10 @@ def check_spec(spec):
     controls = isinstance(spec, dict) and "controls" in spec
     judged = isinstance(spec, dict) and "judges" in spec
     sampled = isinstance(spec, dict) and "sampling" in spec
+    maintenance = isinstance(spec, dict) and "maintenance_steps" in spec
     _fields(spec, "conversation route callers questions artifacts scan_stores require_lineage" +
-            (" judges" if judged else "") + (" sampling" if sampled else "") + (" controls" if controls else ""))
+            (" judges" if judged else "") + (" sampling" if sampled else "") + (" controls" if controls else "") +
+            (" maintenance_steps" if maintenance else ""))
     if controls:
         require(sampled, "Historical single-read cases do not carry control references.")
         validate_controls(spec["controls"])
@@ -80,6 +83,11 @@ def check_spec(spec):
         require(loc not in seen and a["action"] in ("delete", "rewrite", "preserve"), "Invalid artifact rule.")
         seen.add(loc)
     require(seen, "Declare at least one artifact to inspect.")
+    if maintenance:
+        steps = spec["maintenance_steps"]
+        _unique_ids(steps, MAX_MAINTENANCE_STEPS, "maintenance step")
+        require(sampled and 0 < len(steps) * len(seen) <= 256 and all(len(step) <= 96 for step in steps),
+                "Use short maintenance step names and at most 256 maintenance reads.")
 
 
 def check_external(items, spec, subject_ref):
@@ -556,7 +564,53 @@ def lineage_gaps(e, external):
     return gaps
 
 
-def post_erasure_findings(e, *, grouped=False):
+def _check_maintenance(e):
+    steps = e["case"].get("maintenance_steps", ())
+    require(bool(steps) == ("maintenance" in e), "Maintenance steps need corresponding evidence.")
+    if not steps:
+        return
+    require(e["format"] in (EVIDENCE_FORMAT, DEPLOYMENT_EVIDENCE_FORMAT), "Historical evidence cannot declare maintenance.")
+    rows = e["maintenance"]
+    _list(rows, MAX_MAINTENANCE_STEPS, "maintenance")
+    require(len(rows) == len(steps), "Wrong number of maintenance stages.")
+    artifacts = e["case"]["artifacts"]
+    can_continue = e["erased"] is True
+    for step, row in zip(steps, rows):
+        if row is None:
+            can_continue = False
+            continue
+        _fields(row, "step stored")
+        require(can_continue and row["step"] == step, "Maintenance observations are out of order.")
+        stored = row["stored"]
+        require(isinstance(stored, list) and len(stored) == len(artifacts), "Wrong maintenance artifact readings.")
+        for reading, artifact in zip(stored, artifacts):
+            if reading is not None:
+                check_stored(reading, artifact["store"], artifact["key"])
+
+
+def _maintenance_checks(e, failures, gaps):
+    results = []
+    for index, (step, row) in enumerate(zip(e["case"].get("maintenance_steps", ()), e.get("maintenance", ()))):
+        if row is None:
+            gaps.add(f"Missing completed maintenance step {step}.")
+            results.append({"step": step, "checks": []})
+            continue
+        checks = []
+        observations = zip(e["case"]["artifacts"], e["baseline"]["stored"], row["stored"])
+        for slot, (artifact, before, reading) in enumerate(observations):
+            found, missing = Findings(), set()
+            stored_outcome(reading, artifact, before, f"maintenance step {step}", found, missing)
+            failures.update(found)
+            failures.kinds.update(found.kinds)
+            gaps.update(missing)
+            status = "FAIL" if found else "NOT TESTED" if missing else "PASS"
+            evidence = None if reading is None else f"{EVIDENCE}#/maintenance/{index}/stored/{slot}"
+            checks.append({**artifact, "status": status, "evidence": evidence})
+        results.append({"step": step, "checks": checks})
+    return results
+
+
+def _post_erasure_findings(e, *, grouped=False):
     failures, gaps = Findings(), set()
     if e["erased"] is not None:
         for phase, name in (("immediate", "after erasure"), ("final", "final read")):
@@ -564,6 +618,12 @@ def post_erasure_findings(e, *, grouped=False):
             if grouped and stage is not None:
                 stage = {**stage, "answers": answer_records(e, phase)}
             _after(stage, name, e, failures, gaps)
+    checks = _maintenance_checks(e, failures, gaps)
+    return failures, gaps, checks
+
+
+def post_erasure_findings(e, *, grouped=False):
+    failures, gaps, _ = _post_erasure_findings(e, grouped=grouped)
     return failures, gaps
 
 
@@ -576,6 +636,7 @@ def derive(e, digest):
                "expected_producers coverage journal errors drill_duration_ms" + (" journal_chain" if modern else "")
                + (" late_write_window" if modern and "late_write_window" in e else "")
                + (" late_residuals" if modern and "late_write_window" in e and "late_residuals" in e else "")
+               + (" maintenance" if modern and "maintenance" in e else "")
                + (" provenance" if provenanced else "") + (" deployment" if deployed else ""))
     require(evidence_format in (*GROUPED_EVIDENCE_FORMATS, FLAT_EVIDENCE_FORMAT, LEGACY_EVIDENCE_FORMAT) and e["scope"] == "person" and _hex(digest, 64),
             "Invalid v3 evidence header.")
@@ -616,6 +677,7 @@ def derive(e, digest):
     if e["erased"] is not None:
         require(armed, "Erase was attempted without the declared baseline and hold.")
     require((e["immediate"] is not None) == (e["erased"] is not None), "Inconsistent erasure stages.")
+    _check_maintenance(e)
     gaps = set(scope_gaps)
     declared = {(a["store"], a["key"]) for a in spec["artifacts"]}
     declared.update(discovered_keys(spec, e["baseline"]["scans"]))
@@ -635,7 +697,7 @@ def derive(e, digest):
         race = "exercised" if completed else "incomplete"
         if not completed:
             gaps.add("Missing the same live pre-write attempt through erasure, release and drain.")
-    failures, observation_gaps = post_erasure_findings(e)
+    failures, observation_gaps, maintenance_checks = _post_erasure_findings(e)
     gaps.update(observation_gaps)
     errors = e["errors"]
     _list(errors, 8192, "adapter errors")
@@ -673,6 +735,7 @@ def derive(e, digest):
             **({"scan_coverage": scan_coverage} if scan_coverage else {}),
             "technical_verdict": tech, "review_status": review, "open_items": open_items,
             "artifact_checks": _artifact_index(e),
+            **({"maintenance_checks": maintenance_checks} if maintenance_checks else {}),
             "failures": sorted(failures), "gaps": sorted(gaps), "errors": errors, "drill_duration_ms": e["drill_duration_ms"],
             "evidence": {"file": EVIDENCE, "sha256": digest}}
 
@@ -709,6 +772,20 @@ def attribution_lines(receipt, *, prefix=""):
     ]
 
 
+def maintenance_lines(receipt):
+    confirmed = {"delete": "erased", "preserve": "same revision retained", "rewrite": "rewritten"}
+    for result in receipt.get("maintenance_checks", ()):
+        step = result["step"]
+        if not result["checks"]:
+            yield f"{step} · NOT TESTED · Completion unconfirmed."
+        for check in result["checks"]:
+            loc = f"{check['store']}/{check['key']}"
+            status, action = check["status"], check["action"]
+            detail = confirmed[action] if status == "PASS" else f"{action} requirement"
+            pointer = f" · {check['evidence']}" if check["evidence"] else ""
+            yield f"{step} · {status} · {loc} · {detail}{pointer}"
+
+
 def summary(receipt):
     mode = "write-back" if receipt["mode"] == "late-write" else receipt["mode"]
     lines = [f"Technical verdict {receipt['technical_verdict']} · Review status {receipt['review_status']}",
@@ -725,6 +802,7 @@ def summary(receipt):
         if row["discovered_by"] == "canary":
             lines.append(f"Canary located {row['store']}/{row['key']}.")
     lines.extend(human_issue(text) for text in receipt["failures"] + receipt["gaps"])
+    lines.extend(maintenance_lines(receipt))
     lines.extend(attribution_lines(receipt))
     for err in receipt["errors"]:
         lines.append(f"{err['operation']} failed ({err['error']}).")

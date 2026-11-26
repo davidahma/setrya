@@ -49,7 +49,9 @@ def _start(command, args):
     parser.add_argument("--scope", choices=("person", "tenant"), default="person", help="deletion scope (default: person)")
     parser.add_argument("--output", type=Path, help="fresh output directory")
     if is_demo:
-        parser.add_argument("example", choices=("workspace", "analyst", "memory-files", "branches", "northline", "northline-source"), nargs="?", help="person example (default: workspace)")
+        parser.add_argument("example", choices=("workspace", "analyst", "memory-files", "branches", "northline",
+                                               "northline-source", "legal-hold"), nargs="?",
+                            help="person example (default: workspace)")
         parser.add_argument("--mode", type=evidence_mode, choices=CLI_MODES, help="person drill mode (default: write-back)")
     else:
         from .erasure.case_starters import STACKS
@@ -76,6 +78,11 @@ def _start(command, args):
             raise InputError("The branch demo supplies its own fork and restore schedule.")
         from .branches.demo import demo
         return demo(opts.output or Path("branches"))
+    if is_demo and opts.example == "legal-hold":
+        if opts.scope != "person" or opts.mode not in (None, "deletion"):
+            raise InputError("The legal hold demo runs a person deletion with fixed maintenance steps.")
+        from .examples.legal_hold import demo
+        return demo(opts.output or Path("legal-hold"))
     if opts.scope == "tenant":
         from .erasure.cli import main
         return main([command, *args], prog="setrya")

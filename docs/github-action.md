@@ -10,17 +10,17 @@ Start in the root of a GitHub repository with Python 3.11 or later on macOS or L
 git switch -c try-setrya
 python3 -m venv .venv-setrya
 . .venv-setrya/bin/activate
-python -m pip install setrya==1.15.0
+python -m pip install setrya==1.16.0
 setrya init --output setrya-case
 setrya doctor --starter setrya-case/test_erasure.py --mode deletion
 mkdir -p .github/workflows
-curl -fsSL https://github.com/davidahma/setrya/releases/download/v1.15.0/setrya-quickstart.yml -o .github/workflows/setrya.yml
+curl -fsSL https://github.com/davidahma/setrya/releases/download/v1.16.0/setrya-quickstart.yml -o .github/workflows/setrya.yml
 git add setrya-case/test_erasure.py .github/workflows/setrya.yml
 git commit -m "Run the Setrya deletion check on pull requests"
 git push -u origin HEAD
 ```
 
-Open a PR against your default branch. The [release workflow](https://github.com/davidahma/setrya/releases/download/v1.15.0/setrya-quickstart.yml) installs `setrya==1.15.0` and runs the SHA-pinned Setrya Action in `deletion` mode. It asks as the sample reader, calls the deletion operation, and checks the store and the answers again. No worker hook is required.
+Open a PR against your default branch. The [release workflow](https://github.com/davidahma/setrya/releases/download/v1.16.0/setrya-quickstart.yml) installs `setrya==1.16.0` and runs the SHA-pinned Setrya Action in `deletion` mode. It asks as the sample reader, calls the deletion operation, and checks the store and the answers again. No worker hook is required.
 
 In the PR’s **Checks** tab, open the **Setrya erasure** run. Expect **PASS · READY_FOR_REVIEW** and the `setrya-receipt` artifact. On a same-repository PR, each push updates one verdict comment. It links to the receipt, names any observed failure or evidence gap and identifies outstanding review items. The artifact contains the underlying store and caller observations. Fork PRs get the check summary and artifact; the comment job requires write permission and runs separately. [Example PR comment](https://github.com/davidahma/setrya/pull/38#issuecomment-7065545463)
 

@@ -156,13 +156,28 @@ jobs:
           SUMS
           )
           offline=(sudo -n -- /usr/bin/unshare --net /usr/bin/setpriv --reuid "$(id -u)" \
-            --regid "$(id -g)" --clear-groups --no-new-privs /usr/bin/env "PATH=$PATH")
+            --regid "$(id -g)" --clear-groups --no-new-privs /usr/bin/env "PATH=$PATH" COSIGN_PASSWORD=)
           cd "$RUNNER_TEMP/governance-handoff/reviewer"
           "${offline[@]}" setrya receipt export-oscal exchange --key trusted-issuer.pub \
             --assessment-plan "$example/oscal-assessment-plan.json" \
             --mapping "$example/oscal-control-mapping.json" --ticket GOV-204 --output oscal-assessment-results.json
           "${offline[@]}" node "$GITHUB_WORKSPACE/scripts/verify-oscal-schema.mjs" "$validator" "$schema" \
             "$example/oscal-assessment-plan.json" oscal-assessment-results.json
+          "${offline[@]}" setrya demo legal-hold --output legal-hold
+          for lane in guarded restored-hold; do
+            "${offline[@]}" setrya receipt pack "legal-hold/$lane" --synthetic --system incident-register \
+              --system-version 1 --key "$RUNNER_TEMP/vendor-key.key" --output "hold-$lane"
+            code=0
+            "${offline[@]}" setrya receipt verify-exchange "hold-$lane" --key "$RUNNER_TEMP/vendor-key.pub" || code=$?
+            if [[ "$lane" == guarded ]]; then test "$code" -eq 0; else test "$code" -eq 1; fi
+            "${offline[@]}" setrya receipt export-oscal "hold-$lane" --key "$RUNNER_TEMP/vendor-key.pub" \
+              --assessment-plan "$example/oscal-assessment-plan.json" \
+              --mapping "$example/oscal-control-mapping.json" --output "hold-$lane.json"
+            "${offline[@]}" node "$GITHUB_WORKSPACE/scripts/verify-oscal-schema.mjs" "$validator" "$schema" \
+              "$example/oscal-assessment-plan.json" "hold-$lane.json"
+            jq -e 'any(.["assessment-results"].results[0].observations[].props[];
+              .name == "recorded-maintenance-reads" and .value == "2")' "hold-$lane.json"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: ${{ !cancelled() }}
         with:

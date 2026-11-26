@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.16.0
+
+- Check that distinct erased and held records still satisfy their rules after each declared maintenance operation. The legal-hold demo exercises deletion, SQLite consolidation, and summary regeneration.
+- Link preservation observations to signed receipt evidence in OSCAL. Release comparisons flag lost maintenance coverage by route and conversation.
+
 ## 1.15.0
 
 - Export OSCAL 1.2.0 Assessment Results from a signed and replayed receipt exchange. Record the evidence, selected Assessment Plan, mapping version, signer, verdict and open items for governance review.
