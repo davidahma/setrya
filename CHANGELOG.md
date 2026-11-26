@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.17.0
+
+- Scan TypeScript copy sites from the CLI and GitHub Action using an optional Python extra. A Node and SQLite starter runs authenticated HTTP deletion checks without npm.
+- Publish an opt-in control-mapping draft for auditor review. OSCAL exports record the selected draft's version and digest.
+
 ## 1.16.0
 
 - Check that distinct erased and held records still satisfy their rules after each declared maintenance operation. The legal-hold demo exercises deletion, SQLite consolidation, and summary regeneration.

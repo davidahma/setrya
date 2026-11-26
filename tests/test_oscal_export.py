@@ -119,6 +119,24 @@ class OscalExportTests(unittest.TestCase):
         self.assertEqual(self.props(result)["technical-verdict"], "FAIL")
         self.assertEqual(self.props(result)["review-status"], "RESIDUAL_FOUND")
 
+    def test_public_draft_records_version_and_digest_without_a_control_finding(self):
+        draft = SAMPLE.parents[1] / "control-mappings" / "2026-11-26-draft.1.json"
+        shutil.copyfile(draft, self.mapping)
+        plan = json.loads(self.plan.read_bytes())
+        selection, = plan["assessment-plan"]["reviewed-controls"]["control-selections"]
+        selection["include-controls"] = [{"control-id": "gdpr-17.1"}]
+        self.plan.write_text(json.dumps(plan), encoding="utf-8")
+        result, = self.export(self.issue())["results"]
+        props = self.props(result)
+        self.assertEqual(props["mapping-version"], "2026-11-26-draft.1")
+        self.assertEqual(props["mapping-sha256"], sha256(draft.read_bytes()).hexdigest())
+        scope, = result["reviewed-controls"]["control-selections"]
+        self.assertEqual(scope["include-controls"], [{"control-id": "gdpr-17.1"}])
+        self.assertTrue(any(self.props(row).get("control-reference") == "Article 17(1)"
+                            for row in result["observations"]))
+        self.assertNotIn("findings", result)
+        self.assertNotIn("attestations", result)
+
     def test_export_links_verified_maintenance_observations(self):
         original, bundle = self.root / "hold", self.root / "exchange"
         with legal_hold.open_fixture("restored-hold") as (subject, app):

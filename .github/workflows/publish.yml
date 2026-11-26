@@ -146,6 +146,11 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.11'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: hashFiles('tests/test_erasure_typescript_starter.py') != ''
+        with:
+          node-version: '24.20.0'
+          package-manager-cache: false
       - name: Install the public release and check the demo and endpoint starter
         working-directory: ${{ runner.temp }}
         env:
@@ -179,3 +184,44 @@ jobs:
               public-install/bin/python -I "$GITHUB_WORKSPACE/scripts/verify-installed-discovery.py"
             fi
           fi
+          if test -f "$GITHUB_WORKSPACE/tests/test_erasure_typescript_starter.py"; then
+            public-install/bin/python -m pip --isolated install --index-url https://pypi.org/simple "setrya[typescript,case-yaml]==$VERSION"
+            public-install/bin/setrya init --stack typescript --output demo-ts
+            public-install/bin/setrya discovery copy-scan demo-ts --language typescript > copy-scan.txt
+            grep -F 'node:sqlite.StatementSync.run' copy-scan.txt
+            public-install/bin/python -m unittest discover -s "$GITHUB_WORKSPACE/tests" -p test_erasure_typescript_starter.py -v
+            echo "$RUNNER_TEMP/public-install/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Commit a TypeScript copy site in a disposable repository
+        if: hashFiles('tests/test_erasure_typescript_starter.py') != ''
+        id: typescript_revisions
+        working-directory: ${{ runner.temp }}
+        run: |
+          git init -q demo-ts
+          git -C demo-ts config user.name 'Setrya release check'
+          git -C demo-ts config user.email fixture@example.invalid
+          git -C demo-ts commit -qm 'Before adding the app' --allow-empty
+          echo "base=$(git -C demo-ts rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git -C demo-ts add fixture.mts
+          git -C demo-ts commit -qm 'Add stored answers'
+          echo "candidate=$(git -C demo-ts rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: ./
+        if: hashFiles('tests/test_erasure_typescript_starter.py') != ''
+        id: typescript_scan
+        with:
+          operation: copy-scan
+          copy-language: typescript
+          base: ${{ steps.typescript_revisions.outputs.base }}
+          candidate: ${{ steps.typescript_revisions.outputs.candidate }}
+          copy-repo: ${{ runner.temp }}/demo-ts
+          copy-output: ${{ runner.temp }}/typescript-copy-sites.json
+      - name: Verify the released Action detected the committed SQLite writes
+        if: hashFiles('tests/test_erasure_typescript_starter.py') != ''
+        working-directory: ${{ runner.temp }}
+        env:
+          VERDICT: ${{ steps.typescript_scan.outputs.exit-code }}
+        run: |
+          test "$VERDICT" = 3
+          jq -e '.languages == ["typescript"]
+                 and .review_required == 3
+                 and all(.sites[]; .operation == "node:sqlite.StatementSync.run")' typescript-copy-sites.json

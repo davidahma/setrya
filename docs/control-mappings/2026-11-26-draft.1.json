@@ -1,0 +1,105 @@
+{
+  "format": "setrya.control-mapping.v1",
+  "version": "2026-11-26-draft.1",
+  "supports": [
+    {
+      "check": "artifact-delete",
+      "framework": "SOC 2",
+      "edition": "2017 TSC revised points of focus 2022",
+      "reference": "C1.2",
+      "control_id": "soc2-c1.2",
+      "applicability": "Candidate evidence for a declared confidential record retirement test. Confirm the information was in the assessed scope and that the organization intended to dispose of it.",
+      "source": "https://www.aicpa-cima.com/resources/download/2017-trust-services-criteria-with-revised-points-of-focus-2022"
+    },
+    {
+      "check": "read-only-observation",
+      "framework": "SOC 2",
+      "edition": "2017 TSC revised points of focus 2022",
+      "reference": "C1.2",
+      "control_id": "soc2-c1.2",
+      "applicability": "A retained read control and direct observation of completed disposal support review of the specified system and ticket. Custody, retention rules and undisclosed copies need separate review.",
+      "source": "https://www.aicpa-cima.com/resources/download/2017-trust-services-criteria-with-revised-points-of-focus-2022"
+    },
+    {
+      "check": "artifact-delete",
+      "framework": "ISO/IEC 27001",
+      "edition": "ISO/IEC 27001:2022",
+      "reference": "A.8.10",
+      "control_id": "iso27001-a.8.10",
+      "applicability": "Exact-key absence after an application action supports a workflow test for information deletion within the declared system boundary.",
+      "source": "https://www.iso.org/standard/27001"
+    },
+    {
+      "check": "artifact-rewrite",
+      "framework": "ISO/IEC 27001",
+      "edition": "ISO/IEC 27001:2022",
+      "reference": "A.8.10",
+      "control_id": "iso27001-a.8.10",
+      "applicability": "A declared shared derivative changed revision, with the erased fact absent and retained content observed. Assess scope and policy separately.",
+      "source": "https://www.iso.org/standard/27001"
+    },
+    {
+      "check": "write-back",
+      "framework": "ISO/IEC 27001",
+      "edition": "ISO/IEC 27001:2022",
+      "reference": "A.8.10",
+      "control_id": "iso27001-a.8.10",
+      "applicability": "An observed deferred writer tests whether a declared deleted copy can return. Inspect the exact exercised workflow and verdict before relying on the observation.",
+      "source": "https://www.iso.org/standard/27001"
+    },
+    {
+      "check": "artifact-delete",
+      "framework": "PCI DSS",
+      "edition": "4.0.1",
+      "reference": "3.2.1",
+      "control_id": "pci-dss-v4.0.1-3.2.1",
+      "applicability": "Synthetic disposal evidence is a candidate only for an in-scope account data workflow. Classification, retention, periodic removal and methods for all media require separate evidence.",
+      "source": "https://www.pcisecuritystandards.org/document_library/"
+    },
+    {
+      "check": "artifact-preserve",
+      "framework": "PCI DSS",
+      "edition": "4.0.1",
+      "reference": "3.2.1",
+      "control_id": "pci-dss-v4.0.1-3.2.1",
+      "applicability": "A distinct retained record supports reviewing a declared minimum retention exception in a synthetic scenario. An assessor must verify policy, permitted data types, and authorized retention periods independently.",
+      "source": "https://www.pcisecuritystandards.org/document_library/"
+    },
+    {
+      "check": "artifact-delete",
+      "framework": "PCI DSS",
+      "edition": "3.2.1 historical",
+      "reference": "3.1",
+      "control_id": "pci-dss-legacy-3.1",
+      "applicability": "Historical crosswalk for reviews scoped to the retired standard. Use Requirement 3.2.1 of the current edition in an active assessment.",
+      "source": "https://blog.pcisecuritystandards.org/pci-dss-v3-2-1-is-retiring-on-31-march-2024-are-you-ready"
+    },
+    {
+      "check": "artifact-delete",
+      "framework": "GDPR",
+      "edition": "Regulation (EU) 2016/679",
+      "reference": "Article 17(1)",
+      "control_id": "gdpr-17.1",
+      "applicability": "An engineering observation of deletion at declared locations after an approved request. Legal applicability, time limits, controller obligations and recipient notification require separate evidence.",
+      "source": "https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng/"
+    },
+    {
+      "check": "read-only-observation",
+      "framework": "GDPR",
+      "edition": "Regulation (EU) 2016/679",
+      "reference": "Article 17(1)",
+      "control_id": "gdpr-17.1",
+      "applicability": "Direct readback checks known copies after a completed deletion. Scope, exceptions and effectiveness beyond the observed view require review.",
+      "source": "https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng/"
+    },
+    {
+      "check": "artifact-preserve",
+      "framework": "GDPR",
+      "edition": "Regulation (EU) 2016/679",
+      "reference": "Article 17(3)",
+      "control_id": "gdpr-17.3",
+      "applicability": "A distinct record survived a synthetic retention workflow. A qualified reviewer must establish whether the app's claimed exception applies and whether only the justified data was retained.",
+      "source": "https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng/"
+    }
+  ]
+}

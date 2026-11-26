@@ -62,6 +62,10 @@ def _start(command, args):
             raise InputError("Stack starters use person scope.")
         from .erasure.case_starters import init_stack
         case = init_stack(opts.output or Path("setrya-case"), opts.stack)
+        if opts.stack == "typescript":
+            print(f"Created a disposable TypeScript app and HTTP case in {case.parent}.")
+            print(join(["python", str(case.parent / "run.py"), "--output", "receipt"]))
+            return 0
         print(f"Created {case}. Configure the disposable app and storage bindings.")
         print(join(["setrya", "doctor", "--case", str(case)]))
         return 0
