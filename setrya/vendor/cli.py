@@ -13,6 +13,7 @@ from setrya.receipt_format import RECEIPT
 from setrya.receipts import exit_code, replay
 
 from . import hosted
+from ._setup import fingerprint
 from .fixtures import run_fixture
 from .report import TARGETS, operator_label, summary
 from .review import DETACHED_SIGNATURE, KEYLESS_SIGNATURE, assess_review, rerun_digest
@@ -35,6 +36,9 @@ def command(argv):
     review.add_argument("--expect-operator", help="expected operator from your review policy")
     review.add_argument("--against", type=Path, help="original self-check for a linked rerun")
     review.add_argument("--against-key", type=Path, help="separate trusted Cosign key for the original self-check")
+    review.add_argument("--against-identity", help="exact trusted Sigstore certificate identity for the original")
+    review.add_argument("--against-issuer", help="exact trusted Sigstore OIDC issuer for the original")
+    review.add_argument("--against-trusted-root", type=Path, help="independently provisioned Sigstore root for the original")
     review.add_argument("--accept-rerun", action="store_true",
                         help="use the rerun's technical exit code even if the linked results differ")
     baseline = commands.add_parser("baseline", help="record a read-only baseline in an authorized test project")
@@ -60,7 +64,8 @@ def command(argv):
             raise InputError("--accept-rerun requires a paired review with --against.")
         result = assess_review(args.directory, key=args.key, identity=args.identity, issuer=args.issuer,
                                trusted_root=args.trusted_root, expect_operator=args.expect_operator,
-                               against=args.against, against_key=args.against_key)
+                               against=args.against, against_key=args.against_key, against_identity=args.against_identity,
+                               against_issuer=args.against_issuer, against_trusted_root=args.against_trusted_root)
         if result.headline is not None:
             print(result.headline)
         print(summary(result.receipt, execution_review=result.details))
@@ -92,11 +97,12 @@ def command(argv):
 def run_and_sign(target, output, *, key, operator=None, rerun_of=None):
     if operator is not None:
         operator_label(operator)
-    execution = {"operator": operator, "run_id": str(uuid4()), "setrya_version": __version__}
+    fixture_setup = fingerprint(target)
+    execution = {"operator": operator, "run_id": str(uuid4()), "setrya_version": __version__,
+                 "fixture_setup": fixture_setup}
     if rerun_of is not None:
-        execution["rerun_of"] = rerun_digest(rerun_of, target, operator, setrya_version=execution["setrya_version"])
-        if key is None:
-            raise InputError("Use a detached Cosign signing key for a linked rerun.")
+        execution["rerun_of"] = rerun_digest(rerun_of, target, operator, setrya_version=execution["setrya_version"],
+                                              fixture_setup=fixture_setup)
     return _sign_evidence(lambda: {**run_fixture(target), "execution": execution}, output, key=key)
 
 

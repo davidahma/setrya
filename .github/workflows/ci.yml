@@ -353,7 +353,7 @@ jobs:
       - run: python -m pip install '.[typescript,case-yaml,pytest]'
       - run: >
           python -m pytest -q tests/test_typescript_copy_sites.py
-          tests/test_erasure_typescript_starter.py tests/test_oscal_export.py
+          tests/test_node_copy_patterns.py tests/test_erasure_typescript_starter.py tests/test_oscal_export.py
 
   ci:
     name: CI

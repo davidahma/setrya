@@ -1,5 +1,5 @@
 name: Setrya erasure drill
-description: Find Python and TypeScript copy sites. Catch deleted data written back into AI answers with a replayable PR receipt.
+description: Find Python and Node copy sites. Catch deleted data written back into AI answers with a replayable PR receipt.
 inputs:
   operation:
     description: Run or comment on an erasure drill, inspect changed copy sites or comment on them, or run conformance.
@@ -40,7 +40,7 @@ inputs:
     description: Local Git checkout directory for copy-scan.
     default: '.'
   copy-language:
-    description: Source language for copy-scan. Use python, typescript, or all. The latter two require the typescript extra.
+    description: Source language for copy-scan. Use python, typescript (including JavaScript), or all. Node scans require the typescript extra.
     default: python
   copy-map:
     description: Committed copy mapping path relative to the repository.

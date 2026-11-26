@@ -49,7 +49,7 @@ def operator_label(value):
 
 
 def _validate_execution(execution):
-    fields(execution, "operator run_id setrya_version", ("rerun_of",))
+    fields(execution, "operator run_id setrya_version", ("rerun_of", "fixture_setup"))
     operator = execution["operator"]
     if operator is not None:
         operator_label(operator)
@@ -59,6 +59,8 @@ def _validate_execution(execution):
     version = execution["setrya_version"]
     require(isinstance(version, str) and re.fullmatch(r"[A-Za-z0-9.+_-]{1,80}", version),
             "Invalid Setrya fixture version.")
+    if "fixture_setup" in execution:
+        sha(execution["fixture_setup"])
     if "rerun_of" in execution:
         require(operator is not None, "A linked rerun needs a recorded operator.")
         sha(execution["rerun_of"])
@@ -173,6 +175,8 @@ def execution_lines(receipt, *, signer=None, review_scope="evidence replay"):
     lines = [f"Execution {origin}", f"Recorded operator {execution.get('operator') or 'unrecorded'}"]
     if "run_id" in execution:
         lines.extend((f"Execution ID {execution['run_id']}", f"Fixture Setrya version {execution['setrya_version']}"))
+    if "fixture_setup" in execution:
+        lines.append(f"Fixture setup SHA-256 {execution['fixture_setup']}")
     if "rerun_of" in execution:
         lines.append(f"Linked original receipt SHA-256 {execution['rerun_of']}")
     lines.append(f"Signer verified {signer}" if signer else "Signer unauthenticated")

@@ -27,6 +27,16 @@ setrya replay provider-result
 
 The baseline is an issuer-local checkpoint. Keep it separate from what you publish. Setrya enforces continuity of credentials, surface, scope, target and control. The signed output includes the scope fingerprint, API label and both observation times. It excludes credentials, provider record IDs and response contents. `--after-delete` records that an operator reported deletion. Verify the application operation or case ticket separately if the review requires it. Obtain the signing public key or expected keyless signer from an independent trust source.
 
+## Hand off the API observation
+
+```sh
+setrya receipt pack provider-result --output provider-exchange \
+  --system synthetic-provider --system-version v1 --key issuer.key
+setrya receipt verify-exchange provider-exchange --key independently-trusted.pub
+```
+
+The new exchange records `provider-readback`, the exact API scope digest, both times, and the provider follow-ups. A reviewer can attach the exchange and its verified digest to a governance ticket or export the observed API surface to OSCAL. The provider exchange carries API observations. A ticket binding requires independent completed-deletion evidence. [Governance handoff](governance-handoff.md#attach-a-provider-api-result) · [OSCAL export](oscal.md)
+
 ## Available reads
 
 | Target | Visible surface | `--scope` | Credential |

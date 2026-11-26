@@ -71,3 +71,14 @@ cp -R "$scratch/issuer/vendor-exchange" "$scratch/reviewer/vendor-exchange"
 ```
 
 The ticket labels the evidence as a vendor attestation and includes its target, versions, operator if recorded, and per-surface results. Its signer identifies the exchange issuer. The control mapping comes from the ticket reviewer. Preserve the original bundle and signer policy if the reviewer also needs to verify who signed the source result. [Vendor report scope](vendor-conformance.md) · [Receipt exchange](receipt-exchange.md)
+
+## Attach a provider API result
+
+After checking the original source signature, [pack the provider result](provider-readback.md#hand-off-the-api-observation). Verify the exchange in the reviewer directory and supply the receiving ticket and control reference.
+
+```sh
+"$python" -I "$example" review provider-exchange --key trusted-issuer.pub \
+  --ticket GOV-206 --framework "Support governance" --control ERASURE-09 > provider-ticket.json
+```
+
+The ticket records the provider API outcome, observation window, scope digest and open items. The supplied ticket ID is the destination of the evidence. Use a completed-deletion receipt to verify the origin of a real deletion request. [Provider readback](provider-readback.md) · [Completed-ticket handoff](receipt-handoff.md)

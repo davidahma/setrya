@@ -20,7 +20,7 @@ def command(argv):
         render.add_argument("--audience", choices=("engineer", "reviewer", "customer"), default="reviewer")
         render.add_argument("--format", choices=("text", "md", "markdown"), default="text", dest="output_format")
         render.add_argument("--case-id", help="opaque reference for the customer copy")
-        pack = commands.add_parser("pack", help="sign an original v3 person or vendor receipt in a draft v1 exchange")
+        pack = commands.add_parser("pack", help="sign a v3 person, vendor or provider readback receipt as an exchange")
         pack.add_argument("bundle", type=Path)
         pack.add_argument("--output", type=Path, required=True, help="new exchange directory")
         pack.add_argument("--system", required=True, help="system label supplied by the issuer")

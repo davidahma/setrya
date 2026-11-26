@@ -29,6 +29,133 @@ def save_answer(key, answer):
 
 
 class CopySites(unittest.TestCase):
+    def test_thread_callbacks_and_ordinary_database_writes(self):
+        source = dedent("""\
+            import sqlite3
+            import psycopg
+            from concurrent.futures import ThreadPoolExecutor as Pool
+            from threading import Thread, Timer
+            from sqlalchemy import create_engine, insert, text
+
+            def pg_write(key, answer):
+                with psycopg.connect(dsn) as conn:
+                    cur = conn.cursor()
+                    cur.executemany("INSERT INTO messages VALUES (%s, %s)", [(key, answer)])
+                    cur.execute("SELECT * FROM messages")
+
+            db = sqlite3.connect(storage)
+            engine = create_engine(sql_url)
+
+            def sqlite_write():
+                db.execute("UPDATE notes SET body = ?", data)
+
+            def core_write():
+                with engine.begin() as conn:
+                    conn.execute(text("INSERT INTO notes VALUES (:body)"), params)
+                    conn.execute(insert(notes).values(body=answer))
+
+            Thread(target=pg_write)
+            Timer(1, lambda: db.execute("INSERT INTO cache VALUES (?, ?)", data))
+            with Pool() as pool:
+                pool.submit(sqlite_write)
+            core_write()
+
+            def shadow(Thread):
+                def immediate():
+                    db.execute("UPDATE notes SET body = ?", data)
+                return Thread(target=immediate)
+        """)
+        self.assertEqual([(row.kind, row.operation, row.writer) for row in copy_sites._inspect(
+            source.encode(), "storage.py"
+        )], [
+            ("database", "psycopg.executemany", "thread"),
+            ("database", "sqlite3.execute", "thread"),
+            ("database", "sqlalchemy.execute", None),
+            ("database", "sqlalchemy.execute", None),
+            ("database", "sqlite3.execute", "thread-timer"),
+            ("database", "sqlite3.execute", None),
+        ])
+
+    def test_unscanned_and_unresolved_source_files_stay_advisory(self):
+        with TemporaryDirectory() as temp:
+            path = Path(temp)
+            (path / "worker.js").write_text("database.save(payload)\n")
+            (path / "other.md").write_text("ordinary documentation")
+            (path / "answers.py").write_text("import psycopg\npsycopg.connect(dsn).execute(query)\n")
+            report = copy_sites.scan(path)
+            self.assertTrue(copy_sites.review_needed(report))
+            self.assertIn("Coverage unknown · 2 source file(s)", copy_sites.summarize(report))
+            self.assertNotIn("No supported copy operations", copy_sites.summarize(report))
+            self.assertEqual(report["coverage"]["unresolved"], [
+                {"path": "answers.py", "reason": "unresolved-storage-write"},
+            ])
+            groups = {row["extension"]: row for row in report["coverage"]["skipped_extensions"]}
+            self.assertEqual(groups[".js"]["paths"], ["worker.js"])
+            self.assertFalse(groups[".md"]["source"])
+            signals = action.copy_signals({**report, "map_changed": False})
+            self.assertIn("Coverage unknown", action.copy_details(json.dumps(signals)))
+            with contextlib.redirect_stdout(StringIO()):
+                self.assertEqual(main(["discovery", "copy-scan", temp]), 3)
+
+    def test_thread_pool_stored_on_instance_flags_its_method(self):
+        source = dedent("""\
+            from concurrent.futures import ThreadPoolExecutor as Pool
+            from sqlite3 import connect
+
+            database = connect(path)
+
+            class Memory:
+                def remember(self, value):
+                    self.executor.submit(self.save, value)
+
+                def __init__(self):
+                    self.executor = Pool()
+
+                def save(self, value):
+                    database.execute("INSERT INTO memory VALUES (?)", (value,))
+
+            class DirectMemory:
+                def __init__(self, Pool):
+                    self.executor = Pool()
+
+                def remember(self, value):
+                    self.executor.submit(self.save, value)
+
+                def save(self, value):
+                    database.execute("INSERT INTO direct VALUES (?)", (value,))
+        """)
+        sites = copy_sites._inspect(source.encode(), "memory.py")
+        self.assertEqual([site.writer for site in sites], ["thread", None])
+        self.assertEqual(sites[0].wire()["starter"]["mode"], "late-write")
+
+    def test_direct_scheduled_sql_is_ranked_or_reported_unknown(self):
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / "app.py"
+            path.write_text(dedent("""\
+                from concurrent.futures import ThreadPoolExecutor
+                from sqlite3 import connect
+                from threading import Timer
+
+                db = connect(path)
+                pool = ThreadPoolExecutor()
+                pool.submit(db.execute, "INSERT INTO notes VALUES (?)", (message,))
+                Timer(1, db.execute, args=("UPDATE notes SET body = ?", (message,)))
+                pool.submit(db.execute, constructed_query, (message,))
+            """))
+            report = copy_sites.scan(path.parent)
+        self.assertEqual([row["writer"] for row in report["sites"]], ["thread", "thread-timer"])
+        self.assertEqual(report["coverage"]["unresolved"], [{"path": "app.py", "reason": "unresolved-storage-write"}])
+
+    def test_table_created_from_select_is_a_copy(self):
+        source = b"""\
+import sqlite3
+db = sqlite3.connect(path)
+db.execute("CREATE TABLE first_archive AS SELECT * FROM notes")
+db.execute("CREATE TABLE empty_table (name TEXT)")
+"""
+        sites = copy_sites._inspect(source, "storage.py")
+        self.assertEqual([(site.line, site.operation) for site in sites], [(3, "sqlite3.execute")])
+
     def test_qualified_calls_across_families_without_executing_source(self):
         source = dedent("""\
             from pathlib import Path

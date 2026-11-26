@@ -34,10 +34,24 @@ The exporter selects only mapped checks present in the verified result and inclu
 | `endpoint-read`, `store-scan` | Post-erasure phases with recorded endpoint or scanner observations. |
 | `write-back` | The recorded release and drain of the same deferred writer across erasure. |
 | `read-only-observation` | Recorded direct-read outcomes for a completed deletion request. |
-| `vendor-conformance` | Scoped backend or API surface results labelled as a vendor attestation. |
+| `vendor-conformance` | Scoped backend fixture outcomes labelled as a vendor attestation. |
+| `provider-readback` | The declared API observation after an operator-reported deletion. Provider-internal copies and retention remain outside that observation. |
+
+Each observation carries the original technical verdict and review status. A mapped observation also gives its own outcome and counts of passing, failing, and untested checks, with the unit named in `check-unit`. For artifact rules, each required phase counts once. Maintenance counts show transient failures even if a later read passes. Endpoint counts use individual caller samples. When every required read in a mapped post-erasure check is missing, the export shows the untested slots next to the recorded results. The observation identifies the intended control without claiming support from the missing reads. The write-back observation gives the replayed drill result for a completed worker window. Provider readback counts only the declared API surface and lists uninspected surfaces separately.
+
+The `check-outcome` is `FAIL` if any scoped check failed, `NOT TESTED` if evidence is missing or the observation has zero counted checks, and `PASS` when all counted checks passed. It can differ from the overall technical verdict. For example, a run can fail because the held record vanished during maintenance while its other checks passed. A technical `ERROR` remains visible when a replayed-drill count is reported as untested. These are evidence outcomes for an assessor to review.
 
 ## Attach and verify
 
 Attach the Assessment Results JSON with the original four-file exchange and the intended Assessment Plan. Keep their relative paths intact, and use your governing SSP and catalog where applicable. Keep the detached or keyless trust policy with the reviewer. The export references the signed evidence and carries receipt, evidence, plan and map digests, the exchange signer, verification time, recorded verdict and open items. Unsigned map entries and ticket labels come from the reviewer. A control reference already bound to the receipt is identified separately.
 
 Verify the underlying evidence with `setrya receipt verify-exchange`. The OSCAL document is a local export. Signature verification and technical replay apply to the original exchange. Setrya makes no network requests for the Assessment Plan or mapping citations. Review the export and original files for sensitive system names, ticket references and observations before sending them through an approved channel. [Offline receipt verification](receipt-exchange.md)
+
+## Attachments for Vanta and Drata
+
+For a control or audit request that accepts evidence files, start with the [governance handoff](governance-handoff.md). Give your reviewer the generated `ticket.json` and share the original signed exchange through an approved attachment or restricted link. The ticket includes the signer, verification time, receipt digest, and verdict. Verify the exchange under the reviewer's trusted signer policy.
+
+- Vanta documents JSON and ZIP uploads and external evidence links for audit requests. It also documents outbound OSCAL for FedRAMP R5, NIST 800-53, and CMMC. The referenced intake docs describe evidence attachments. [Vanta audit request evidence](https://help.vanta.com/en/articles/12293647-managing-an-information-request-list-irl) · [Vanta OSCAL export](https://help.vanta.com/en/articles/11345422-product-updates)
+- Drata documents JSON and ZIP uploads to its Evidence Library and linking the artifact to control IDs. Its FedRAMP Readiness Framework uses OSCAL for baseline parameters. [Drata Evidence API](https://developers.drata.com/openapi/reference/v2/tag/Evidence/) · [Drata FedRAMP Readiness Framework](https://help.drata.com/en/articles/9095570-a-guide-to-drata-s-fedramp-readiness-framework)
+
+Native import of external OSCAL Assessment Results remains unverified for both platforms. The attachment paths leave interpretation and control association with the reviewer. Use the OSCAL export when your assessor explicitly requests that model.

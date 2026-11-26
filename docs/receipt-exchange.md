@@ -19,7 +19,8 @@ The exchange directory contains four regular files.
 | --- | --- | --- |
 | `read-only-observation` | Completed ticket ID, exact request-export fingerprint, completion times of both recorded reads, declared stores, and `observation-evidence.json`. | Synthetic drill duration, endpoint route, live HTTP deployment, and drill evidence. |
 | `synthetic-drill` | Recorded end time, duration, declared stores and route, and `erasure-evidence.json`. Split HTTP drills carry the observed deployment projection. | Completed ticket, first read-only observation time, and read-only observation evidence. |
-| `vendor-attestation` | Vendor conformance target, fixture or API readback kind, recorded versions and per-surface results, recorded execution metadata when available, and `observation-evidence.json`. | Completed ticket, person scope, HTTP deployment, and drill evidence. |
+| `vendor-attestation` | Vendor conformance target, recorded versions and per-surface results, recorded execution metadata when available, and `observation-evidence.json`. | Completed ticket, person scope, HTTP deployment, and drill evidence. |
+| `provider-readback` | Declared API target and version, scope digest, baseline and follow-up time, and per-surface results with provider internals left open. | Credentials, raw record IDs, provider-internal deletion, and a bound completed ticket. |
 
 For a read-only observation, the second journal snapshot must follow the first completed observation whenever that snapshot is available. A retained control shows that the observer could see the journalled store. A synthetic drill can also record an external assertion as an `attested` open item with an owner and follow-up date. That open item remains an obligation on the original drill.
 
@@ -36,6 +37,8 @@ setrya receipt verify-exchange ./vendor-exchange --key independently-trusted.pub
 ```
 
 The exchange signer vouches for the exact attached receipt and evidence. The recorded operator is a claim from the fixture. To authenticate the original conformance signature and review a paired rerun, keep the original conformance bundle and use `setrya conformance review` with the appropriate issuer trust. A vendor exchange carries an engineering result for the tested version and surfaces. A governance ticket can reference its digest as supporting evidence. A completed-deletion ticket or app pin requires evidence from a case that actually binds it. [Vendor conformance](vendor-conformance.md) · [Governance handoff example](governance-handoff.md)
+
+The same pack command classifies a provider API result as `provider-readback`. The CLI replays it without contacting the API. Earlier exchanges that carried an API readback under `vendor-attestation` remain verifiable under their signed bytes. [Provider readback](provider-readback.md)
 
 ## How an independent reviewer verifies it
 

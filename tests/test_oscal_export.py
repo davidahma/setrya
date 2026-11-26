@@ -11,12 +11,12 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from setrya.casework import exchange, oscal
+from setrya.casework import exchange, oscal, profiles
 from setrya.casework.handoff import verify_handoff
 from setrya.cli import main
 from setrya.core.inputs import InvalidReport
 from setrya.erasure import run_shared
-from setrya.examples import legal_hold
+from setrya.examples import legal_hold, memory_files
 from setrya.examples.workspace import CASE, open_fixture
 
 
@@ -51,11 +51,13 @@ class OscalExportTests(unittest.TestCase):
         self.enterContext(patch.object(exchange.signing, "sign_bytes", side_effect=sign))
         self.enterContext(patch.object(exchange.signing, "verify_bytes", side_effect=verify))
 
-    def issue(self, *, guarded=True, missing_answers=False, keyless=False, authorize_erase=None):
+    def issue(self, *, guarded=True, missing_answers=False, missing_stores=False, missing_scans=False,
+              keyless=False, authorize_erase=None):
         original, bundle = self.root / "receipt", self.root / "exchange"
+        case = replace(CASE, controls=(CONTROL,), scan_stores=("notes",) if missing_scans else CASE.scan_stores)
         with open_fixture(shared=True, guarded=guarded, record_writes=True) as (subject, app, items):
-            if missing_answers:
-                original_read, original_erase = app.read, app.erase
+            if missing_answers or missing_stores or missing_scans:
+                original_erase = app.erase
                 erased = False
 
                 def erase(*args):
@@ -64,11 +66,21 @@ class OscalExportTests(unittest.TestCase):
                     erased = True
                     return result
 
-                def read(*args):
-                    return None if erased else original_read(*args)
+                app.erase = erase
+                if missing_answers:
+                    original_read = app.read
+                    app.read = lambda *args: None if erased else original_read(*args)
+                if missing_stores:
+                    original_inspect = app.inspect
+                    app.inspect = lambda *args: None if erased else original_inspect(*args)
+                if missing_scans:
+                    def scan(*_):
+                        if erased:
+                            raise RuntimeError("The test scanner became unavailable.")
+                        return {"customer-note"}
 
-                app.erase, app.read = erase, read
-            run_shared(subject, case=replace(CASE, controls=(CONTROL,)), application=app, mode="write-back",
+                    app.scan = scan
+            run_shared(subject, case=case, application=app, mode="write-back",
                        output=original, external_items=items, journal=app.journal, cancel_hold=app.cancel_and_drain,
                        authorize_erase=authorize_erase)
         exchange.pack(original, output=bundle, system="fictional-support", version="1",
@@ -107,8 +119,14 @@ class OscalExportTests(unittest.TestCase):
         selections, = result["reviewed-controls"]["control-selections"]
         self.assertEqual(selections["include-controls"], [{"control-id": "demo-erase"}, {"control-id": "demo-retain"}])
         erasure, preserve, open_item = result["observations"]
+        for observation in result["observations"]:
+            self.assertEqual(self.props(observation)["technical-verdict"], "PASS")
+            self.assertEqual(self.props(observation)["review-status"], "OPEN_ITEMS")
         self.assertEqual(self.props(erasure)["control-reference-source"], "receipt-bound")
+        self.assertEqual(self.props(erasure)["passing-checks"], "1")
         self.assertEqual(self.props(preserve)["control-reference-source"], "reviewer-supplied")
+        self.assertEqual(self.props(preserve)["check-outcome"], "PASS")
+        self.assertEqual(self.props(preserve)["passing-checks"], "2")
         self.assertEqual(self.props(open_item)["open-item-owner"], "platform-team")
         self.assertTrue(open_item["relevant-evidence"][0]["href"].startswith("exchange/erasure-receipt.json#"))
         self.assertNotIn("subject", self.output.read_text(encoding="utf-8"))
@@ -137,6 +155,25 @@ class OscalExportTests(unittest.TestCase):
         self.assertNotIn("findings", result)
         self.assertNotIn("attestations", result)
 
+    def test_second_draft_maps_additional_controls_with_first_digest_preserved(self):
+        folder = SAMPLE.parents[1] / "control-mappings"
+        first = folder / "2026-11-26-draft.1.json"
+        draft = folder / "2026-11-26-draft.2.json"
+        self.assertEqual(sha256(first.read_bytes()).hexdigest(),
+                         "39ddf5daf7e9214d324ae4895b63a8093294d2d8d842da57bcc8a50a4fd93dda")
+        shutil.copyfile(draft, self.mapping)
+        plan = json.loads(self.plan.read_bytes())
+        selection, = plan["assessment-plan"]["reviewed-controls"]["control-selections"]
+        selection["include-controls"] = [
+            {"control-id": "soc2-p4.3"}, {"control-id": "iso27701-a.1.4.9"}, {"control-id": "hipaa-164.310.d.2.i"},
+        ]
+        self.plan.write_text(json.dumps(plan), encoding="utf-8")
+        result, = self.export(self.issue(), expect_mapping_sha256=sha256(draft.read_bytes()).hexdigest())["results"]
+        checked = {props["control-reference"]: props["check-outcome"] for row in result["observations"]
+                   if "control-reference" in (props := self.props(row))}
+        self.assertEqual(checked, {"P4.3": "PASS", "A.1.4.9": "PASS", "164.310(d)(2)(i)": "PASS"})
+        self.assertNotIn("findings", result)
+
     def test_export_links_verified_maintenance_observations(self):
         original, bundle = self.root / "hold", self.root / "exchange"
         with legal_hold.open_fixture("restored-hold") as (subject, app):
@@ -146,9 +183,85 @@ class OscalExportTests(unittest.TestCase):
         result, = self.export(bundle)["results"]
         preserve = next(row for row in result["observations"] if self.props(row).get("check") == "artifact-preserve")
         self.assertEqual(self.props(result)["technical-verdict"], "FAIL")
-        self.assertEqual(self.props(preserve)["recorded-maintenance-reads"], "2")
+        props = self.props(preserve)
+        self.assertEqual(props["technical-verdict"], "FAIL")
+        self.assertEqual(props["check-outcome"], "FAIL")
+        self.assertEqual(props["recorded-maintenance-reads"], "2")
+        self.assertEqual(props["passing-checks"], "3")
+        self.assertEqual(props["failing-checks"], "1")
+        self.assertEqual(props["untested-checks"], "0")
+        self.assertEqual(props["passing-maintenance-checks"], "1")
+        self.assertEqual(props["failing-maintenance-checks"], "1")
+        self.assertTrue(preserve["description"].startswith("FAIL"))
         self.assertIn("exchange/erasure-receipt.json#/maintenance_checks",
                       [item["href"] for item in preserve["relevant-evidence"]])
+
+    def test_missing_maintenance_operation_stays_untested_in_observation(self):
+        original, bundle = self.root / "hold", self.root / "exchange"
+        with legal_hold.open_fixture("guarded") as (subject, app):
+            app.maintain = lambda *_: None
+            run_shared(subject, case=legal_hold.CASE, application=app, mode="deletion", output=original)
+        exchange.pack(original, output=bundle, system="incident-register", version="1", synthetic=True, key=self.key)
+        result, = self.export(bundle)["results"]
+        props = next(self.props(row) for row in result["observations"]
+                     if self.props(row).get("check") == "artifact-preserve")
+        self.assertEqual(props["check-outcome"], "NOT TESTED")
+        self.assertEqual(props["passing-checks"], "2")
+        self.assertEqual(props["untested-checks"], "2")
+        self.assertEqual(props["untested-maintenance-checks"], "2")
+
+    def test_failed_endpoint_and_worker_outcomes_remain_visible(self):
+        mapping = json.loads(self.mapping.read_bytes())
+        prototype = mapping["supports"][0]
+        mapping["supports"] += [{**prototype, "check": check} for check in ("endpoint-read", "write-back")]
+        self.mapping.write_text(json.dumps(mapping), encoding="utf-8")
+        result, = self.export(self.issue(guarded=False))["results"]
+        checks = {props["check"]: props for row in result["observations"] if "check" in (props := self.props(row))}
+        for check in ("endpoint-read", "write-back"):
+            with self.subTest(check=check):
+                self.assertEqual(checks[check]["check-outcome"], "FAIL")
+                self.assertGreater(int(checks[check]["failing-checks"]), 0)
+                self.assertEqual(checks[check]["technical-verdict"], "FAIL")
+
+    @unittest.skipUnless(shutil.which("git"), "Git stores the native scanner fixture")
+    def test_canary_scan_reports_failed_while_other_scans_pass(self):
+        original, bundle = self.root / "memory", self.root / "exchange"
+        with memory_files.open_fixture(shutil.which("git"), guarded=False) as (subject, app, items):
+            run_shared(subject, case=app.case(), application=app, external_items=items, output=original,
+                       mode="write-back", journal=app.journal, cancel_hold=app.cancel_and_drain)
+        exchange.pack(original, output=bundle, system="memory-review", version="1", synthetic=True, key=self.key)
+        mapping = json.loads(self.mapping.read_bytes())
+        mapping["supports"][0]["check"] = "store-scan"
+        self.mapping.write_text(json.dumps(mapping), encoding="utf-8")
+        result, = self.export(bundle)["results"]
+        props = next(self.props(row) for row in result["observations"] if self.props(row).get("check") == "store-scan")
+        self.assertEqual(props["check-outcome"], "FAIL")
+        self.assertGreater(int(props["passing-checks"]), 0)
+        self.assertGreater(int(props["failing-checks"]), 0)
+
+    def test_provider_api_outcome_excludes_uninspected_internals(self):
+        original, bundle = self.root / "vendor", self.root / "exchange"
+        original.mkdir()
+        baseline, later = "2026-11-25T12:00:00+00:00", "2026-11-26T12:00:00+00:00"
+        profiles.issue(profiles.VENDOR, {
+            "target": "openai-vector-files", "observed_at": later, "versions": {"api": "v1"}, "error": None,
+            "readback": {"baseline_at": baseline, "scope_sha256": "1" * 64},
+            "observations": {"baseline": {"vector-attachment": {"target": True, "retained": True}},
+                             "after_delete": {"vector-attachment": {"target": False, "retained": True}}},
+        }, original)
+        exchange.pack(original, output=bundle, system="provider-demo", version="1", key=self.key)
+        mapping = json.loads(self.mapping.read_bytes())
+        mapping["supports"][0]["check"] = "provider-readback"
+        self.mapping.write_text(json.dumps(mapping), encoding="utf-8")
+        result, = self.export(bundle)["results"]
+        check, *open_items = result["observations"]
+        props = self.props(check)
+        self.assertEqual(props["check"], "provider-readback")
+        self.assertEqual(props["readback-surface"], "vector-attachment")
+        self.assertEqual(props["check-outcome"], "PASS")
+        self.assertEqual(props["passing-checks"], "1")
+        self.assertEqual(props["untested-checks"], "0")
+        self.assertTrue(any(self.props(row)["open-item-surface"] == "provider-internals" for row in open_items))
 
     def test_grouped_missing_endpoint_answers_do_not_create_support(self):
         bundle = self.issue(missing_answers=True)
@@ -160,6 +273,32 @@ class OscalExportTests(unittest.TestCase):
         self.assertEqual(self.props(result)["technical-verdict"], "NOT TESTED")
         controls, = result["reviewed-controls"]["control-selections"]
         self.assertEqual(controls["include-controls"], [{"control-id": "demo-erase"}])
+        endpoint, = [self.props(row) for row in result["observations"]
+                     if self.props(row).get("check") == "endpoint-read"]
+        self.assertEqual(endpoint["check-outcome"], "NOT TESTED")
+        self.assertEqual(endpoint["recorded-phases"], "0")
+        self.assertGreater(int(endpoint["untested-checks"]), 0)
+        self.assertEqual(endpoint["mapped-control"], "demo-retain")
+        self.assertNotIn("supports", endpoint)
+
+    def test_all_missing_post_erase_store_and_scan_reads_stay_visible(self):
+        bundle = self.issue(missing_stores=True, missing_scans=True)
+        mapping = json.loads(self.mapping.read_bytes())
+        mapping["supports"].append({**mapping["supports"][1], "check": "store-scan"})
+        self.mapping.write_text(json.dumps(mapping), encoding="utf-8")
+        result, = self.export(bundle)["results"]
+        controls, = result["reviewed-controls"]["control-selections"]
+        self.assertEqual(controls["include-controls"], [{"control-id": "demo-erase"}])
+        checks = {props["check"]: props for row in result["observations"]
+                  if "check" in (props := self.props(row))}
+        for name, recorded in (("artifact-preserve", "observed-artifacts"), ("store-scan", "recorded-phases")):
+            with self.subTest(check=name):
+                props = checks[name]
+                self.assertEqual(props["check-outcome"], "NOT TESTED")
+                self.assertEqual(props[recorded], "0")
+                self.assertEqual(props["untested-checks"], "2")
+                self.assertEqual(props["mapped-control"], "demo-retain")
+                self.assertNotIn("supports", props)
 
     def test_final_read_after_skipped_erase_is_not_post_erasure_support(self):
         report = self.export(self.issue(authorize_erase=lambda *_: False))

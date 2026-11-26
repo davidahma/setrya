@@ -131,7 +131,10 @@ class ReceiptExchangeTests(unittest.TestCase):
         }, source)
         bundle = self.root / "readback-exchange"
         manifest = exchange.pack(source, output=bundle, system="mem0", version="v1", key=self.key)
+        self.assertEqual(manifest["evidence_kind"], "provider-readback")
         self.assertEqual(manifest["vendor"]["kind"], "api-readback")
+        self.assertEqual(manifest["vendor"]["scope_sha256"], "a" * 64)
+        self.assertEqual(manifest["observation"]["first_checked_at"], "2026-11-25T09:00:00+00:00")
         self.assertNotIn("execution", manifest["vendor"])
         self.assertIn({"surface": "provider-internals", "status": "NOT TESTED"}, manifest["vendor"]["checks"])
         self.assertEqual(manifest["technical_verdict"], "PASS")
@@ -139,6 +142,20 @@ class ReceiptExchangeTests(unittest.TestCase):
         self.assertEqual(exchange.verify(bundle, key=self.key), manifest)
         self.assertIn("Provider API readback", receipt_summary(bundle, audience="reviewer"))
         self.assertIn("declared API surface", receipt_summary(bundle, audience="customer"))
+        try:
+            import jsonschema
+        except ImportError:
+            jsonschema = None
+        if jsonschema:
+            schema = files(exchange.__package__).joinpath("receipt-exchange-v1.schema.json").read_text()
+            jsonschema.Draft202012Validator(json.loads(schema), format_checker=jsonschema.FormatChecker()).validate(manifest)
+        legacy = {**manifest, "evidence_kind": "vendor-attestation",
+                  "observation": {"last_checked_at": manifest["observation"]["last_checked_at"]},
+                  "vendor": {name: value for name, value in manifest["vendor"].items() if name != "scope_sha256"}}
+        raw = json.dumps(legacy).encode()
+        (bundle / exchange.MANIFEST).write_bytes(raw)
+        (bundle / exchange.SIGNATURE).write_bytes(sha256(raw).digest())
+        self.assertEqual(exchange.verify(bundle, key=self.key), legacy)
 
     def test_file_bytes_and_signed_manifest_are_both_bound(self):
         bundle, _ = self.pack()

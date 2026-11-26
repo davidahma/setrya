@@ -72,7 +72,7 @@ class TypeScriptCopySitesTests(unittest.TestCase):
         (self.root / "node_modules").mkdir()
         (self.root / "node_modules/unread.ts").write_text("!!! malformed source }", encoding="utf-8")
         report = copy_sites.scan(self.root, language="typescript")
-        self.assertEqual(report["languages"], ["typescript"])
+        self.assertEqual(report["languages"], ["typescript", "javascript"])
         choices = [(site["kind"], site["operation"], site.get("writer")) for site in report["sites"]]
         self.assertEqual(choices, [
             ("cache", "redis.set", "timer"), ("cache", "redis.set", "bullmq"),
@@ -101,7 +101,7 @@ class TypeScriptCopySitesTests(unittest.TestCase):
         python = copy_sites.scan(self.root)
         self.assertEqual([row["path"] for row in python["sites"]], ["writer.py"])
         both = copy_sites.scan(self.root, language="all")
-        self.assertEqual(both["languages"], ["python", "typescript"])
+        self.assertEqual(both["languages"], ["python", "typescript", "javascript"])
         self.assertEqual(both["sites"][1], python["sites"][0])
         self.assertEqual(both["sites"][0]["operation"], "fs.writeFileSync")
 
@@ -119,7 +119,7 @@ class TypeScriptCopySitesTests(unittest.TestCase):
         self.assertEqual(report["review_required"], 9)
         self.assertEqual(copy_sites.check(self.root, base)["review_required"], 0)
         details = action.copy_details(json.dumps(action.copy_signals(report)))
-        self.assertIn("Scanned TypeScript.", details)
+        self.assertIn("Scanned TypeScript and JavaScript.", details)
         self.assertIn("deferred writer (Node timer callback)", details)
         self.assertIn("database write", details)
         self.assertIn('"mode": "late-write"', details)
@@ -162,3 +162,21 @@ class TypeScriptCopyContractTests(unittest.TestCase):
         lines, ready = assessment_comparison._check_coverage([approved], [candidate])
         self.assertFalse(ready)
         self.assertTrue(any("Candidate did not scan typescript" in row for row in lines))
+
+    def test_approval_keeps_unknown_copy_coverage_visible(self):
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / "review.json"
+            report = {"format": copy_sites.REVIEW_FORMAT, "candidate_commit": "a" * 40,
+                      "review_required": 0, "sites": [], "coverage": {
+                          "status": "unknown", "unknown_sources": 1, "unresolved": [], "skipped_extensions": [
+                              {"extension": ".js", "count": 1, "paths": ["worker.js"], "source": True},
+                          ],
+                      }}
+            path.write_text(json.dumps(report), encoding="utf-8")
+            current = assessment._check(path, "a" * 40, detailed=True)
+        self.assertEqual(current["unknown_sources"], 1)
+        lines, ready = assessment_comparison._check_coverage([], [current])
+        self.assertFalse(ready)
+        self.assertTrue(any("Copy coverage is unknown" in line for line in lines))
+        inventory = {**current, "kind": "setrya.copy-scan.v1"}
+        self.assertFalse(assessment_comparison._check_coverage([], [inventory])[1])

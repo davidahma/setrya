@@ -11,6 +11,7 @@ from setrya.core import signing
 from setrya.core.inputs import InvalidReport, MAX_JSON_BYTES, read_regular_bytes, require
 from setrya.receipt_format import RECEIPT
 
+from ._setup import recorded_fingerprint
 from .report import SETUP, execution_lines, operator_label
 
 DETACHED_SIGNATURE = "conformance.sig"
@@ -36,7 +37,20 @@ def _original_execution(receipt):
     return execution
 
 
-def rerun_digest(original, target, operator, *, setrya_version=__version__):
+def _matching_setup(target, before, after):
+    original = recorded_fingerprint(target, before)
+    current = recorded_fingerprint(target, after)
+    if original is not None and current is not None:
+        require(original == current, "The rerun and original need the same fixture setup fingerprint. "
+                f"Original {original}. Rerun {current}.")
+        return original
+    require(before["setrya_version"] == after["setrya_version"],
+            f"Use the same Setrya fixture version as the original ({before['setrya_version']}). "
+            "An unrecognized legacy setup cannot be compared across releases.")
+    return None
+
+
+def rerun_digest(original, target, operator, *, setrya_version=__version__, fixture_setup=None):
     """Link a new live fixture run to the bytes of an existing self-check."""
     operator_label(operator)
     folder = Path(original)
@@ -44,11 +58,18 @@ def rerun_digest(original, target, operator, *, setrya_version=__version__):
     execution = _original_execution(receipt)
     require(receipt["target"] == target, "Run the same target as the original self-check.")
     require(operator != execution["operator"], "Use a different operator for the rerun.")
-    require(execution["setrya_version"] == setrya_version,
-            f"Use the same Setrya fixture version as the original ({execution['setrya_version']}).")
-    signature = folder / DETACHED_SIGNATURE
-    require(signature.is_file(), "A linked rerun needs an original with a detached Cosign signature.")
-    profiles.snapshot(signature, MAX_JSON_BYTES)
+    producer = {"setrya_version": setrya_version}
+    if fixture_setup is not None:
+        producer["fixture_setup"] = fixture_setup
+    _matching_setup(target, execution, producer)
+    # The issuing run links the original receipt bytes. A paired review later
+    # authenticates those bytes with its own trust policy.
+    for name, limit in ((DETACHED_SIGNATURE, MAX_JSON_BYTES), (KEYLESS_SIGNATURE, signing.MAX_SIGSTORE_BYTES)):
+        signature = folder / name
+        if signature.is_file() and not signature.is_symlink() and profiles.snapshot(signature, limit):
+            break
+    else:
+        raise InvalidReport("A linked rerun needs an original with a detached or keyless Cosign signature.")
     return sha256(raw).hexdigest()
 
 
@@ -60,7 +81,8 @@ class _Verified:
 
 
 def _verify(folder, *, key=None, identity=None, issuer=None, trusted_root=None):
-    require((key and not any((identity, issuer, trusted_root))) or (not key and identity and issuer and trusted_root),
+    keyless = (identity, issuer, trusted_root)
+    require((key is not None and all(value is None for value in keyless)) or (key is None and all(keyless)),
             "Supply an independently trusted key or exact Sigstore identity, issuer and root.")
     folder = Path(folder)
     raw, receipt = _read_bundle(folder)
@@ -107,10 +129,13 @@ def _changed_checks(original, current):
 
 
 def assess_review(directory, *, key=None, identity=None, issuer=None, trusted_root=None, expect_operator=None,
-                  against=None, against_key=None):
+                  against=None, against_key=None, against_identity=None, against_issuer=None, against_trusted_root=None):
     """Authenticate the result and compare the findings in a linked pair."""
-    require((against is None and against_key is None) or (against and key and against_key and expect_operator),
-            "A paired review needs both detached public keys and the expected rerun operator.")
+    original_policy = {"key": against_key, "identity": against_identity, "issuer": against_issuer,
+                       "trusted_root": against_trusted_root}
+    require((against is None and not any(value is not None for value in original_policy.values()))
+            or (against is not None and expect_operator is not None),
+            "A paired review needs the original bundle, its own signer policy, and the expected rerun operator.")
     if expect_operator is not None:
         operator_label(expect_operator)
     current = _verify(directory, key=key, identity=identity, issuer=issuer, trusted_root=trusted_root)
@@ -122,28 +147,31 @@ def assess_review(directory, *, key=None, identity=None, issuer=None, trusted_ro
         lines = execution_lines(current.receipt, signer=current.signer, review_scope="authenticated signer and evidence replay")
         return ReviewResult(current.receipt, (*lines, current_digest))
 
-    original = _verify(against, key=against_key)
+    original = _verify(against, **original_policy)
     prior_execution = _original_execution(original.receipt)
     require(execution.get("rerun_of") == original.digest, "The rerun does not link to this original signed receipt.")
-    require(current.signer != original.signer, "The rerun and original need distinct trusted signing keys.")
+    require(current.signer != original.signer, "The rerun and original need distinct trusted signing keys or identities.")
     require(execution["operator"] != prior_execution["operator"] and execution["run_id"] != prior_execution["run_id"],
             "The rerun and original need distinct recorded operators and executions.")
     require(current.receipt["evidence"]["sha256"] != original.receipt["evidence"]["sha256"],
             "The rerun needs its own recorded evidence.")
-    require(execution["setrya_version"] == prior_execution["setrya_version"],
-            "The rerun and original need the same Setrya fixture version.")
     target = original.receipt["target"]
     versions = original.receipt["versions"]
     require(target == current.receipt["target"] and versions == current.receipt["versions"]
             and set(versions) == set(SETUP[target]), "The rerun and original need the same target and recorded backend versions.")
+    setup = _matching_setup(target, prior_execution, execution)
     lines = execution_lines(current.receipt, signer=current.signer,
                             review_scope="authenticated signatures and evidence replay for two linked executions")
     changes = _changed_checks(original.receipt, current.receipt)
     agrees = not changes and all(original.receipt[field] == current.receipt[field]
                                  for field in ("technical_verdict", "review_status"))
+    legacy_setup = setup is not None and "fixture_setup" not in prior_execution
     details = (
         *lines, current_digest, f"Original recorded operator {prior_execution['operator']}",
         f"Original execution ID {prior_execution['run_id']}", f"Original signer verified {original.signer}",
+        f"Original fixture Setrya version {prior_execution['setrya_version']}",
+        f"Matched fixture setup SHA-256 {setup}" if setup else "Matched legacy Setrya fixture version",
+        *(("Original setup fingerprint inferred from the pinned legacy release",) if legacy_setup else ()),
         f"Original technical verdict {original.receipt['technical_verdict']} · Review status {original.receipt['review_status']}",
         f"Rerun technical verdict {current.receipt['technical_verdict']} · Review status {current.receipt['review_status']}",
         *changes,
@@ -152,9 +180,11 @@ def assess_review(directory, *, key=None, identity=None, issuer=None, trusted_ro
 
 
 def review(directory, *, key=None, identity=None, issuer=None, trusted_root=None, expect_operator=None,
-           against=None, against_key=None):
+           against=None, against_key=None, against_identity=None, against_issuer=None, against_trusted_root=None):
     """Return the replayed receipt and reviewer-authenticated execution details."""
     result = assess_review(directory, key=key, identity=identity, issuer=issuer, trusted_root=trusted_root,
-                           expect_operator=expect_operator, against=against, against_key=against_key)
+                           expect_operator=expect_operator, against=against, against_key=against_key,
+                           against_identity=against_identity, against_issuer=against_issuer,
+                           against_trusted_root=against_trusted_root)
     details = [result.headline] if result.headline is not None else []
     return result.receipt, [*details, *result.details]

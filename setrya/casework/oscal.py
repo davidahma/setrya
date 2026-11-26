@@ -1,6 +1,8 @@
 """Export authenticated Setrya observations for an OSCAL assessment review."""
 
+from collections import Counter
 from datetime import UTC, datetime
+from itertools import repeat
 import os
 from pathlib import Path
 import re
@@ -10,7 +12,8 @@ from uuid import uuid4
 from setrya import __version__
 from setrya.core.control_references import REFERENCE
 from setrya.core.inputs import InvalidReport, publish_new, read_json, require
-from setrya.core.receipt_v3 import answer_records
+from setrya.core.receipt_v3 import Findings, answer_outcome, answer_records, answer_slots, stored_outcome
+from setrya.core.scan_scope import same_scope
 from setrya.receipt_format import MAX_BUNDLE_FILE_BYTES, RECEIPT
 
 from .exchange import MANIFEST
@@ -25,7 +28,7 @@ CONTROL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,95}")
 PLAN_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", re.I)
 CHECKS = frozenset((
     "synthetic-erasure", "artifact-delete", "artifact-preserve", "artifact-rewrite",
-    "endpoint-read", "store-scan", "write-back", "read-only-observation", "vendor-conformance",
+    "endpoint-read", "store-scan", "write-back", "read-only-observation", "vendor-conformance", "provider-readback",
 ))
 
 
@@ -127,18 +130,139 @@ def _observation(description, *, stamp, evidence, attributes):
     }
 
 
+def _outcome(failures, gaps):
+    return "FAIL" if failures else "NOT TESTED" if gaps else "PASS"
+
+
+def _totals(statuses, unit):
+    counts = Counter(statuses)
+    return {"check-outcome": _outcome(counts["FAIL"], counts["NOT TESTED"] or not counts),
+            "check-unit": unit, "passing-checks": counts["PASS"],
+            "failing-checks": counts["FAIL"], "untested-checks": counts["NOT TESTED"]}
+
+
+def _receipt_status(receipt):
+    verdict = receipt["technical_verdict"]
+    return "NOT TESTED" if verdict == "ERROR" else verdict
+
+
+def _artifact_outcomes(data, declared):
+    indexes = {"stored": 0, "discovered": 0}
+    for artifact in declared:
+        slot = "discovered" if artifact["discovered_by"] == "canary" else "stored"
+        index = indexes[slot]
+        indexes[slot] += 1
+        before = data["baseline"][slot][index]
+        for phase in ("immediate", "final"):
+            stage = data[phase]
+            reading = stage[slot][index] if stage is not None else None
+            failures, gaps = Findings(), set()
+            stored_outcome(reading, artifact, before, phase, failures, gaps)
+            yield artifact["action"], _outcome(failures, gaps)
+
+
+def _artifact_checks(receipt, data):
+    artifacts = receipt["artifact_checks"]
+    results = list(_artifact_outcomes(data, artifacts))
+    for action in ("delete", "preserve", "rewrite"):
+        declared = [item for item in artifacts if item["action"] == action]
+        if not declared:
+            continue
+        observed = [item for item in declared if any("#/immediate/" in ref or "#/final/" in ref
+                                                       for ref in item["evidence"])]
+        maintenance = receipt.get("maintenance_checks", ())
+        maintenance_reads = [row for phase in maintenance for row in phase["checks"] if row["action"] == action]
+        recorded = sum(row["evidence"] is not None for row in maintenance_reads)
+        references = [RECEIPT + "#/artifact_checks"]
+        counts = {"declared-artifacts": len(declared), "observed-artifacts": len(observed)}
+        statuses = [status for rule, status in results if rule == action]
+        if maintenance and any(row["action"] == action for row in data["case"]["artifacts"]):
+            references.append(RECEIPT + "#/maintenance_checks")
+            counts["recorded-maintenance-reads"] = recorded
+            steps = sum(not phase["checks"] for phase in maintenance)
+            slots = sum(row["action"] == action for row in data["case"]["artifacts"])
+            maintenance_statuses = [row["status"] for row in maintenance_reads] + ["NOT TESTED"] * (steps * slots)
+            statuses.extend(maintenance_statuses)
+            for status, name in (("PASS", "passing"), ("FAIL", "failing"), ("NOT TESTED", "untested")):
+                counts[f"{name}-maintenance-checks"] = maintenance_statuses.count(status)
+        counts.update(_totals(statuses, "artifact-phase"))
+        yield f"artifact-{action}", (
+            f"Direct post-erasure checks for artifacts with the {action} rule.",
+            references, counts,
+        )
+
+
+def _endpoint_outcomes(data, phase):
+    expected = list(answer_slots(data["case"]))
+    readings = answer_records(data, phase) if data[phase] is not None else repeat(None, len(expected))
+    for (caller, _, role, _), reading in zip(expected, readings, strict=True):
+        failures, gaps = Findings(), set()
+        answer_outcome(reading, caller, role == "control", phase, failures, gaps)
+        yield _outcome(failures, gaps)
+
+
+def _scan_outcomes(data, phase):
+    baseline, stage = data["baseline"], data[phase]
+    for store in data["case"]["scan_stores"]:
+        hits = stage["scans"][store] if stage is not None else None
+        if hits:
+            yield "FAIL"
+        elif hits is None or (any(store in row.get("scan_details", {}) for row in (baseline, stage))
+                              and not same_scope(baseline, stage, store)):
+            yield "NOT TESTED"
+        else:
+            yield "PASS"
+
+
+def _phase_checks(receipt, data):
+    evidence_file = receipt["evidence"]["file"]
+    for check, field, description, outcomes, unit in (
+        ("endpoint-read", "answers", "Post-erasure endpoint checks.", _endpoint_outcomes, "answer-sample"),
+        ("store-scan", "scans", "Post-erasure canary scan checks.", _scan_outcomes, "scan-phase"),
+    ):
+        traces, slots, statuses = [], [], []
+        for phase in ("immediate", "final"):
+            statuses.extend(outcomes(data, phase))
+            if current := data[phase]:
+                pointer = f"{evidence_file}#/{phase}/{field}"
+                slots.append(pointer)
+                readings = current[field].values() if field == "scans" else answer_records(data, phase)
+                if any(row is not None for row in readings):
+                    traces.append(pointer)
+        if statuses:
+            yield check, (description, traces or slots, {"recorded-phases": len(traces), **_totals(statuses, unit)})
+
+
+def _has_recorded_check(details):
+    if "observed-artifacts" in details:
+        return bool(details["observed-artifacts"] or details.get("recorded-maintenance-reads"))
+    return details.get("recorded-phases", 1) > 0
+
+
 def _checks(verified):
-    """Describe recorded check families without deriving any new verdicts."""
+    """Project per-check outcomes from authenticated, replayed evidence."""
     manifest, receipt, data = verified.manifest, verified.receipt, verified.observations
     kind = manifest["evidence_kind"]
     verdict_ref = [RECEIPT + "#/technical_verdict"]
     if kind == "read-only-observation":
         statuses = [row["status"] for row in receipt["checks"]]
+        outcomes = {"ABSENT": "PASS", "PRESENT": "FAIL", "UNKNOWN": "NOT TESTED"}
         return {"read-only-observation": (
             "Read-only checks of journalled locations for a completed deletion request.",
             [RECEIPT + "#/checks"] if statuses else verdict_ref,
             {"absent-reads": statuses.count("ABSENT"), "present-reads": statuses.count("PRESENT"),
-             "unknown-reads": statuses.count("UNKNOWN")},
+             "unknown-reads": statuses.count("UNKNOWN"),
+             **_totals((outcomes[status] for status in statuses), "journalled-key")},
+        )}
+    if kind == "provider-readback" or (kind == "vendor-attestation" and "readback" in receipt):
+        measured, *uninspected = receipt["checks"]
+        return {"provider-readback": (
+            "Declared provider API readback after an operator-reported deletion.",
+            [RECEIPT + "#/checks/0", RECEIPT + "#/readback"],
+            {"provider-target": receipt["target"], "readback-surface": measured["surface"],
+             "scope-sha256": receipt["readback"]["scope_sha256"], "readback-baseline-at": receipt["readback"]["baseline_at"],
+             "uninspected-surfaces": len(uninspected),
+             **_totals([measured["status"]], "api-surface")},
         )}
     if kind == "vendor-attestation":
         statuses = [row["status"] for row in receipt["checks"]]
@@ -146,50 +270,22 @@ def _checks(verified):
             "Vendor conformance outcomes reported by the authenticated exchange issuer.",
             [RECEIPT + "#/checks"],
             {"check-kind": manifest["vendor"]["kind"], "passing-surfaces": statuses.count("PASS"),
-             "failing-surfaces": statuses.count("FAIL"), "untested-surfaces": statuses.count("NOT TESTED")},
+             "failing-surfaces": statuses.count("FAIL"), "untested-surfaces": statuses.count("NOT TESTED"),
+             **_totals(statuses, "vendor-surface")},
         )}
-    checks = {"synthetic-erasure": ("Recorded result of a synthetic erasure drill.", verdict_ref, {})}
+    checks = {"synthetic-erasure": ("Recorded result of a synthetic erasure drill.", verdict_ref,
+                                   _totals([_receipt_status(receipt)], "replayed-drill"))}
     if data["erased"] is not True:
         return checks
-    artifacts = receipt["artifact_checks"]
-    for action in ("delete", "preserve", "rewrite"):
-        declared = [item for item in artifacts if item["action"] == action]
-        observed = [item for item in declared if any("#/immediate/" in ref or "#/final/" in ref
-                                                       for ref in item["evidence"])]
-        if observed:
-            references = [RECEIPT + "#/artifact_checks"]
-            counts = {"declared-artifacts": len(declared), "observed-artifacts": len(observed)}
-            maintenance_reads = sum(
-                row["action"] == action and row["evidence"] is not None
-                for phase in receipt.get("maintenance_checks", ()) for row in phase["checks"]
-            )
-            if maintenance_reads:
-                references.append(RECEIPT + "#/maintenance_checks")
-                counts["recorded-maintenance-reads"] = maintenance_reads
-            checks[f"artifact-{action}"] = (
-                f"Recorded direct post-erasure reads for artifacts with the {action} rule.",
-                references, counts,
-            )
-    evidence_file = receipt["evidence"]["file"]
-    for check, field, description in (
-        ("endpoint-read", "answers", "Recorded post-erasure endpoint observations."),
-        ("store-scan", "scans", "Recorded post-erasure canary scan observations."),
-    ):
-        traces = []
-        for stage in ("immediate", "final"):
-            if current := data[stage]:
-                readings = current[field].values() if field == "scans" else answer_records(data, stage)
-                if any(row is not None for row in readings):
-                    traces.append(f"{evidence_file}#/{stage}/{field}")
-        if traces:
-            checks[check] = (description, traces, {"recorded-phases": len(traces)})
+    checks.update(_artifact_checks(receipt, data))
+    checks.update(_phase_checks(receipt, data))
     if receipt["race"] == "exercised":
         checks["write-back"] = (
-            "Recorded release and drain of the same deferred writer across erasure.",
-            [f"{evidence_file}#/worker"], {"race": "exercised"},
+            "Replay result for a drill that released and drained the same deferred writer across erasure.",
+            [f"{receipt['evidence']['file']}#/worker", *verdict_ref],
+            {"race": "exercised", **_totals([_receipt_status(receipt)], "replayed-drill")},
         )
     return checks
-
 
 def export_results(directory, *, assessment_plan, mapping, output, ticket=None, expect_plan_sha256=None,
                    expect_mapping_sha256=None, **trust):
@@ -208,7 +304,9 @@ def export_results(directory, *, assessment_plan, mapping, output, ticket=None, 
     manifest, receipt = verified.manifest, verified.receipt
     checks = _checks(verified)
     in_scope = [row for row in registry["supports"] if row["control_id"] in selected and row["check"] in checks]
-    require(in_scope, "No mapping supports a recorded check within the Assessment Plan's explicit control selection.")
+    reviewed_controls = {row["control_id"] for row in in_scope if _has_recorded_check(checks[row["check"]][2])}
+    require(reviewed_controls,
+            "No mapping supports a recorded check within the Assessment Plan's explicit control selection.")
     original_controls = {(row["framework"], row["reference"]) for row in receipt.get("controls", [])}
     bundle_ref = _local_reference(directory.resolve(), output)
     collected = manifest["observation"]["last_checked_at"]
@@ -226,24 +324,30 @@ def export_results(directory, *, assessment_plan, mapping, output, ticket=None, 
     if manifest["ticket"]:
         attributes.update({"completed-request-id": manifest["ticket"]["id"],
                            "completed-request-frame-sha256": manifest["ticket"]["frame_sha256"]})
+    verdict = {key: attributes[key] for key in ("technical-verdict", "review-status")}
     observations = []
     for row in in_scope:
         description, refs, details = checks[row["check"]]
         source = "receipt-bound" if (row["framework"], row["reference"]) in original_controls else "reviewer-supplied"
-        observations.append(_observation(description, stamp=collected, evidence=[f"{bundle_ref}/{ref}" for ref in refs],
-                                         attributes={
-                                             "check": row["check"], "supports": row["control_id"],
-                                             "framework": row["framework"], "edition": row["edition"],
-                                             "control-reference": row["reference"], "control-reference-source": source,
-                                             "mapping-applicability": row["applicability"], "mapping-source": row["source"],
-                                             **details,
-                                         }))
+        link = "supports" if _has_recorded_check(details) else "mapped-control"
+        properties = {
+            "check": row["check"], link: row["control_id"],
+            "framework": row["framework"], "edition": row["edition"],
+            "control-reference": row["reference"], "control-reference-source": source,
+            "mapping-applicability": row["applicability"], "mapping-source": row["source"],
+            **verdict, **details,
+        }
+        observations.append(_observation(
+            f"{details['check-outcome']} · {description} Receipt verdict {verdict['technical-verdict']}.",
+            stamp=collected, evidence=[f"{bundle_ref}/{ref}" for ref in refs], attributes=properties,
+        ))
     for item in manifest["open_items"]:
-        observations.append(_observation("Open item recorded in the signed exchange.", stamp=collected,
-                                         evidence=[f'{bundle_ref}/{item["evidence"]}'],
-                                         attributes={f"open-item-{key.replace('_', '-')}": value for key, value in item.items()
-                                                     if key != "evidence"}))
-    controls = [{"control-id": value} for value in sorted({row["control_id"] for row in in_scope})]
+        properties = {f"open-item-{key.replace('_', '-')}": value for key, value in item.items() if key != "evidence"}
+        observations.append(_observation(
+            f"Open item recorded in the signed exchange. Receipt verdict {verdict['technical-verdict']}.",
+            stamp=collected, evidence=[f'{bundle_ref}/{item["evidence"]}'], attributes={**verdict, **properties},
+        ))
+    controls = [{"control-id": value} for value in sorted(reviewed_controls)]
     result = {
         "assessment-results": {
             "uuid": str(uuid4()),

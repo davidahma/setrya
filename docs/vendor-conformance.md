@@ -52,9 +52,11 @@ For the local agent fixtures, use the matching target and extra above. For examp
 
 `setrya replay` and `setrya receipt summary` show the recorded operator and replay scope. Older bundles may leave the operator unrecorded. `setrya conformance review` also verifies the signature and reports the trusted key fingerprint or verified Sigstore identity. A vendor's self-check retains its execution label after an outside reviewer verifies it.
 
-An independent operator can run the same fixture against the same backend versions with their own environment and Cosign key. Both results in a paired review use detached signatures. Send the operator the original bundle. Share the expected operator ID and trusted public keys through a separate channel.
+An independent operator runs the same fixture and backend versions in their own environment. Either result can use a Cosign key or a keyless Sigstore identity in an authorized workflow. Share the original bundle. Provision the operators and trusted keys or exact identity, issuer, and root for each side through your review policy.
 
-For a LangGraph rerun, start a clean virtual environment. Set `SETRYA_VERSION`, `LANGGRAPH_VERSION`, and `LANGGRAPH_CHECKPOINT_VERSION` to the reviewed versions in the original receipt. Install those exact versions and use your own operator ID. Cosign prompts for a password when it creates the signing key.
+A receipt records the Setrya release and a separate fixture setup fingerprint. The fingerprint covers the target's fixture code, synthetic inputs, phases, measured surfaces, and backend version fields. A package update can rerun the same setup. Setrya recognizes the identical bundled setups from 1.13.0, 1.15.0, 1.16.0, and 1.17.0. Other historical receipts without a setup fingerprint require their exact original Setrya version.
+
+For a LangGraph rerun, start a clean virtual environment. Set `LANGGRAPH_VERSION` and `LANGGRAPH_CHECKPOINT_VERSION` to the versions recorded in the original receipt. Choose `SETRYA_VERSION` with the matching setup or pin the original release for an older receipt. Use your own operator ID. Cosign prompts for a password when it creates the signing key.
 
 ```sh
 python -m venv .venv-rerun
@@ -67,7 +69,7 @@ setrya conformance run --target langgraph-store --operator reviewer-lab \
   --rerun-of ./langgraph-results --key ./lab.key --output ./lab-rerun
 ```
 
-Setrya checks its own fixture version before running and signing the rerun. Share the new evidence directory and your public key with the reviewer. Keep the private key with the operator. A signed bundle remains reviewable when the fixture found a failure.
+Setrya checks the fixture setup before running and signing a rerun. To issue the rerun through an authorized OIDC workflow, replace `--key ./lab.key` with `--keyless`. Share the new evidence directory for review. A signed bundle remains reviewable when the fixture found a failure.
 
 ```sh
 setrya conformance review ./lab-rerun --key ./trusted-lab.pub \
@@ -75,7 +77,9 @@ setrya conformance review ./lab-rerun --key ./trusted-lab.pub \
   --expect-operator reviewer-lab
 ```
 
-The paired review verifies both signatures, replays both bundles, checks their link, and requires separate runs, operators, and trusted keys. Both results must use the same target, Setrya version, and backend versions. The reviewer's trust policy establishes who controls those keys. [Receipt formats](receipt-format.md)
+For a keyless rerun, replace `--key` with `--identity`, `--issuer`, and `--trusted-root`. For a keyless original, replace `--against-key` with its own `--against-identity`, `--against-issuer`, and `--against-trusted-root`. Set an exact certificate identity for each keyless signer.
+
+The paired review authenticates and replays both bundles. It checks the link, separate recorded operators and executions, distinct trusted signing keys or identities, and matching target, fixture setup, and backend versions. The reviewer establishes who controls the credentials and operates each fixture. [Receipt formats](receipt-format.md)
 
 **Rerun matches original** means both verdicts, review statuses, and surface findings agree. The command returns the technical exit code. **Rerun differs from original** shows both verdicts and each changed surface finding, and returns 3. Use `--accept-rerun` to take the newer result's technical exit code after reviewing the differences. The command still shows the disagreement, and both signed receipts remain intact.
 

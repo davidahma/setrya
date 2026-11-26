@@ -118,7 +118,11 @@ def derive_observed(e):
         if "follow_up" in setting:
             day(setting["follow_up"])
     first, last = (_readings(e[stage], req) for stage in ("find", "verify_absent"))
-    require(stamp(e["find"]["checked_at"]) <= stamp(e["verify_absent"]["checked_at"]), "Reads are out of order.")
+    first_completed = stamp(e["find"]["checked_at"])
+    require(first_completed <= stamp(e["verify_absent"]["checked_at"]), "Reads are out of order.")
+    second_snapshot = e["verify_absent"]["journal_read_at"]
+    require(second_snapshot is None or first_completed <= stamp(second_snapshot),
+            "The second journal snapshot must follow the first completed observation.")
     gaps = set(e["find"]["gaps"] + e["verify_absent"]["gaps"])
     for reads in (first, last):
         if set(expected) - {s for s, _ in reads}:

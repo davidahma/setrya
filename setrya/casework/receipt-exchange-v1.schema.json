@@ -23,7 +23,7 @@
   "properties": {
     "format": { "const": "setrya.deletion-receipt-exchange.v1" },
     "status": { "const": "draft" },
-    "evidence_kind": { "enum": ["read-only-observation", "synthetic-drill", "vendor-attestation"] },
+    "evidence_kind": { "enum": ["read-only-observation", "synthetic-drill", "vendor-attestation", "provider-readback"] },
     "system": {
       "description": "System labels supplied by the issuer.",
       "type": "object",
@@ -169,7 +169,7 @@
       "not": { "required": ["deployment"] },
       "properties": {
         "scope": { "const": "vendor" },
-        "observation": { "maxProperties": 1 },
+        "observation": { "not": { "required": ["drill_duration_ms"] } },
         "ticket": { "type": "null" },
         "surfaces": {
           "properties": {
@@ -184,6 +184,22 @@
           "required": ["observation-evidence.json"],
           "not": { "required": ["erasure-evidence.json"] }
         }
+      },
+      "if": { "properties": { "evidence_kind": { "const": "provider-readback" } } },
+      "then": {
+        "properties": {
+          "observation": { "required": ["first_checked_at"] },
+          "vendor": {
+            "required": ["scope_sha256"],
+            "properties": { "kind": { "const": "api-readback" } }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "observation": { "not": { "required": ["first_checked_at"] } },
+          "vendor": { "not": { "required": ["scope_sha256"] } }
+        }
       }
     }
   },
@@ -196,6 +212,7 @@
       "properties": {
         "kind": { "enum": ["fixture", "api-readback"] },
         "target": { "$ref": "#/$defs/vendorLabel" },
+        "scope_sha256": { "$ref": "#/$defs/sha256" },
         "versions": {
           "type": "object",
           "maxProperties": 32,
@@ -240,6 +257,7 @@
           "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])"
         },
         "setrya_version": { "$ref": "#/$defs/vendorVersion" },
+        "fixture_setup": { "$ref": "#/$defs/sha256" },
         "rerun_of": { "$ref": "#/$defs/sha256" }
       },
       "if": { "required": ["rerun_of"] },

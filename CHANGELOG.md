@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.18.0
+
+- Report unknown copy coverage for skipped source and unresolved storage writes. Scan JavaScript and CommonJS, recognize common SQL clients, and flag Python and Node background writes.
+- Include the original verdict and per-check outcomes in OSCAL observations. Publish a second control-mapping draft for review.
+- Pair independently signed vendor runs using the fixture setup and backend versions. Either side can use a Cosign key or a Sigstore identity.
+- Give provider API readback its own exchange kind for governance tickets and OSCAL. Qualify it against local responses.
+- Keep Redis invalidation retryable after a partial failure, and enforce journal snapshot ordering during standalone observed-deletion replay.
+
+This bundled correction ships ahead of the regular release window because incomplete scans could appear clear.
+
 ## 1.17.0
 
 - Scan TypeScript copy sites from the CLI and GitHub Action using an optional Python extra. A Node and SQLite starter runs authenticated HTTP deletion checks without npm.
@@ -13,6 +23,10 @@
 ## 1.15.0
 
 - Export OSCAL 1.2.0 Assessment Results from a signed and replayed receipt exchange. Record the evidence, selected Assessment Plan, mapping version, signer, verdict and open items for governance review.
+
+## 1.14.0
+
+Skipped. The next published version after 1.13.0 was 1.15.0.
 
 ## 1.13.0
 

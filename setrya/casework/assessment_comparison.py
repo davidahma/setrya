@@ -104,8 +104,11 @@ def _check_coverage(prior, current):
     lost_languages = prior_languages - current_languages
     lines.extend(f"- setrya.copy-review.v1 · Candidate did not scan {language}."
                  for language in sorted(lost_languages))
+    unknown_sources = sum(check.get("unknown_sources", 0) for check in current)
+    if unknown_sources:
+        lines.append(f"- Copy coverage is unknown for {unknown_sources} source file(s).")
     ready = not (missing or empty_journal or lost_languages or any(lost.values()) or any(unbound.values())
-                 or any(check["gaps"] for check in new))
+                 or unknown_sources or any(check["gaps"] for check in new))
     return lines, ready
 
 

@@ -144,7 +144,7 @@ def main(argv):
             if args.output:
                 publish_new(result, args.output)
             print(copy_sites.summarize(result))
-            return 3 if result.get("review_required") else 0
+            return 3 if copy_sites.review_needed(result) else 0
         if args.action == "init":
             if args.example == "northline-source":
                 from .northline_source import init_example
