@@ -19,7 +19,7 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install setrya==1.17.0
       - id: scan
-        uses: davidahma/setrya@869af30d04d0fc9fbe26b8d05f6ca0ff2b9a228d # 1.17.0
+        uses: davidahma/setrya@00de4c5fe425fa7f26944dce8bb9e663e7d3c302 # 1.17.0
         with:
           operation: copy-scan
           base: ${{ github.event.pull_request.base.sha }}
@@ -41,7 +41,7 @@ jobs:
     permissions:
       pull-requests: write
     steps:
-      - uses: davidahma/setrya@869af30d04d0fc9fbe26b8d05f6ca0ff2b9a228d # 1.17.0
+      - uses: davidahma/setrya@00de4c5fe425fa7f26944dce8bb9e663e7d3c302 # 1.17.0
         with:
           operation: copy-comment
           token: ${{ github.token }}
