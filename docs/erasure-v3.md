@@ -37,11 +37,14 @@ Import `Artifact`, `SharedCase`, `Stored`, `Answer`, `ExternalItem` and `run_sha
 | `scan(subject, store)` | Set of opaque keys found in that scoped text search. |
 | `read(subject, caller, conversation, question)` | `Answer(caller, conversation, route, question, target_present, control_present)` using the actual response, or a `TextAnswer` for the configured judges. |
 | `erase(subject)` | Complete the app's scoped deletion and rewrite. Wait for relevant refreshes. |
+| `maintain(subject, step)` | For a declared `maintenance_steps` tuple, run the named operation and return `Maintenance(step)` after it commits. Setrya rereads the declared artifacts before invoking the next step. |
 | `hold`, `checkpoint`, `release_and_drain` | Attempt-bound `Hold` and `Drain` observations for the deferred writer. The write-back mode invokes these hooks. |
 | `lineage(subject)` | Optional mapping with `roots` and `derivations`. Every version is a `store`, `key`, `revision` triple. Each derivation identifies an `artifact` and its `inputs`. |
 | `collect_journals(subject)` | Optional hook after final reads to seal and import durable worker packets before coverage is evaluated. |
 
 For distributed coverage, supply a `CollectedJournal`, `run_id` and `expected_producers` to `run_shared`. The checker reads the producer roster and copy records from one SQLite snapshot after collection. Missing or unexpected producers prevent PASS, including producers observed only in traces. Recorded copy locations outside the declared observations and external review items are gaps.
+
+Use maintenance steps to check that a deletion persists and a held record survives consolidation or a summary rebuild. This uses the same artifact rules and verdicts. [Legal hold example](legal-hold.md)
 
 ## Judge the answer the endpoint served
 

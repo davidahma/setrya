@@ -46,7 +46,7 @@ Save the map to `setrya-copy-coverage.json` at the repository root. A map record
 
 ## Run it in a pull request
 
-[Download the release workflow](https://github.com/davidahma/setrya/releases/download/v1.15.0/setrya-copy-quickstart.yml) and save it under `.github/workflows/` in your repository. A read-only job with full Git history calls the SHA-pinned Setrya Action with `operation: copy-scan` and the event's base and candidate commits. It publishes a JSON report and a job summary. The scan is advisory in the Action. The `exit-code` output is 3 for sites needing review while the step succeeds. A scan error fails the step.
+[Download the release workflow](https://github.com/davidahma/setrya/releases/download/v1.16.0/setrya-copy-quickstart.yml) and save it under `.github/workflows/` in your repository. A read-only job with full Git history calls the SHA-pinned Setrya Action with `operation: copy-scan` and the event's base and candidate commits. It publishes a JSON report and a job summary. The scan is advisory in the Action. The `exit-code` output is 3 for sites needing review while the step succeeds. A scan error fails the step.
 
 A separate job can post the bounded summary with `operation: copy-comment` and `pull-requests: write`. Use this job on same-repository PRs, without a repository checkout or an application test step. It updates one copy review comment, including when the scan fails, and skips superseded PR commits. Fork PRs can read the workflow run and any published report. The JSON report includes sites omitted from the bounded comment and a starter mapping per site.
 

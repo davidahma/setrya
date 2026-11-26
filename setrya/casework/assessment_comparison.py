@@ -44,6 +44,9 @@ def _label_surface(surface):
         return f"Delayed worker on {parts[0]} in {parts[1]}"
     if kind == "observed-copy":
         return f"Store {parts[0]}, key digest {parts[1][:12]}"
+    if kind == "maintenance":
+        route, conversation, step, store, key, action = parts
+        return f"Maintenance step {step} on {route} in {conversation}, {store}/{key} ({action})"
     return f"Copy {parts[0]}/{parts[1]} ({parts[2]})"
 
 

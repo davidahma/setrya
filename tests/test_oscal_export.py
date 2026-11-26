@@ -16,6 +16,7 @@ from setrya.casework.handoff import verify_handoff
 from setrya.cli import main
 from setrya.core.inputs import InvalidReport
 from setrya.erasure import run_shared
+from setrya.examples import legal_hold
 from setrya.examples.workspace import CASE, open_fixture
 
 
@@ -117,6 +118,19 @@ class OscalExportTests(unittest.TestCase):
         result, = document["results"]
         self.assertEqual(self.props(result)["technical-verdict"], "FAIL")
         self.assertEqual(self.props(result)["review-status"], "RESIDUAL_FOUND")
+
+    def test_export_links_verified_maintenance_observations(self):
+        original, bundle = self.root / "hold", self.root / "exchange"
+        with legal_hold.open_fixture("restored-hold") as (subject, app):
+            receipt = run_shared(subject, case=legal_hold.CASE, application=app, mode="deletion", output=original)
+        self.assertEqual(receipt["technical_verdict"], "FAIL")
+        exchange.pack(original, output=bundle, system="incident-register", version="1", synthetic=True, key=self.key)
+        result, = self.export(bundle)["results"]
+        preserve = next(row for row in result["observations"] if self.props(row).get("check") == "artifact-preserve")
+        self.assertEqual(self.props(result)["technical-verdict"], "FAIL")
+        self.assertEqual(self.props(preserve)["recorded-maintenance-reads"], "2")
+        self.assertIn("exchange/erasure-receipt.json#/maintenance_checks",
+                      [item["href"] for item in preserve["relevant-evidence"]])
 
     def test_grouped_missing_endpoint_answers_do_not_create_support(self):
         bundle = self.issue(missing_answers=True)

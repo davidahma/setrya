@@ -6,7 +6,10 @@ import json
 from pathlib import Path
 import re
 
-from setrya.core.receipt_v3 import answer_slots, attribution_lines, human_issue, post_erasure_findings, sample_rows, GROUPED_EVIDENCE_FORMATS
+from setrya.core.receipt_v3 import (
+    GROUPED_EVIDENCE_FORMATS, answer_slots, attribution_lines, human_issue, maintenance_lines, post_erasure_findings,
+    sample_rows,
+)
 from setrya.offboarding.inputs import read_regular_bytes, require, unique_fields
 from setrya.receipt_format import FORMAT_V3, MAX_BUNDLE_FILE_BYTES
 from setrya.receipts import replay, replay_bytes, summary as technical_summary, write_back_lead
@@ -225,6 +228,8 @@ def receipt_summary(bundle, *, audience="reviewer", output_format="text", case_i
             else:
                 items.append(f"- {label} ({kind})  owner {owner}  follow-up {date}")
         sections.append(("Open items", items or ["No open items recorded."]))
+    if receipt.get("maintenance_checks") and audience == "reviewer":
+        sections.append(("Maintenance checks", list(maintenance_lines(receipt))))
     if receipt.get("profile") == VENDOR and audience != "engineer":
         from ..vendor.report import execution_lines
 

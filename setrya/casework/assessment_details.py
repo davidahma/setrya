@@ -14,7 +14,8 @@ from .customer import customer_text
 from .profiles import day, fields, sha
 from .receipt_summary import _read_drill_evidence
 
-_SURFACES = {"copy": (4,), "query": (5, 6), "scan": (2,), "observed-copy": (3,), "worker": (3,)}
+_SURFACES = {"copy": (4,), "query": (5, 6), "scan": (2,), "observed-copy": (3,), "worker": (3,),
+             "maintenance": (7,)}
 
 
 def details(receipt, path):
@@ -47,6 +48,10 @@ def _drill_surfaces(receipt, evidence):
     case = evidence["case"]
     surfaces = {("copy", row["store"], row["key"], row["action"]) for row in receipt.get("artifact_checks", ())
                 if len(row["evidence"]) == 3}
+    for index, result in enumerate(receipt.get("maintenance_checks", ()), start=1):
+        step = f"{index} {result['step']}"
+        surfaces.update(("maintenance", case["route"], case["conversation"], step, row["store"], row["key"], row["action"])
+                        for row in result["checks"] if row["status"] in ("PASS", "FAIL"))
     surfaces.update(("scan", store) for store in case["scan_stores"] if evidence["baseline"]["scans"][store]
                     and all(evidence[phase]["scans"][store] is not None for phase in phases[1:]))
     if receipt.get("race") == "exercised":

@@ -157,10 +157,18 @@ def _checks(verified):
         observed = [item for item in declared if any("#/immediate/" in ref or "#/final/" in ref
                                                        for ref in item["evidence"])]
         if observed:
+            references = [RECEIPT + "#/artifact_checks"]
+            counts = {"declared-artifacts": len(declared), "observed-artifacts": len(observed)}
+            maintenance_reads = sum(
+                row["action"] == action and row["evidence"] is not None
+                for phase in receipt.get("maintenance_checks", ()) for row in phase["checks"]
+            )
+            if maintenance_reads:
+                references.append(RECEIPT + "#/maintenance_checks")
+                counts["recorded-maintenance-reads"] = maintenance_reads
             checks[f"artifact-{action}"] = (
                 f"Recorded direct post-erasure reads for artifacts with the {action} rule.",
-                [RECEIPT + "#/artifact_checks"],
-                {"declared-artifacts": len(declared), "observed-artifacts": len(observed)},
+                references, counts,
             )
     evidence_file = receipt["evidence"]["file"]
     for check, field, description in (
