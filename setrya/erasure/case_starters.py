@@ -2,7 +2,7 @@
 from importlib.resources import files
 from pathlib import Path
 
-STACKS = ("langgraph-postgres", "openai-agents", "claude-agent", "redis-cache")
+STACKS = ("langgraph-postgres", "openai-agents", "claude-agent", "redis-cache", "typescript")
 SESS = "43815787-7631-4e38-a59c-b7c73f6aaa21"
 
 _TEMPLATE = """# Point only at an isolated, seeded fixture. The run calls its DELETE route.
@@ -41,6 +41,12 @@ facts:
 
 
 def init_stack(path: Path, stack: str):
+    if stack == "typescript":
+        template = files("setrya.erasure.recipes").joinpath("typescript")
+        path.mkdir(parents=True, exist_ok=False)
+        for name in ("case.yml", "fixture.mts", "run.py"):
+            (path / name).write_bytes(template.joinpath(name).read_bytes())
+        return path / "case.yml"
     settings = {
         "langgraph-postgres": ("SETRYA_TEST_POSTGRES_URL", "ticket-204", "", "      note: delete"),
         "openai-agents": ("SETRYA_TEST_AGENTS_DB", "ticket-204", "", '      "1": delete'),

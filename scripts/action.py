@@ -21,11 +21,13 @@ COPY_LABELS = {
     "vector": ("vector store", "vector-index"), "cache": ("cache", "redis-answer-cache"),
     "memory": ("agent memory", "agent-memory"), "model-state": ("stateful model", "provider-conversation"),
     "trace": ("trace export", "trace-store"),
+    "database": ("database write", "sqlite-records"),
 }
 COPY_WRITERS = {
     "celery": "Celery task", "rq": "RQ job", "dramatiq": "Dramatiq actor", "asyncio": "asyncio task or callback",
     "retry": "retry decorator", "temporal": "Temporal activity", "langmem": "LangMem reflection",
     "crewai": "CrewAI background memory save",
+    "timer": "Node timer callback", "bullmq": "BullMQ worker",
 }
 COPY_ROWS = 10
 COPY_SCAN_ERROR = "error"
@@ -201,7 +203,10 @@ def copy_signals(report):
                 item.append(row["writer"])
             rows.append(item)
     signals = [len(pending), rows, report["map_changed"]]
-    if background := sum("writer" in row for row in pending):
+    background = sum("writer" in row for row in pending)
+    if "languages" in report:
+        signals.extend((background, report["languages"]))
+    elif background:
         signals.append(background)
     return signals
 
@@ -211,17 +216,24 @@ def copy_details(encoded):
     if not encoded or len(encoded) > 4096:
         raise ValueError("invalid copy-site summary")
     data = json.loads(encoded)
-    if (type(data) is not list or len(data) not in (3, 4) or type(data[0]) is not int or not 0 <= data[0] <= 512
+    if (type(data) is not list or len(data) not in (3, 4, 5) or type(data[0]) is not int or not 0 <= data[0] <= 512
             or type(data[1]) is not list or len(data[1]) > min(data[0], COPY_ROWS) or type(data[2]) is not bool):
         raise ValueError("invalid copy-site summary")
     count, rows, map_changed = data[:3]
-    background = data[3] if len(data) == 4 else 0
+    background = data[3] if len(data) >= 4 else 0
     if type(background) is not int or not 0 <= background <= count:
         raise ValueError("invalid deferred writer count")
     if not count:
         lines = ["**Setrya copy scan · No new copy sites requiring review within scan scope**"]
     else:
         lines = [f"**Setrya copy scan · {count} possible copy site(s) need review**", ""]
+    if len(data) == 5:
+        scope = data[4]
+        if scope not in (["typescript"], ["python", "typescript"]):
+            raise ValueError("invalid copy-site language scope")
+        lines += [f"Scanned {'Python and TypeScript' if 'python' in scope else 'TypeScript'}.", ""]
+    else:
+        lines += ["Scanned Python.", ""]
     if background:
         lines += ["This PR adds a potential background writer for customer data. Hold it across a deletion.", ""]
     shown_writers = 0
@@ -250,9 +262,11 @@ def copy_details(encoded):
     if map_changed:
         lines += ["", "This PR changes the copy mapping. Review the proposed bindings."]
     if rows:
+        test = ("setrya-case/case.yml" if len(rows[0]) == 4 and rows[0][0].endswith((".ts", ".tsx", ".mts", ".cts"))
+                else "setrya-case/test_erasure.py")
         starter = {"format": "setrya.copy-site-mapping.v1", "sites": [
             {"site_id": rows[0][3], "store": COPY_LABELS[rows[0][2]][1],
-             "key": "replace-with-disposable-test-key", "test": "setrya-case/test_erasure.py"},
+             "key": "replace-with-disposable-test-key", "test": test},
         ]}
         if len(rows[0]) == 5:
             starter["sites"][0]["mode"] = "late-write"
@@ -268,7 +282,8 @@ def copy_scan():
     if not all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in (base, candidate)):
         raise ValueError("copy-scan requires full base and candidate commit SHAs")
     try:
-        report = check(Path(os.environ["SETRYA_COPY_REPO"]), base, candidate, map_path=os.environ["SETRYA_COPY_MAP"])
+        report = check(Path(os.environ["SETRYA_COPY_REPO"]), base, candidate,
+                       map_path=os.environ["SETRYA_COPY_MAP"], language=os.getenv("SETRYA_COPY_LANGUAGE", "python"))
         publish_new(report, Path(os.environ["SETRYA_COPY_OUTPUT"]))
     except Exception as exc:
         print(f"Setrya copy scan error ({type(exc).__name__}).", file=sys.stderr)

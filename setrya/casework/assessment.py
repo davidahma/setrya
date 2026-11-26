@@ -40,6 +40,12 @@ _CHECKS = {
     "setrya.route-coverage.v1": ("surfaces", "candidate_commit", "gap"),
     "journal-coverage": ("boundaries", None, "unmapped"),
 }
+_COPY_CHECKS = {"setrya.copy-scan.v1", "setrya.copy-review.v1"}
+
+
+def _check_languages(kind, languages):
+    require(kind in _COPY_CHECKS and languages in (["typescript"], ["python", "typescript"]),
+            "Invalid copy-check language scope.")
 
 
 def _digest(raw):
@@ -92,6 +98,9 @@ def _check(path, commit, *, detailed=False):
     result = {"kind": kind, "input_sha256": _digest(raw), "report_sha256": _digest(canonical),
               "entries": len(rows), "gaps": gap_count,
               "commit_binding": "reported" if commit_field else "unbound"}
+    if "languages" in data:
+        _check_languages(kind, data["languages"])
+        result["languages"] = data["languages"]
     if detailed:
         result["scope_ids"] = sorted({identity for row in rows if (identity := _check_scope(kind, row)) is not None})
     return result
@@ -180,10 +189,13 @@ def _validate(result):
         git_revision(repo["commit"])
         check_digests = set()
         for row in _listed(repo["checks"], 8, "checks per repository"):
-            fields(row, "kind input_sha256 report_sha256 entries gaps commit_binding" + (" scope_ids" if detailed else ""))
+            fields(row, "kind input_sha256 report_sha256 entries gaps commit_binding" + (" scope_ids" if detailed else ""),
+                   ("languages",))
             require(row["kind"] in _CHECKS and row["commit_binding"] in ("reported", "unbound")
                     and type(row["entries"]) is int and type(row["gaps"]) is int
                     and 0 <= row["gaps"] <= row["entries"] <= 4096, "Invalid assessment coverage record.")
+            if "languages" in row:
+                _check_languages(row["kind"], row["languages"])
             _hash(row["input_sha256"])
             _hash(row["report_sha256"])
             if detailed:
@@ -242,6 +254,9 @@ def _summary(result):
         for check in repo["checks"]:
             label = {"setrya.copy-scan.v1": "Copy inventory", "setrya.copy-review.v1": "Copy review",
                      "setrya.route-coverage.v1": "Route coverage", "journal-coverage": "Journal coverage"}[check["kind"]]
+            if "languages" in check:
+                language = "Python and TypeScript" if "python" in check["languages"] else "TypeScript"
+                label += f" ({language})"
             if check["entries"]:
                 lines.append(f"- {label} — {check['gaps']} of {check['entries']} supplied "
                              "entries need review or evidence.")

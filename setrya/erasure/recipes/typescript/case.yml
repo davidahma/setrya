@@ -1,0 +1,38 @@
+# Use only a disposable, seeded application. The run calls its DELETE route.
+format: setrya.http-case.v1
+conversation: ticket-204
+subject_ref_env: SETRYA_SUBJECT_REF
+origin_env: SETRYA_TEST_ORIGIN
+read_route: /answer
+erase_route: /erasure
+caller_tokens:
+  duty-agent: SETRYA_READER_TOKEN
+  duty-reviewer: SETRYA_REVIEWER_TOKEN
+erase_token_env: SETRYA_ERASER_TOKEN
+samples: 3
+facts:
+  target:
+    marker: Harbor-17
+    questions: ["What was the customer's depot code?", "Which depot handled this ticket?"]
+    answers:
+      present: ["Harbor-17"]
+      absent: ["Thursday", "No matching note."]
+  control:
+    marker: Thursday
+    questions: ["When is dispatch?"]
+    answers:
+      present: ["Thursday"]
+      absent: ["Harbor-17", "No matching note."]
+stores:
+  memory:
+    kind: sqlite
+    connection_env: SETRYA_TEST_DB
+    scope: ticket-204
+    table: notes
+    key_column: id
+    content_column: body
+    scope_column: ticket
+    artifacts:
+      note: delete
+      cached-note: delete
+      dispatch: preserve

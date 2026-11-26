@@ -321,7 +321,7 @@ def _open_at(name, mode, parent=None):
         os.close(fd)
 
 
-def _scan_python(root, inspect):
+def _scan_sources(root, inspect, *, is_source, skip_directories, source_label):
     found = []
     entries = files = size = 0
     report_bytes = 0
@@ -335,7 +335,7 @@ def _scan_python(root, inspect):
         entries += len(children)
         require(entries <= _MAX_ENTRIES, "Source scan exceeded its directory entry limit.")
         for child in children:
-            if child.name in _SKIP_DIRECTORIES:
+            if child.name in skip_directories:
                 continue
             path = (*parts, child.name)
             display = "/".join(path)
@@ -345,10 +345,10 @@ def _scan_python(root, inspect):
                 with _open_at(child.name, os.O_RDONLY | os.O_DIRECTORY, directory) as fd:
                     require(_fingerprint(info) == _fingerprint(os.fstat(fd)), "Source directory changed during scan.")
                     walk(fd, path)
-            elif child.name.endswith(".py"):
+            elif is_source(child.name):
                 require(display.isprintable() and len(display) <= _MAX_PATH and "\\" not in display,
                         "Source path exceeds the scan budget or contains unsupported characters.")
-                require(stat.S_ISREG(info.st_mode), "Source scan requires regular Python files.")
+                require(stat.S_ISREG(info.st_mode), f"Source scan requires regular {source_label} files.")
                 files += 1
                 size += info.st_size
                 require(files <= _MAX_FILES and size <= _MAX_TOTAL_BYTES and info.st_size <= _MAX_FILE_BYTES,
@@ -371,8 +371,13 @@ def _scan_python(root, inspect):
         with _open_at(Path(root), os.O_RDONLY | os.O_DIRECTORY) as fd:
             walk(fd, ())
     except OSError:
-        raise InvalidReport("Could not read the declared Python source scope.") from None
+        raise InvalidReport(f"Could not read the declared {source_label} source scope.") from None
     return tuple(sorted(found, key=lambda item: (item.path, item.line, item.id)))
+
+
+def _scan_python(root, inspect):
+    return _scan_sources(root, inspect, is_source=lambda path: path.endswith(".py"),
+                         skip_directories=_SKIP_DIRECTORIES, source_label="Python")
 
 
 def scan_pdf_writes(root: str | Path) -> tuple[PdfWriteCandidate, ...]:

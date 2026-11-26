@@ -96,7 +96,15 @@ def _check_coverage(prior, current):
     empty_journal = any(check["kind"] == "journal-coverage" and not check["entries"] for check in new)
     if empty_journal:
         lines.append("- journal-coverage · No journal boundaries were observed.")
-    ready = not (missing or empty_journal or any(lost.values()) or any(unbound.values())
+    prior_languages, current_languages = (
+        {language for check in checks if check["kind"] == "setrya.copy-review.v1"
+         for language in check.get("languages", ("python",))}
+        for checks in (old, new)
+    )
+    lost_languages = prior_languages - current_languages
+    lines.extend(f"- setrya.copy-review.v1 · Candidate did not scan {language}."
+                 for language in sorted(lost_languages))
+    ready = not (missing or empty_journal or lost_languages or any(lost.values()) or any(unbound.values())
                  or any(check["gaps"] for check in new))
     return lines, ready
 

@@ -1,5 +1,5 @@
 name: Setrya erasure drill
-description: Catch deleted customer data that a background job writes back into AI answers. PR verdict with a replayable receipt.
+description: Find Python and TypeScript copy sites. Catch deleted data written back into AI answers with a replayable PR receipt.
 inputs:
   operation:
     description: Run or comment on an erasure drill, inspect changed copy sites or comment on them, or run conformance.
@@ -39,6 +39,9 @@ inputs:
   copy-repo:
     description: Local Git checkout directory for copy-scan.
     default: '.'
+  copy-language:
+    description: Source language for copy-scan. Use python, typescript, or all. The latter two require the typescript extra.
+    default: python
   copy-map:
     description: Committed copy mapping path relative to the repository.
     default: setrya-copy-coverage.json
@@ -86,6 +89,7 @@ runs:
         SETRYA_COPY_BASE: ${{ inputs.base }}
         SETRYA_COPY_CANDIDATE: ${{ inputs.candidate }}
         SETRYA_COPY_REPO: ${{ inputs.copy-repo }}
+        SETRYA_COPY_LANGUAGE: ${{ inputs.copy-language }}
         SETRYA_COPY_MAP: ${{ inputs.copy-map }}
         SETRYA_COPY_OUTPUT: ${{ inputs.copy-output }}
       run: python -I "$GITHUB_ACTION_PATH/scripts/action.py" copy-scan

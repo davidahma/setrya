@@ -32,22 +32,27 @@ from .source_scan import (
     _definition_header,
     _expression,
     _parse_tree,
-    _scan_python,
+    _scan_sources,
     _Scanner,
 )
+from . import typescript
 
 SCAN_FORMAT = "setrya.copy-scan.v1"
 REVIEW_FORMAT = "setrya.copy-review.v1"
 MAP_FORMAT = "setrya.copy-site-mapping.v1"
 MAP_FILE = "setrya-copy-coverage.json"
+LANGUAGES = {"python": ("python",), "typescript": ("typescript",), "all": ("python", "typescript")}
+LANGUAGE_LABELS = {"python": "Python", "typescript": "TypeScript"}
 KINDS = {
     "file": "file write", "object": "object storage", "vector": "vector store",
     "cache": "cache", "memory": "agent memory", "model-state": "stateful model", "trace": "trace export",
+    "database": "database write",
 }
 _STARTER_STORES = {
     "file": "file-archive", "object": "object-storage", "vector": "vector-index",
     "cache": "redis-answer-cache", "memory": "agent-memory", "model-state": "provider-conversation",
     "trace": "trace-store",
+    "database": "sqlite-records",
 }
 _IMPORTS = frozenset({
     "anthropic", "asyncio", "backoff", "boto3", "celery", "chromadb", "crewai", "dramatiq", "elasticsearch",
@@ -130,6 +135,7 @@ WRITERS = {
     "celery": "Celery task", "rq": "RQ job", "dramatiq": "Dramatiq actor", "asyncio": "asyncio task or callback",
     "retry": "retry decorator", "temporal": "Temporal activity", "langmem": "LangMem reflection",
     "crewai": "CrewAI background memory save",
+    "timer": "Node timer callback", "bullmq": "BullMQ worker",
 }
 _WRITER_DECORATORS = {
     "celery.shared_task": "celery", "celery.app.shared_task": "celery", "celery.current_app.task": "celery",
@@ -171,8 +177,10 @@ class CopySite:
     def wire(self):
         result = asdict(self)
         result["site_id"] = result.pop("id")
+        test = ("setrya-case/case.yml" if self.writer is None and typescript.is_source(self.path)
+                else "setrya-case/test_erasure.py")
         result["starter"] = {"site_id": self.id, "store": _STARTER_STORES[self.kind],
-                             "key": "replace-with-disposable-test-key", "test": "setrya-case/test_erasure.py"}
+                             "key": "replace-with-disposable-test-key", "test": test}
         if self.writer is None:
             result.pop("writer")
         else:
@@ -412,9 +420,34 @@ def _inspect(raw, path):
     return _CopyScanner(path, _parse_tree(raw, path)).scan()
 
 
-def scan(root):
-    sites = sorted(_scan_python(root, _inspect), key=lambda site: site.writer is None)
-    return {"format": SCAN_FORMAT, "sites": [site.wire() for site in sites]}
+class _SourceScope:
+    def __init__(self, language):
+        require(language in LANGUAGES, "Choose python, typescript, or all for the copy scan.")
+        self.languages = LANGUAGES[language]
+        self.label = " and ".join(LANGUAGE_LABELS[item] for item in self.languages)
+        self.parsers = typescript.load_parser() if "typescript" in self.languages else None
+        self.skip = _SKIP_DIRECTORIES | typescript.SKIP_DIRECTORIES if self.parsers else _SKIP_DIRECTORIES
+
+    @property
+    def metadata(self):
+        return {"languages": list(self.languages)} if self.parsers else {}
+
+    def contains(self, path):
+        return (("python" in self.languages and path.endswith(".py"))
+                or (self.parsers is not None and typescript.is_source(path)))
+
+    def inspect(self, raw, path):
+        if path.endswith(".py"):
+            return _inspect(raw, path)
+        return typescript.inspect(raw, path, self.parsers, CopySite, _digest, MAX_SOURCE_CANDIDATES)
+
+
+def scan(root, *, language="python"):
+    scope = _SourceScope(language)
+    sites = _scan_sources(root, scope.inspect, is_source=scope.contains,
+                          skip_directories=scope.skip, source_label=scope.label)
+    return {"format": SCAN_FORMAT, **scope.metadata,
+            "sites": [site.wire() for site in sorted(sites, key=lambda site: site.writer is None)]}
 
 
 def _mapping(raw):
@@ -467,25 +500,27 @@ def _covered(receipts, candidate):
     return {identity: digest for identity, digest in subjects.items() if identity not in incomplete}
 
 
-def _new_sites(repo, ancestor, candidate):
+def _new_sites(repo, ancestor, candidate, scope):
     rows = git_bytes(repo, "diff", "--no-renames", "--no-ext-diff", "--no-textconv", "--name-only",
                      "-z", ancestor, candidate, "--")
     require(len(rows) <= _MAX_TOTAL_BYTES, "Changed source paths exceed the scan byte limit.")
-    paths = [p.decode("utf-8") for p in rows.split(b"\0") if p.endswith(b".py")]
-    require(len(paths) <= _MAX_FILES, "Changed Python files exceed the scan file limit.")
+    suffixes = (b".py",) if "python" in scope.languages else ()
+    if scope.parsers:
+        suffixes += tuple(suffix.encode("ascii") for suffix in typescript.SUFFIXES)
+    paths = [p.decode("utf-8") for p in rows.split(b"\0") if p.endswith(suffixes)]
+    paths = [path for path in paths if scope.contains(path) and not scope.skip.intersection(path.split("/")[:-1])]
+    require(len(paths) <= _MAX_FILES, f"Changed {scope.label} files exceed the scan file limit.")
     total_bytes = report_bytes = 0
     found = []
     for path in paths:
         _path(path)
         require(len(path) <= _MAX_PATH, "Source path exceeds its scan limit.")
-        if _SKIP_DIRECTORIES.intersection(path.split("/")[:-1]):
-            continue
         before, after = (_blob(repo, ref, path) or b"" for ref in (ancestor, candidate))
         total_bytes += len(before) + len(after)
         require(max(len(before), len(after)) <= _MAX_FILE_BYTES and total_bytes <= _MAX_TOTAL_BYTES,
-                "Changed Python source exceeds the scan byte limit.")
-        previous = {site.id: site.writer for site in _inspect(before, path)}
-        added = [site.wire() for site in _inspect(after, path)
+                f"Changed {scope.label} source exceeds the scan byte limit.")
+        previous = {site.id: site.writer for site in scope.inspect(before, path)}
+        added = [site.wire() for site in scope.inspect(after, path)
                  if site.id not in previous or (site.writer is not None and site.writer != previous[site.id])]
         report_bytes += sum(len(json.dumps(site)) for site in added)
         found.extend(added)
@@ -494,7 +529,7 @@ def _new_sites(repo, ancestor, candidate):
     return sorted(found, key=lambda row: ("writer" not in row, row["path"], row["line"], row["site_id"]))
 
 
-def check(repo, base_ref, candidate_ref="HEAD", *, map_path=MAP_FILE, receipts=()):
+def check(repo, base_ref, candidate_ref="HEAD", *, map_path=MAP_FILE, receipts=(), language="python"):
     """Compare changed Git blobs and bind new sites to reviewed mappings and replayed evidence."""
     repo = Path(git_bytes(Path(repo), "rev-parse", "--show-toplevel").decode("utf-8").rstrip("\n"))
     base, candidate = (resolve_commit(repo, ref) for ref in (base_ref, candidate_ref))
@@ -504,7 +539,8 @@ def check(repo, base_ref, candidate_ref="HEAD", *, map_path=MAP_FILE, receipts=(
     declared = _mapping(_blob(repo, candidate, map_path))
     require(len(receipts) <= 32, "Supply up to 32 candidate receipts.")
     replayed = _covered(receipts, candidate) if receipts else {}
-    sites = _new_sites(repo, ancestor, candidate)
+    scope = _SourceScope(language)
+    sites = _new_sites(repo, ancestor, candidate, scope)
     for site in sites:
         baseline = approved.get(site["site_id"])
         binding = declared.get(site["site_id"])
@@ -513,14 +549,15 @@ def check(repo, base_ref, candidate_ref="HEAD", *, map_path=MAP_FILE, receipts=(
             mode = "late-write" if "writer" in site or binding.get("mode") in ("late-write", "write-back") else "deletion"
             digest = replayed.get((binding["store"], binding["key"], binding["test"]), {}).get(mode)
         site.update(status="evidence-replayed" if digest else "needs-review", binding=binding, receipt_sha256=digest)
-    return {"format": REVIEW_FORMAT, "base_commit": base, "merge_base_commit": ancestor,
+    return {"format": REVIEW_FORMAT, **scope.metadata, "base_commit": base, "merge_base_commit": ancestor,
             "candidate_commit": candidate, "map_changed": approved != declared,
             "review_required": sum(row["status"] == "needs-review" for row in sites), "sites": sites}
 
 
 def summarize(report):
     reviewed = report["format"] == REVIEW_FORMAT
-    lines = ["Changed copy sites" if reviewed else "Possible copy sites"]
+    languages = ", ".join(LANGUAGE_LABELS[item] for item in report.get("languages", ("python",)))
+    lines = ["Changed copy sites" if reviewed else "Possible copy sites", f"Source languages: {languages}"]
     if reviewed:
         lines.append(f"Candidate {report['candidate_commit']} · merge base {report['merge_base_commit']}")
         if report["map_changed"]:
