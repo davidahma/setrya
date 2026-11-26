@@ -21,11 +21,11 @@ The sample result shows `PASS · OPEN_ITEMS`. It references the direct readings 
 
 ## Use your own Assessment Plan and mapping
 
-1. Place the OSCAL 1.2.0 Assessment Plan JSON in the handoff directory. Use explicit whole-control IDs in its reviewed-controls selection. Setrya checks these IDs locally and respects the plan's exclusions. The assessor's OSCAL tooling resolves the plan's SSP and catalog.
+1. Place the OSCAL 1.2.0 Assessment Plan JSON in the handoff directory. Use explicit whole-control IDs in its reviewed-controls selection. The exporter accepts ASCII IDs that start with a letter or underscore and continue with letters, numbers, underscores, periods, or hyphens. Setrya checks these IDs locally and respects the plan's exclusions. The assessor's OSCAL tooling resolves the plan's SSP and catalog.
 2. Provide a [versioned control mapping](examples/governance-handoff/oscal-control-mapping.json). Each `supports` row binds a check to an exact framework, edition, reference and local OSCAL `control_id`. Include the applicability boundary and an HTTPS source citation. Have the appropriate auditor or CPA review real mappings before publication.
 3. Use the independent issuer key or exact Sigstore identity, OIDC issuer and trusted root from your existing receipt review policy. For completed requests, preserve the reviewer's `--expect-ticket` and `--expect-frame` pins. A separate `--ticket` labels the governance destination. Use `--expect-plan-sha256` and `--expect-mapping-sha256` when the assessor has independently approved those exact files.
 
-The exporter selects only mapped checks present in the verified result and included in the plan. A failed or incomplete run can still yield a valid export. A successful exit means the evidence file was written. Read the recorded verdict and status for the engineering outcome.
+The exporter selects only mapped checks present in the verified result and included in the plan. Post-erasure mappings need a completed erase operation. Map `synthetic-erasure` to export the overall verdict of an incomplete person drill. A successful exit means the evidence file was written. Read the recorded verdict and status for the engineering outcome.
 
 | Mapping check | Evidence referenced |
 | --- | --- |

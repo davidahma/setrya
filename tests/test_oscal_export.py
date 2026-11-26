@@ -50,7 +50,7 @@ class OscalExportTests(unittest.TestCase):
         self.enterContext(patch.object(exchange.signing, "sign_bytes", side_effect=sign))
         self.enterContext(patch.object(exchange.signing, "verify_bytes", side_effect=verify))
 
-    def issue(self, *, guarded=True, missing_answers=False, keyless=False):
+    def issue(self, *, guarded=True, missing_answers=False, keyless=False, authorize_erase=None):
         original, bundle = self.root / "receipt", self.root / "exchange"
         with open_fixture(shared=True, guarded=guarded, record_writes=True) as (subject, app, items):
             if missing_answers:
@@ -68,7 +68,8 @@ class OscalExportTests(unittest.TestCase):
 
                 app.erase, app.read = erase, read
             run_shared(subject, case=replace(CASE, controls=(CONTROL,)), application=app, mode="write-back",
-                       output=original, external_items=items, journal=app.journal, cancel_hold=app.cancel_and_drain)
+                       output=original, external_items=items, journal=app.journal, cancel_hold=app.cancel_and_drain,
+                       authorize_erase=authorize_erase)
         exchange.pack(original, output=bundle, system="fictional-support", version="1",
                       synthetic=True, key=None if keyless else self.key)
         return bundle
@@ -128,6 +129,16 @@ class OscalExportTests(unittest.TestCase):
         controls, = result["reviewed-controls"]["control-selections"]
         self.assertEqual(controls["include-controls"], [{"control-id": "demo-erase"}])
 
+    def test_final_read_after_skipped_erase_is_not_post_erasure_support(self):
+        report = self.export(self.issue(authorize_erase=lambda *_: False))
+        result, = report["results"]
+        self.assertEqual(self.props(result)["technical-verdict"], "NOT TESTED")
+        controls, = result["reviewed-controls"]["control-selections"]
+        self.assertEqual(controls["include-controls"], [{"control-id": "demo-erase"}])
+        checks = [item["value"] for observation in result["observations"] for item in observation["props"]
+                  if item["name"] == "check"]
+        self.assertEqual(checks, ["synthetic-erasure"])
+
     def test_mismatched_signer_digest_and_completed_ticket_create_no_output(self):
         bundle = self.issue()
         wrong_key = self.root / "wrong.pub"
@@ -153,6 +164,41 @@ class OscalExportTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
         self.mapping.write_text('{"format":"setrya.control-mapping.v1","version":"1","supports":[]}', encoding="utf-8")
         with self.assertRaisesRegex(InvalidReport, "one to 128 supporting mapping"):
+            self.export(bundle)
+        self.assertFalse(self.output.exists())
+
+    def test_assessment_plan_needs_complete_metadata(self):
+        sample = self.plan.read_bytes()
+        bundle = self.issue()
+        for name, value in (("title", ""), ("version", None), ("last-modified", "2026-11-26T12:00:00")):
+            plan = json.loads(sample)
+            metadata = plan["assessment-plan"]["metadata"]
+            if value is None:
+                metadata.pop(name)
+            else:
+                metadata[name] = value
+            self.plan.write_text(json.dumps(plan), encoding="utf-8")
+            with self.subTest(name=name), self.assertRaisesRegex(InvalidReport, "Assessment Plan"):
+                self.export(bundle)
+            self.assertFalse(self.output.exists())
+
+    def test_control_id_must_be_an_oscal_token(self):
+        bundle = self.issue()
+        mapping_bytes, plan_bytes = self.mapping.read_bytes(), self.plan.read_bytes()
+        for bad_id in (b"1-delete", b"demo:delete"):
+            for path, original in ((self.mapping, mapping_bytes), (self.plan, plan_bytes)):
+                path.write_bytes(original.replace(b"demo-erase", bad_id))
+                with self.subTest(path=path.name, control_id=bad_id), self.assertRaisesRegex(InvalidReport, "control ID"):
+                    self.export(bundle)
+                self.assertFalse(self.output.exists())
+                path.write_bytes(original)
+
+    def test_mapping_applicability_must_be_an_oscal_string(self):
+        bundle = self.issue()
+        mapping = json.loads(self.mapping.read_bytes())
+        mapping["supports"][0]["applicability"] += " "
+        self.mapping.write_text(json.dumps(mapping), encoding="utf-8")
+        with self.assertRaisesRegex(InvalidReport, "surrounding whitespace"):
             self.export(bundle)
         self.assertFalse(self.output.exists())
 

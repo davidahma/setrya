@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import re
 from urllib.parse import quote, urlsplit
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from setrya import __version__
 from setrya.core.control_references import REFERENCE
@@ -15,13 +15,14 @@ from setrya.receipt_format import MAX_BUNDLE_FILE_BYTES, RECEIPT
 
 from .exchange import MANIFEST
 from .handoff import verify_handoff
-from .profiles import fields, sha
+from .profiles import fields, sha, stamp
 
 
 VERSION = "1.2.0"
 MAPPING_FORMAT = "setrya.control-mapping.v1"
 NAMESPACE = "https://github.com/davidahma/setrya"
-CONTROL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}")
+CONTROL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,95}")
+PLAN_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", re.I)
 CHECKS = frozenset((
     "synthetic-erasure", "artifact-delete", "artifact-preserve", "artifact-rewrite",
     "endpoint-read", "store-scan", "write-back", "read-only-observation", "vendor-conformance",
@@ -49,7 +50,8 @@ def _read_mapping(path):
         require(all(_label(label) for label in labels_for_id), "Expected bounded framework, edition and control labels.")
         applicability = row["applicability"]
         require(isinstance(applicability, str) and 0 < len(applicability) <= 700
-                and applicability.strip() and applicability.isprintable(), "Expected a short mapping applicability statement.")
+                and applicability == applicability.strip() and applicability.isprintable(),
+                "Expected a short mapping applicability statement without surrounding whitespace.")
         source = row["source"]
         require(isinstance(source, str) and 0 < len(source) <= 1024 and source.isascii()
                 and all(33 <= ord(character) <= 126 for character in source), "Expected an HTTPS source citation.")
@@ -83,13 +85,15 @@ def _read_plan(path):
     plan = document["assessment-plan"]
     require(isinstance(plan, dict), "Expected an OSCAL Assessment Plan.")
     uuid, metadata, ssp, reviewed = (plan.get(name) for name in ("uuid", "metadata", "import-ssp", "reviewed-controls"))
-    try:
-        valid_uuid = isinstance(uuid, str) and str(UUID(uuid)) == uuid
-    except ValueError:
-        valid_uuid = False
-    require(valid_uuid and isinstance(metadata, dict) and metadata.get("oscal-version") == VERSION
+    require(_label(uuid, PLAN_UUID) and isinstance(metadata, dict) and metadata.get("oscal-version") == VERSION
             and isinstance(ssp, dict) and isinstance(ssp.get("href"), str) and ssp["href"].strip()
             and isinstance(reviewed, dict), f"Expected an OSCAL {VERSION} Assessment Plan with an SSP reference.")
+    require(all(isinstance(metadata.get(field), str) and metadata[field].strip() for field in ("title", "version")),
+            "The Assessment Plan metadata needs a title and version.")
+    try:
+        stamp(metadata.get("last-modified"))
+    except ValueError:
+        raise InvalidReport("The Assessment Plan last-modified time must include a timezone.") from None
     selections = reviewed.get("control-selections")
     require(isinstance(selections, list) and 0 < len(selections) <= 128,
             "The Assessment Plan must explicitly select the controls in scope.")
@@ -145,6 +149,8 @@ def _checks(verified):
              "failing-surfaces": statuses.count("FAIL"), "untested-surfaces": statuses.count("NOT TESTED")},
         )}
     checks = {"synthetic-erasure": ("Recorded result of a synthetic erasure drill.", verdict_ref, {})}
+    if data["erased"] is not True:
+        return checks
     artifacts = receipt["artifact_checks"]
     for action in ("delete", "preserve", "rewrite"):
         declared = [item for item in artifacts if item["action"] == action]
