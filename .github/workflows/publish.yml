@@ -187,8 +187,11 @@ jobs:
           if test -f "$GITHUB_WORKSPACE/tests/test_erasure_typescript_starter.py"; then
             public-install/bin/python -m pip --isolated install --index-url https://pypi.org/simple "setrya[typescript,case-yaml]==$VERSION"
             public-install/bin/setrya init --stack typescript --output demo-ts
-            public-install/bin/setrya discovery copy-scan demo-ts --language typescript > copy-scan.txt
+            code=0
+            public-install/bin/setrya discovery copy-scan demo-ts --language typescript > copy-scan.txt || code=$?
+            test "$code" = 3
             grep -F 'node:sqlite.StatementSync.run' copy-scan.txt
+            grep -F 'Coverage unknown' copy-scan.txt
             public-install/bin/python -m unittest discover -s "$GITHUB_WORKSPACE/tests" -p test_erasure_typescript_starter.py -v
             echo "$RUNNER_TEMP/public-install/bin" >> "$GITHUB_PATH"
           fi
@@ -222,6 +225,6 @@ jobs:
           VERDICT: ${{ steps.typescript_scan.outputs.exit-code }}
         run: |
           test "$VERDICT" = 3
-          jq -e '.languages == ["typescript"]
-                 and .review_required == 3
+          jq -e '.languages == ["typescript", "javascript"]
+                 and .review_required == 3 and .coverage.unknown_sources == 1
                  and all(.sites[]; .operation == "node:sqlite.StatementSync.run")' typescript-copy-sites.json

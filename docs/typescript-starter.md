@@ -27,6 +27,8 @@ python -m pip install 'setrya[typescript]'
 setrya discovery copy-scan ts-fixture --language typescript
 ```
 
+The report also flags the fixture's filesystem import without a recognized write and the Python launcher outside the selected language. It exits 3 so a reviewer sees both advisory gaps and the detected SQLite writes.
+
 ## Use the case with your application
 
 Start with the generated `case.yml`. Bind the answer and erasure routes to a disposable deployment, declare the exact store keys to erase and retain, and supply test credentials through the named environment variables. Use a test fact whose previous and expected answers you can verify. Run the ordinary HTTP case against those bindings.

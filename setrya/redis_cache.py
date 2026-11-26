@@ -49,10 +49,12 @@ local function remove_answer(id)
     local key = prefix .. 'answer:' .. id
     local stored = redis.call('HMGET', key, 'docs', 'id')
     if not stored[1] then return false end
-    for _, doc in ipairs(cjson.decode(stored[1])) do
+    local docs = cjson.decode(stored[1])
+    -- Retire the answer before forgetting any path used to find it on retry.
+    redis.call('DEL', key)
+    for _, doc in ipairs(docs) do
         redis.call('ZREM', prefix .. 'doc:' .. doc, id .. '/' .. stored[2])
     end
-    redis.call('DEL', key)
     return true
 end
 """
@@ -128,22 +130,25 @@ remove_answer(id)
 local key = prefix .. 'answer:' .. id
 local ttl = tonumber(ARGV[9])
 local now = now_ms()
-redis.call('HSET', key, 'data', ARGV[8], 'id', fill[1], 'docs', ARGV[7], 'verified', verified)
-redis.call('PEXPIRE', key, ttl)
 for _, doc in ipairs(docs) do index(prefix .. 'doc:' .. doc, id .. '/' .. fill[1], ttl, now) end
 index_scopes(id, ttl, now)
 local a, r = scopes(id)
 keep_for(a .. ':version', ttl)
 keep_for(r .. ':version', ttl)
+-- Make the answer readable only after it has reverse indices and a TTL.
+redis.call('HSET', key, 'id', fill[1], 'docs', ARGV[7], 'verified', verified)
+redis.call('PEXPIRE', key, ttl)
+redis.call('HSET', key, 'data', ARGV[8])
 return 1
 """
 
 _WAIT = """
 local id = ARGV[1]
 local answer = prefix .. 'answer:' .. id
-if redis.call('HGET', answer, 'id') == ARGV[2] then
-    if ARGV[3] == '1' and redis.call('HGET', answer, 'verified') ~= '1' then return {'gone'} end
-    return {'hit', redis.call('HGET', answer, 'data')}
+local item = redis.call('HMGET', answer, 'id', 'data', 'verified')
+if item[1] == ARGV[2] and item[2] then
+    if ARGV[3] == '1' and item[3] ~= '1' then return {'gone'} end
+    return {'hit', item[2]}
 end
 local lease = redis.call('GET', prefix .. 'lease:' .. id)
 if lease and cjson.decode(lease)[1] == ARGV[2] then return {'pending'} end
@@ -152,10 +157,8 @@ return {'gone'}
 
 _INVALIDATE_DOCUMENT = """
 local doc, ttl = ARGV[1], tonumber(ARGV[2])
-if ARGV[3] then
-    if redis.call('HGET', prefix .. 'revisions', doc) == ARGV[3] then return 0 end
-    redis.call('HSET', prefix .. 'revisions', doc, ARGV[3])
-end
+local revisions = prefix .. 'revisions'
+if ARGV[3] and redis.call('HGET', revisions, doc) == ARGV[3] then return 0 end
 local clock = prefix .. 'doc-clock'
 local epoch = redis.call('INCR', clock)
 redis.call('PEXPIRE', clock, ttl * 2)
@@ -170,6 +173,8 @@ for _, member in ipairs(redis.call('ZRANGE', idx, 0, -1)) do
     end
 end
 redis.call('DEL', idx)
+-- The revision also marks successful retirement for idempotent retries.
+if ARGV[3] then redis.call('HSET', revisions, doc, ARGV[3]) end
 return count
 """
 

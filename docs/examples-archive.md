@@ -8,11 +8,11 @@ Start in the root of your GitHub repository with Python 3.11+ on macOS or Linux.
 git switch -c try-setrya
 python3 -m venv .venv-setrya
 . .venv-setrya/bin/activate
-python -m pip install setrya==1.17.0
+python -m pip install setrya==1.18.0
 setrya init --output setrya-case
 setrya doctor --starter setrya-case/test_erasure.py --mode deletion
 mkdir -p .github/workflows
-curl -fsSL https://github.com/davidahma/setrya/releases/download/v1.17.0/setrya-quickstart.yml -o .github/workflows/setrya.yml
+curl -fsSL https://github.com/davidahma/setrya/releases/download/v1.18.0/setrya-quickstart.yml -o .github/workflows/setrya.yml
 git add setrya-case/test_erasure.py .github/workflows/setrya.yml
 git commit -m "Run the Setrya deletion check on pull requests"
 git push -u origin HEAD
@@ -37,7 +37,7 @@ For example, seed a test customer’s depot code and a team dispatch day. Have `
 To see a stale write-back locally, run the bundled workspace demo. Two teammates reopen the same handoff after a customer asks for deletion.
 
 ```sh
-python -m pip install setrya==1.17.0
+python -m pip install setrya==1.18.0
 setrya demo --output workspace
 setrya replay workspace/guarded
 ```

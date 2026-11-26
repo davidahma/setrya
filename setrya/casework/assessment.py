@@ -44,7 +44,9 @@ _COPY_CHECKS = {"setrya.copy-scan.v1", "setrya.copy-review.v1"}
 
 
 def _check_languages(kind, languages):
-    require(kind in _COPY_CHECKS and languages in (["typescript"], ["python", "typescript"]),
+    require(kind in _COPY_CHECKS and languages in (
+        ["typescript"], ["python", "typescript"], ["typescript", "javascript"], ["python", "typescript", "javascript"],
+    ),
             "Invalid copy-check language scope.")
 
 
@@ -101,6 +103,23 @@ def _check(path, commit, *, detailed=False):
     if "languages" in data:
         _check_languages(kind, data["languages"])
         result["languages"] = data["languages"]
+    if kind in _COPY_CHECKS and "coverage" in data:
+        coverage = data["coverage"]
+        fields(coverage, "status unknown_sources unresolved skipped_extensions")
+        unknown = coverage["unknown_sources"]
+        require(type(unknown) is int and 0 <= unknown <= 16_384
+                and coverage["status"] == ("unknown" if unknown else "scanned"),
+                "Invalid copy-check coverage status.")
+        unresolved = _listed(coverage["unresolved"], 24, "unresolved source samples")
+        skipped = _listed(coverage["skipped_extensions"], 100, "skipped extensions")
+        for group in skipped:
+            fields(group, "extension count paths source")
+            require(type(group["source"]) is bool and type(group["count"]) is int
+                    and 0 < group["count"] <= 16_384, "Invalid skipped source count.")
+        require(unknown >= len(unresolved) + sum(group["count"] for group in skipped if group["source"]),
+                "Copy-check coverage count differs from the reported sources.")
+        if unknown:
+            result["unknown_sources"] = unknown
     if detailed:
         result["scope_ids"] = sorted({identity for row in rows if (identity := _check_scope(kind, row)) is not None})
     return result
@@ -190,12 +209,15 @@ def _validate(result):
         check_digests = set()
         for row in _listed(repo["checks"], 8, "checks per repository"):
             fields(row, "kind input_sha256 report_sha256 entries gaps commit_binding" + (" scope_ids" if detailed else ""),
-                   ("languages",))
+                   ("languages", "unknown_sources"))
             require(row["kind"] in _CHECKS and row["commit_binding"] in ("reported", "unbound")
                     and type(row["entries"]) is int and type(row["gaps"]) is int
                     and 0 <= row["gaps"] <= row["entries"] <= 4096, "Invalid assessment coverage record.")
             if "languages" in row:
                 _check_languages(row["kind"], row["languages"])
+            if "unknown_sources" in row:
+                require(row["kind"] in _COPY_CHECKS and type(row["unknown_sources"]) is int
+                        and 0 < row["unknown_sources"] <= 16_384, "Invalid assessment unknown source count.")
             _hash(row["input_sha256"])
             _hash(row["report_sha256"])
             if detailed:
@@ -255,13 +277,16 @@ def _summary(result):
             label = {"setrya.copy-scan.v1": "Copy inventory", "setrya.copy-review.v1": "Copy review",
                      "setrya.route-coverage.v1": "Route coverage", "journal-coverage": "Journal coverage"}[check["kind"]]
             if "languages" in check:
-                language = "Python and TypeScript" if "python" in check["languages"] else "TypeScript"
+                labels = {"python": "Python", "typescript": "TypeScript", "javascript": "JavaScript"}
+                language = ", ".join(labels[item] for item in check["languages"])
                 label += f" ({language})"
             if check["entries"]:
                 lines.append(f"- {label} — {check['gaps']} of {check['entries']} supplied "
                              "entries need review or evidence.")
             else:
                 lines.append(f"- {label} — no entries supplied by this input.")
+            if check.get("unknown_sources"):
+                lines.append(f"- {label} — coverage unknown for {check['unknown_sources']} source file(s).")
         if not repo["checks"]:
             lines.append("- Coverage — no scans or coverage checks supplied.")
         lines.append("")

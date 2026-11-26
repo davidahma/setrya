@@ -612,6 +612,7 @@
               "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
             },
             "setrya_version": { "type": "string", "pattern": "^[A-Za-z0-9.+_-]{1,80}$" },
+            "fixture_setup": { "$ref": "#/$defs/sha256" },
             "rerun_of": { "$ref": "#/$defs/sha256" }
           },
           "required": ["operator", "run_id", "setrya_version"],

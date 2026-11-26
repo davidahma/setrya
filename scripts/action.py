@@ -21,17 +21,23 @@ COPY_LABELS = {
     "vector": ("vector store", "vector-index"), "cache": ("cache", "redis-answer-cache"),
     "memory": ("agent memory", "agent-memory"), "model-state": ("stateful model", "provider-conversation"),
     "trace": ("trace export", "trace-store"),
-    "database": ("database write", "sqlite-records"),
+    "database": ("database write", "database-records"),
 }
 COPY_WRITERS = {
     "celery": "Celery task", "rq": "RQ job", "dramatiq": "Dramatiq actor", "asyncio": "asyncio task or callback",
     "retry": "retry decorator", "temporal": "Temporal activity", "langmem": "LangMem reflection",
     "crewai": "CrewAI background memory save",
     "timer": "Node timer callback", "bullmq": "BullMQ worker",
+    "thread": "Python thread or thread pool", "thread-timer": "Python thread timer",
 }
 COPY_ROWS = 10
 COPY_SCAN_ERROR = "error"
 COPY_SCAN_ERROR_DETAILS = "**Setrya copy scan · ERROR**\n\nNo copy review is available for this commit. See the workflow run."
+COPY_LANGUAGES = {
+    ("python",): "Python", ("typescript",): "TypeScript", ("python", "typescript"): "Python and TypeScript",
+    ("typescript", "javascript"): "TypeScript and JavaScript",
+    ("python", "typescript", "javascript"): "Python, TypeScript and JavaScript",
+}
 # Keep the write-token job independent of the installed package and untrusted checkout.
 WRITE_BACK = "Stale write-back: the worker turn at journal entry {entry} wrote a copy captured before deletion."
 MAX_JOURNAL_OBSERVATIONS = 16384
@@ -204,7 +210,10 @@ def copy_signals(report):
             rows.append(item)
     signals = [len(pending), rows, report["map_changed"]]
     background = sum("writer" in row for row in pending)
-    if "languages" in report:
+    unknown = report.get("coverage", {}).get("unknown_sources", 0)
+    if unknown:
+        signals.extend((background, report.get("languages", ["python"]), unknown))
+    elif "languages" in report:
         signals.extend((background, report["languages"]))
     elif background:
         signals.append(background)
@@ -216,24 +225,31 @@ def copy_details(encoded):
     if not encoded or len(encoded) > 4096:
         raise ValueError("invalid copy-site summary")
     data = json.loads(encoded)
-    if (type(data) is not list or len(data) not in (3, 4, 5) or type(data[0]) is not int or not 0 <= data[0] <= 512
+    if (type(data) is not list or len(data) not in (3, 4, 5, 6) or type(data[0]) is not int or not 0 <= data[0] <= 512
             or type(data[1]) is not list or len(data[1]) > min(data[0], COPY_ROWS) or type(data[2]) is not bool):
         raise ValueError("invalid copy-site summary")
     count, rows, map_changed = data[:3]
     background = data[3] if len(data) >= 4 else 0
     if type(background) is not int or not 0 <= background <= count:
         raise ValueError("invalid deferred writer count")
-    if not count:
+    unknown = data[5] if len(data) == 6 else 0
+    if type(unknown) is not int or not 0 <= unknown <= 16_384:
+        raise ValueError("invalid unknown source count")
+    if unknown and not count:
+        lines = ["**Setrya copy scan · Coverage unknown**", ""]
+    elif not count:
         lines = ["**Setrya copy scan · No new copy sites requiring review within scan scope**"]
     else:
         lines = [f"**Setrya copy scan · {count} possible copy site(s) need review**", ""]
-    if len(data) == 5:
+    if len(data) >= 5:
         scope = data[4]
-        if scope not in (["typescript"], ["python", "typescript"]):
+        if not isinstance(scope, list) or scope not in [list(key) for key in COPY_LANGUAGES]:
             raise ValueError("invalid copy-site language scope")
-        lines += [f"Scanned {'Python and TypeScript' if 'python' in scope else 'TypeScript'}.", ""]
+        lines += [f"Scanned {COPY_LANGUAGES[tuple(scope)]}.", ""]
     else:
         lines += ["Scanned Python.", ""]
+    if unknown:
+        lines += [f"Coverage unknown for {unknown} source file(s). See the JSON report for skipped files and unresolved writes.", ""]
     if background:
         lines += ["This PR adds a potential background writer for customer data. Hold it across a deletion.", ""]
     shown_writers = 0
@@ -262,7 +278,8 @@ def copy_details(encoded):
     if map_changed:
         lines += ["", "This PR changes the copy mapping. Review the proposed bindings."]
     if rows:
-        test = ("setrya-case/case.yml" if len(rows[0]) == 4 and rows[0][0].endswith((".ts", ".tsx", ".mts", ".cts"))
+        test = ("setrya-case/case.yml" if len(rows[0]) == 4 and rows[0][0].endswith(
+            (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"))
                 else "setrya-case/test_erasure.py")
         starter = {"format": "setrya.copy-site-mapping.v1", "sites": [
             {"site_id": rows[0][3], "store": COPY_LABELS[rows[0][2]][1],
@@ -276,7 +293,7 @@ def copy_details(encoded):
 def copy_scan():
     require_version()
     from setrya.core.inputs import publish_new
-    from setrya.discovery.copy_sites import check
+    from setrya.discovery.copy_sites import check, review_needed
 
     base, candidate = os.environ["SETRYA_COPY_BASE"], os.environ["SETRYA_COPY_CANDIDATE"]
     if not all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in (base, candidate)):
@@ -291,7 +308,7 @@ def copy_scan():
         append("GITHUB_STEP_SUMMARY", COPY_SCAN_ERROR_DETAILS)
         return 2
     encoded = json.dumps(copy_signals(report), separators=(",", ":"))
-    append("GITHUB_OUTPUT", f"exit-code={3 if report['review_required'] else 0}\ncopy-summary={encoded}")
+    append("GITHUB_OUTPUT", f"exit-code={3 if review_needed(report) else 0}\ncopy-summary={encoded}")
     append("GITHUB_STEP_SUMMARY", copy_details(encoded))
     # A copy site is a review lead. The advisory check can be gated by the caller.
     return 0

@@ -56,7 +56,7 @@ follow_up="2020-01-02"
     def follow(self, source, name, **kwargs):
         return recheck(self.p/source, output=self.p/name, journal=self.journal, inventory_file=self.mapping, **kwargs)
 
-    def test_exchange_requires_sequential_observer_snapshots(self):
+    def test_issue_and_exchange_require_sequential_observer_snapshots(self):
         from setrya.casework import exchange
         from setrya.casework.profiles import EVIDENCE, OBSERVED, issue
 
@@ -74,14 +74,15 @@ follow_up="2020-01-02"
                 }}
                 folder, output = self.p / lane, self.p / f"{lane}-exchange"
                 folder.mkdir()
-                original = issue(OBSERVED, evidence, folder)
-                self.assertEqual(replay(folder), original)
                 options = {"output": output, "system": "test-app", "version": "1"}
                 if lane == "overlap":
                     with self.assertRaisesRegex(InvalidReport, "second journal snapshot"):
-                        exchange.pack(folder, **options)
+                        issue(OBSERVED, evidence, folder)
+                    self.assertFalse((folder / "erasure-receipt.json").exists())
                     self.assertFalse(output.exists())
                 else:
+                    original = issue(OBSERVED, evidence, folder)
+                    self.assertEqual(replay(folder), original)
                     with patch.object(exchange.signing, "sign_bytes", side_effect=lambda raw, path, **_: path.touch()):
                         manifest = exchange.pack(folder, **options)
                     self.assertEqual(manifest["technical_verdict"], "PASS")

@@ -233,6 +233,38 @@ class RedisCacheTests(unittest.TestCase):
 
 @unittest.skipUnless(URL, "set SETRYA_REDIS_URL to exercise the Redis integration")
 class RedisRevisionRegistryTests(unittest.TestCase):
+    def test_revision_retry_preserves_new_answer_and_all_reverse_dependencies(self):
+        from redis import Redis
+
+        with Redis.from_url(URL) as client:
+            namespace = uuid4().hex
+            cache = RedisAnswerCache(client, namespace=namespace, require_current_sources=True)
+            guide_key = CacheKey("org", "alice", "policy", "guide-only")
+            current = passage_metadata("policy", "B", "one")
+            try:
+                cache.set_document_revision(KEY.tenant, "policy", "A")
+                cache.set_document_revision(KEY.tenant, "guide", "B")
+                original = cache.fill(KEY, lambda: [POLICY, GUIDE], lambda _: "old joint answer")
+                guide = cache.fill(guide_key, lambda: [GUIDE], lambda _: "guide only")
+                pending = cache.begin(KEY)
+
+                self.assertEqual(cache.set_document_revision(KEY.tenant, "policy", "B"), 1)
+                self.assertIsNone(cache.get(KEY))
+                self.assertFalse(cache.publish(pending, "prior fill", chunks=[current, GUIDE]))
+                self.assertEqual(cache.get(guide_key), guide)
+
+                replacement = cache.fill(KEY, lambda: [current, GUIDE], lambda _: "new joint answer")
+                self.assertNotEqual(replacement.dependencies.answer_id, original.dependencies.answer_id)
+                self.assertEqual(cache.set_document_revision(KEY.tenant, "policy", "B"), 0)
+                self.assertEqual(cache.get(KEY), replacement)
+                self.assertEqual(cache.invalidate_document(KEY.tenant, "guide"), 2)
+                self.assertIsNone(cache.get(KEY))
+                self.assertIsNone(cache.get(guide_key))
+            finally:
+                keys = list(client.scan_iter(match=f"setrya:cache:v1:{namespace}:*"))
+                if keys:
+                    client.unlink(*keys)
+
     def test_strict_cross_process_authority_and_scoped_erasure(self):
         from redis import Redis
         from setrya.erasure.cache import SubjectAnswerCacheAdapter

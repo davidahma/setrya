@@ -1,3 +1,4 @@
+from base64 import b64encode
 from copy import deepcopy
 from importlib.metadata import PackageNotFoundError, version
 import json
@@ -21,8 +22,9 @@ from setrya.offboarding.inputs import InvalidReport
 from setrya.receipt_format import RECEIPT
 from setrya.receipts import replay
 from setrya.vendor import cli as vendor_cli
-from setrya.vendor import fixtures, report
+from setrya.vendor import _setup, fixtures, report
 from setrya.vendor._mem0 import observation
+from setrya.vendor._setup import fingerprint, recorded_fingerprint
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -115,7 +117,7 @@ def test_execution_metadata_is_replayed_and_legacy_operator_stays_unknown(tmp_pa
 
 @pytest.mark.parametrize("fields", [
     {"operator": "Vendor-CI"}, {"run_id": "run"}, {"operator": None, "rerun_of": "a" * 64},
-    {"rerun_of": "invalid"}, {"classification": "independently-run"}, {"setrya_version": ""},
+    {"rerun_of": "invalid"}, {"classification": "independently-run"}, {"setrya_version": ""}, {"fixture_setup": "v1"},
 ])
 def test_fixture_rejects_invalid_execution_claims(fields):
     execution = {"operator": "vendor-ci", "run_id": str(uuid4()), "setrya_version": setrya.__version__, **fields}
@@ -232,6 +234,7 @@ def test_signed_linked_rerun_and_original_self_check_have_distinct_review_scopes
     assert "Fixture verdict PASS · Setrya Verified status UNQUALIFIED" in reviewed
     assert reviewed.splitlines()[0] == "Rerun matches original"
     assert f"Fixture Setrya version {setrya.__version__}" in reviewed
+    assert f"Matched fixture setup SHA-256 {fingerprint('langgraph-store')}" in reviewed
     assert "Original recorded operator vendor-ci" in reviewed
     assert "Original technical verdict PASS · Review status OPEN_ITEMS" in reviewed
     assert "Rerun technical verdict PASS · Review status OPEN_ITEMS" in reviewed
@@ -312,24 +315,121 @@ def test_rerun_rejects_version_mismatch_before_execution(tmp_path, monkeypatch):
     assert not output.exists()
 
 
-def test_rerun_requires_detached_signing_before_execution(tmp_path, monkeypatch):
+def test_rerun_requires_an_original_signature_before_execution(tmp_path, monkeypatch):
     original, output = (tmp_path / name for name in ("original", "rerun"))
     execution = {"operator": "vendor-ci", "run_id": str(uuid4()), "setrya_version": setrya.__version__}
     profiles.issue(profiles.VENDOR, {**observations(), "execution": execution}, original)
-    (original / "sigstore.json").write_text("{}", encoding="utf-8")
 
     def unexpected(*args, **kwargs):
         pytest.fail("the incompatible signing policy reached fixture execution or signing")
 
     monkeypatch.setattr(vendor_cli, "_sign_evidence", unexpected)
-    with pytest.raises(InvalidReport, match="original with a detached Cosign signature"):
+    with pytest.raises(InvalidReport, match="original with a detached or keyless Cosign signature"):
         vendor_cli.run_and_sign("langgraph-store", output, key=tmp_path / "rerun.key",
                                 operator="independent-lab", rerun_of=original)
+    assert not output.exists()
 
-    (original / "conformance.sig").write_text("signature", encoding="utf-8")
-    with pytest.raises(vendor_cli.InputError, match="detached Cosign signing key for a linked rerun"):
+
+def test_fixture_setup_is_target_scoped_and_maps_published_legacy_releases(monkeypatch):
+    setups = {target: fingerprint(target) for target in report.TARGETS}
+    assert len(set(setups.values())) == len(report.TARGETS)
+    for release in ("1.13.0", "1.15.0", "1.16.0", "1.17.0"):
+        for target in setups:
+            # A known legacy setup retains its original ID when a newer fixture changes.
+            assert len(recorded_fingerprint(target, {"setrya_version": release})) == 64
+    legacy = recorded_fingerprint("langgraph-store", {"setrya_version": "1.13.0"})
+    monkeypatch.setitem(_setup._FIXTURE_CODE, "langgraph-store", (observations,))
+    assert fingerprint("langgraph-store") != setups["langgraph-store"]
+    assert fingerprint("pgvector") == setups["pgvector"]
+    assert recorded_fingerprint("langgraph-store", {"setrya_version": "1.13.0"}) == legacy
+    assert recorded_fingerprint("langgraph-store", {"setrya_version": "1.12.0"}) is None
+    assert recorded_fingerprint("langgraph-store", {"setrya_version": "99.0.0",
+                                                    "fixture_setup": setups["langgraph-store"]}) == setups["langgraph-store"]
+
+
+def test_rerun_rejects_changed_fixture_setup_even_with_equal_package_version(tmp_path, monkeypatch):
+    original, output = (tmp_path / name for name in ("original", "rerun"))
+    execution = {"operator": "vendor-ci", "run_id": str(uuid4()), "setrya_version": setrya.__version__,
+                 "fixture_setup": "a" * 64}
+    profiles.issue(profiles.VENDOR, {**observations(), "execution": execution}, original)
+    (original / "conformance.sig").write_bytes(b"signature")
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("the incompatible setup reached fixture execution or signing")
+
+    monkeypatch.setattr(vendor_cli, "run_fixture", unexpected)
+    monkeypatch.setattr(vendor_cli, "_sign_evidence", unexpected)
+    with pytest.raises(InvalidReport, match="same fixture setup fingerprint"):
         vendor_cli.run_and_sign("langgraph-store", output, key=None, operator="independent-lab", rerun_of=original)
     assert not output.exists()
+
+
+@pytest.mark.parametrize(("original_keyless", "rerun_keyless"), ((True, False), (False, True), (True, True)))
+def test_paired_rerun_uses_independent_trust_on_either_side(tmp_path, monkeypatch, capsys,
+                                                       original_keyless, rerun_keyless):
+    original, rerun = (tmp_path / name for name in ("original", "rerun"))
+    issuer = "https://token.actions.githubusercontent.com"
+    trusted = tmp_path / "root.json"
+    trusted.write_bytes(b"trusted root")
+
+    def signer(label, keyless):
+        if keyless:
+            identity = f"https://github.com/example/{label}/.github/workflows/check.yml@refs/heads/main"
+            return None, {"identity": identity, "issuer": issuer, "trusted_root": trusted}, identity.encode()
+        private = tmp_path / (label + ".key")
+        private.write_bytes(label.encode())
+        public = private.with_suffix(".pub")
+        # The secure verifier hashes the original DER and supplies a local
+        # snapshot of independently configured public-key bytes.
+        public.write_bytes(b"-----BEGIN PUBLIC KEY-----\n" + b64encode(label.encode()) + b"\n-----END PUBLIC KEY-----\n")
+        return private, {"key": public}, public.read_bytes()
+
+    _, before_policy, before_signer = signer("vendor-ops", original_keyless)
+    after_key, after_policy, after_signer = signer("review-lab", rerun_keyless)
+
+    def sign(raw, output, *, key):
+        assert key == after_key
+        output.write_bytes(after_signer + raw)
+
+    def verify(raw, signature, *, key=None, identity=None, issuer=None, trusted_root=None):
+        principal = identity.encode() if key is None else key.read_bytes()
+        if key is None and (issuer != "https://token.actions.githubusercontent.com" or trusted_root != b"trusted root"):
+            raise InvalidReport("Wrong Sigstore trust")
+        if signature != principal + raw:
+            raise InvalidReport("Wrong test signer")
+
+    monkeypatch.setattr(signing, "sign_bytes", sign)
+    monkeypatch.setattr(signing, "verify_bytes", verify)
+    monkeypatch.setattr(vendor_cli, "run_fixture", lambda target: observations())
+    execution = {"operator": "vendor-ci", "run_id": str(uuid4()), "setrya_version": "1.13.0"}
+    profiles.issue(profiles.VENDOR, {**observations(), "execution": execution}, original)
+    signature = original / ("sigstore.json" if original_keyless else "conformance.sig")
+    signature.write_bytes(before_signer + (original / RECEIPT).read_bytes())
+
+    monkeypatch.setattr(vendor_cli, "__version__", "1.99.0")
+    vendor_cli.run_and_sign("langgraph-store", rerun, key=after_key, operator="independent-lab", rerun_of=original)
+
+    def arguments(policy, prefix=""):
+        return [item for name, value in policy.items() for item in (f"--{prefix}{name.replace('_', '-')}", str(value))]
+
+    cmd = ["review", str(rerun), *arguments(after_policy), "--against", str(original),
+           *arguments(before_policy, "against-"), "--expect-operator", "independent-lab"]
+    capsys.readouterr()
+    assert vendor_cli.command(cmd) == 0
+    review = capsys.readouterr().out
+    assert review.startswith("Rerun matches original")
+    assert "Original fixture Setrya version 1.13.0" in review
+    assert f"Matched fixture setup SHA-256 {fingerprint('langgraph-store')}" in review
+    assert review.count("Sigstore identity") == int(original_keyless) + int(rerun_keyless)
+    wrong = before_policy | ({"issuer": "https://different.example"} if original_keyless else {"key": trusted})
+    with pytest.raises(InvalidReport):
+        vendor_cli.command(["review", str(rerun), *arguments(after_policy), "--against", str(original),
+                           *arguments(wrong, "against-"), "--expect-operator", "independent-lab"])
+    if original_keyless and rerun_keyless:
+        (rerun / "sigstore.json").write_bytes(before_signer + (rerun / RECEIPT).read_bytes())
+        with pytest.raises(InvalidReport, match="distinct trusted signing keys or identities"):
+            vendor_cli.command(["review", str(rerun), *arguments(before_policy), "--against", str(original),
+                               *arguments(before_policy, "against-"), "--expect-operator", "independent-lab"])
 
 
 def test_signed_conformance_action_and_offline_verification(tmp_path, monkeypatch):

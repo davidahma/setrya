@@ -199,6 +199,21 @@ def build(output, scratch):
                   "detail": ["Conformance fixture · mem0 · recorded operator vector-fixture",
                              "Authentication applies to the exchange issuer.",
                              "Recorded versions mem0ai 1, qdrant-client 1", "FAIL · history"]})
+    provider = scratch / "provider-readback"
+    provider.mkdir()
+    issue(VENDOR, {
+        "target": "mem0-hosted-history", "observed_at": "2026-11-25T10:00:00+00:00",
+        "versions": {"api": "v1"}, "error": None,
+        "observations": {
+            "baseline": {"memory-history-content": {"target": True, "retained": True}},
+            "after_delete": {"memory-history-content": {"target": False, "retained": True}},
+        },
+        "readback": {"baseline_at": "2026-11-25T09:00:00+00:00", "scope_sha256": "a" * 64},
+    }, provider)
+    exchange.pack(provider, output=output / provider.name, key=key, system="synthetic-provider", version="v1")
+    cases.append({"name": provider.name, "code": None, "verdict": "PASS",
+                  "detail": ["Provider API readback", "Observed API scope SHA-256 " + "a" * 64,
+                             "PASS · memory-history-content", "NOT TESTED · provider-internals"]})
     record = _deployment_example(scratch)
     exchange.pack(scratch / "deployed", output=output / "deployed", key=key,
                   system="synthetic-support", version="1", synthetic=True)
@@ -235,6 +250,13 @@ def build(output, scratch):
         manifest = document(bundle / exchange.MANIFEST)
         manifest["files"] = {evidence_name: digest(bundle / evidence_name), exchange.RECEIPT: digest(receipt_file)}
         return manifest
+
+    archived = variant("legacy-provider-readback", None, source=provider.name, verdict="PASS")
+    manifest = document(archived / exchange.MANIFEST)
+    manifest["evidence_kind"] = "vendor-attestation"
+    del manifest["observation"]["first_checked_at"]
+    del manifest["vendor"]["scope_sha256"]
+    resign(archived, manifest)
 
     missing = variant("missing-file", "UNEXPECTED_FILES")
     (missing / exchange.OBSERVED_EVIDENCE).unlink()

@@ -1,4 +1,4 @@
-"""Attach verified drill or vendor evidence to a governance ticket."""
+"""Attach verified drill, vendor or provider evidence to a governance ticket."""
 
 import argparse
 from dataclasses import replace
@@ -30,14 +30,16 @@ def issue(output, key):
         exchange.pack(original, output=output, system="synthetic-support", version="1", synthetic=True, key=key)
 
 
-def attachment(bundle, key, *, ticket=None, framework=None, reference=None):
-    verified = verify_handoff(bundle, key=key)
+def attachment(bundle, key=None, *, ticket=None, framework=None, reference=None,
+               identity=None, issuer=None, trusted_root=None):
+    verified = verify_handoff(bundle, key=key, identity=identity, issuer=issuer, trusted_root=trusted_root)
     manifest = verified.manifest
     digest = manifest["files"][RECEIPT]
     kind = manifest["evidence_kind"]
-    if kind == "vendor-attestation":
+    external = kind in ("vendor-attestation", "provider-readback")
+    if external:
         require(all(isinstance(value, str) and value.strip() for value in (ticket, framework, reference)),
-                "Supply the ticket and its control mapping for a vendor attestation.")
+                "Supply the ticket and its control mapping for a vendor or provider result.")
         control = {"framework": framework, "reference": reference}
         source = "reviewer"
     else:
@@ -58,7 +60,7 @@ def attachment(bundle, key, *, ticket=None, framework=None, reference=None):
         "technical_verdict": manifest["technical_verdict"],
         "review_status": manifest["review_status"],
         "open_items": manifest["open_items"],
-        **({"vendor": manifest["vendor"]} if kind == "vendor-attestation" else {}),
+        **({"vendor": manifest["vendor"], "observation": manifest["observation"]} if external else {}),
     }
 
 
@@ -70,17 +72,21 @@ def main(argv=None):
     issuer.add_argument("--key", required=True, type=Path, help="issuer's Cosign private key")
     reviewer = commands.add_parser("review", help="verify the exchange and print a ticket attachment record")
     reviewer.add_argument("bundle", type=Path, help="the received exchange directory")
-    reviewer.add_argument("--key", required=True, type=Path, help="independently trusted Cosign public key")
-    reviewer.add_argument("--ticket", help="ticket ID for the vendor attestation")
-    reviewer.add_argument("--framework", help="ticket's control framework for the vendor attestation")
-    reviewer.add_argument("--control", help="ticket's control reference for the vendor attestation")
+    reviewer.add_argument("--key", type=Path, help="independently trusted Cosign public key")
+    reviewer.add_argument("--identity", help="expected Sigstore certificate identity")
+    reviewer.add_argument("--issuer", help="expected Sigstore OIDC issuer")
+    reviewer.add_argument("--trusted-root", type=Path, help="independently provisioned Sigstore trust root")
+    reviewer.add_argument("--ticket", help="ticket ID for the external evidence")
+    reviewer.add_argument("--framework", help="ticket's control framework for the external evidence")
+    reviewer.add_argument("--control", help="ticket's control reference for the external evidence")
     args = parser.parse_args(argv)
     try:
         if args.command == "issue":
             issue(args.output, args.key)
         else:
             print(json.dumps(attachment(args.bundle, args.key, ticket=args.ticket,
-                                        framework=args.framework, reference=args.control), indent=2))
+                                        framework=args.framework, reference=args.control, identity=args.identity,
+                                        issuer=args.issuer, trusted_root=args.trusted_root), indent=2))
     except (InvalidReport, OSError) as error:
         parser.exit(2, f"Governance handoff failed. {error}\n")
 

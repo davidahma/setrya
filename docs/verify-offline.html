@@ -238,7 +238,8 @@ const drillName = "erasure-evidence.json";
 
 function evidenceKind(document, receipt, evidence, file) {
   const observed = document.evidence_kind === "read-only-observation";
-  const vendor = document.evidence_kind === "vendor-attestation";
+  const provider = document.evidence_kind === "provider-readback";
+  const vendor = document.evidence_kind === "vendor-attestation" || provider;
   const observedKind = ["setrya.observed-deletion.v1", "setrya.observed-deletion.v1.1"];
   const drillKinds = ["setrya.erasure.evidence.v3", "setrya.erasure.evidence.v3.sampled",
     "setrya.erasure.evidence.v3.1", "setrya.erasure.evidence.v3.2", "setrya.erasure.evidence.v3.3"];
@@ -248,7 +249,8 @@ function evidenceKind(document, receipt, evidence, file) {
   demand(receipt?.format === "setrya.erasure.receipt.v3" && receipt.version === 3 && receipt.scope === document.scope &&
     receipt.evidence?.file === file && (recordsProducer ? receipt.evidence_format === format
       : !Object.hasOwn(receipt, "evidence_format")) &&
-    (vendor ? receipt.profile === "vendor-conformance" && !Object.hasOwn(evidence, "format")
+    (vendor ? receipt.profile === "vendor-conformance" && !Object.hasOwn(evidence, "format") &&
+        (!provider || Object.hasOwn(receipt, "readback"))
       : observed ? receipt.profile === "observed-deletion" && observedKind.includes(format)
         : !Object.hasOwn(receipt, "profile") && evidence.scope === "person" && drillKinds.includes(format)),
   "EVIDENCE_KIND_MISMATCH", "The original receipt or evidence belongs to a different evidence kind.");
@@ -377,17 +379,21 @@ function projection(document, receipt, evidence, observed) {
   "CLAIMS_MISMATCH", "The original receipt has missing or invalid producer provenance.");
   let stores;
   let routes;
-  if (document.evidence_kind === "vendor-attestation") {
+  const provider = document.evidence_kind === "provider-readback";
+  if (document.evidence_kind === "vendor-attestation" || provider) {
     stores = [];
     routes = [];
     const kind = Object.hasOwn(receipt, "readback") ? "api-readback" : "fixture";
     const checks = receipt.checks.map(row => ({surface: row.surface, status: row.status}));
     const vendor = {kind, checks, target: receipt.target, versions: receipt.versions,
-      ...(Object.hasOwn(receipt, "execution") ? {execution: receipt.execution} : {})};
+      ...(Object.hasOwn(receipt, "execution") ? {execution: receipt.execution} : {}),
+      ...(provider ? {scope_sha256: receipt.readback.scope_sha256} : {})};
     demand(same(document.vendor, vendor) && last === instant(evidence.observed_at) &&
       receipt.target === evidence.target && same(receipt.versions, evidence.versions) &&
       same(receipt.execution, evidence.execution) && same(receipt.readback, evidence.readback) &&
-      receipt.certification === "UNQUALIFIED",
+      receipt.certification === "UNQUALIFIED" && (!provider ||
+        instant(document.observation.first_checked_at) === instant(receipt.readback.baseline_at) &&
+        instant(receipt.readback.baseline_at) <= last),
     "CLAIMS_MISMATCH", "The vendor target, timing, execution or surface outcomes differ from the original result.");
   } else if (observed) {
     stores = [...evidence.request.stores].sort();
@@ -543,6 +549,10 @@ async function verifyBundle(files, keyFile, pins = {}) {
       detail += "\n" + origin + " · " + vendor.target + " · recorded operator " + (vendor.execution?.operator ?? "unrecorded");
       detail += "\nAuthentication applies to the exchange issuer.";
       const versions = Object.keys(vendor.versions).sort().map(name => name + " " + vendor.versions[name]);
+      if (manifest.evidence_kind === "provider-readback") {
+        detail += "\nBaseline " + manifest.observation.first_checked_at +
+          "\nObserved API scope SHA-256 " + vendor.scope_sha256;
+      }
       if (versions.length) detail += "\nRecorded versions " + versions.join(", ");
       for (const row of vendor.checks) detail += "\n" + row.status + " · " + row.surface;
     }

@@ -321,7 +321,7 @@ def _open_at(name, mode, parent=None):
         os.close(fd)
 
 
-def _scan_sources(root, inspect, *, is_source, skip_directories, source_label):
+def _scan_sources(root, inspect, *, is_source, skip_directories, source_label, on_skip=None):
     found = []
     entries = files = size = 0
     report_bytes = 0
@@ -364,6 +364,8 @@ def _scan_sources(root, inspect, *, is_source, skip_directories, source_label):
                 report_bytes += sum(len(json.dumps(asdict(site))) for site in sites)
                 require(len(found) <= MAX_SOURCE_CANDIDATES, "Source scan exceeded its candidate limit.")
                 require(report_bytes <= MAX_SOURCE_CANDIDATE_BYTES, "Source scan exceeded its candidate byte limit.")
+            elif on_skip is not None and stat.S_ISREG(info.st_mode):
+                on_skip(display)
         require(before == _fingerprint(os.fstat(directory)), "Source directory changed during scan.")
 
     require(hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY"), "Source scan needs no-follow directory reads.")

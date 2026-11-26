@@ -8,9 +8,11 @@ setrya discovery copy-check --base origin/main --candidate HEAD \
   --output /tmp/setrya-copy-report.json
 ```
 
-`copy-scan` reads source in the selected directory. `copy-check` reads regular Git blobs for changed source files and compares the merge base with the candidate. It skips unchanged copy sites and reports new or modified calls. Both default to Python. Neither command executes application code or connects to stores. Choose fresh output paths. A copy check exits 3 when a site needs review, 2 when it cannot complete the scan, and 0 when there are no supported new sites needing review.
+`copy-scan` reads source in the selected directory. `copy-check` reads regular Git blobs for changed source files and compares the merge base with the candidate. It skips unchanged copy sites and reports new or modified calls. Both default to Python and run without executing application code or connecting to stores. Choose fresh output paths.
 
-## Scan TypeScript
+The report lists skipped files by extension and includes a bounded path sample for skipped source files. A recognized storage import with no matching write, an unresolved storage write, or skipped source in the selected directory or change set yields **Coverage unknown**. A read-only import can create an advisory. Inspect the file to decide whether it writes data. Both commands exit 3 for unknown coverage. `copy-check` also exits 3 when a new site needs review. A scan that cannot complete exits 2.
+
+## Scan TypeScript and JavaScript
 
 ```sh
 python -m pip install 'setrya[typescript]'
@@ -18,21 +20,21 @@ setrya discovery copy-scan . --language typescript
 setrya discovery copy-check --base origin/main --candidate HEAD --language typescript
 ```
 
-Use `--language all` for a mixed Python and TypeScript repository. The scanner uses Python wheels and requires neither Node nor npm. It reads `.ts`, `.tsx`, `.mts`, and `.cts` files, skips declaration files and the `node_modules`, `.next`, and `.turbo` directories, and does not load project configuration. The report and the PR summary identify the selected languages.
+Use `--language all` for a repository mixing Python and Node. The parser installs from Python wheels and runs without Node or npm. It reads `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs` and `.cjs` files. Declaration files and the `node_modules`, `.next` and `.turbo` directories are outside its write scan. It reads static ESM imports and CommonJS `require()` without loading project configuration.
 
-TypeScript rules recognize known imports and simple local aliases for Node file and SQLite writes, S3 uploads, Redis writes, Pinecone and Qdrant upserts, LangGraph and Mem0 memory, potentially stored OpenAI calls, and Langfuse and OpenTelemetry traces. SQLite coverage includes literal insert, replace and update statements passed to `DatabaseSync.prepare(...).run(...)`. The scan recognizes direct local callbacks passed to imported Node timers and BullMQ workers. Dynamic dispatch, external wrappers, and inter-file resolution are outside this scope. [Try the TypeScript starter](typescript-starter.md)
+Node rules recognize supported writes for files, SQLite, PostgreSQL, S3, Redis, vector stores, agent memory, stateful model calls and traces. SQL leads include supported literal writes and client operations through `pg`, postgres.js, Prisma, Drizzle and Kysely. SDK rules include known write calls for Vercel AI, Mastra, LangGraph, Mem0, Anthropic, Claude Agent SDK, Letta, Chroma, Supabase and Upstash Vector. The scan follows recognized clients through simple class fields and local arguments or type annotations. It flags some dynamic SQL as unknown. Cross-file dispatch and arbitrary wrappers require review. [Try the TypeScript starter](typescript-starter.md)
 
 ## Scan coverage
 
 The scan recognizes write-mode Python `open`, `pathlib.Path` writes and atomic moves, boto3 S3 uploads and Google Cloud Storage blob writes, Qdrant, Pinecone, Chroma, Elasticsearch and pgvector writes, Redis writes, LangGraph Store, Mem0, Graphiti, Zep and Letta memory calls, potentially stateful OpenAI and Bedrock Agent Runtime calls, and Langfuse and OpenTelemetry trace sites. The file, provider and PDF scanners share bounded AST parsing. The copy report contains static labels and hashed site IDs. It omits source snippets, storage keys and path literals from the call arguments.
 
-For pgvector, the scan looks for literal `INSERT` or `UPDATE` statements with vector type casts passed to `execute` or `executemany`. For Elasticsearch, it recognizes writes on known Python SDK clients and bulk helpers. It also checks `request` calls with a literal write verb and recognizable `/_doc`, `/_create` or `/_update` path, including simple formatted document IDs. Dynamically assembled SQL and arbitrary HTTP writes are outside these rules.
+For SQLite, psycopg and SQLAlchemy, the scan recognizes supported calls using literal insert, update, replace or merge statements. It also recognizes common SQLAlchemy ORM and statement-builder writes. Existing pgvector checks recognize literal vector casts on insert or update. For Elasticsearch, it recognizes known clients and bulk helpers, including `request` calls with a literal verb and recognizable document-write path. Dynamically assembled SQL on a recognized database client can yield unknown coverage.
 
 The scan recognizes known SDK constructors and simple aliases. It does not follow dispatch through arbitrary wrappers, configuration, generated code or dynamic receivers. A candidate means the source has a supported call that might make a copy. The scan cannot determine whether it runs or whether its input contains customer data.
 
 ## Prioritize background writers
 
-The report lists deferred writes first and identifies the writer in the `writer` field. The scan recognizes decorated Celery, RQ, Dramatiq and Temporal tasks, functions with supported retry decorators, and local callbacks handed to an RQ queue or scheduled with `asyncio`. It also recognizes LangMem's `ReflectionExecutor.submit` and CrewAI's `Memory.remember_many` background saves. Detection follows simple aliases and calls between functions defined in the same Python file.
+The report lists deferred writes first and identifies the writer in the `writer` field. Python checks include decorated Celery, RQ, Dramatiq and Temporal tasks, supported retry decorators, and callbacks scheduled with `asyncio`, `threading.Thread`, `threading.Timer`, or `ThreadPoolExecutor.submit`. They also recognize LangMem's `ReflectionExecutor.submit` and CrewAI's `Memory.remember_many`. Node checks include direct local callbacks passed to BullMQ, imported timers, unshadowed `setTimeout`, `setImmediate`, `queueMicrotask` and `process.nextTick`.
 
 For these sites, the PR advisory asks you to hold the writer across deletion. The suggested mapping includes `mode: late-write`, the evidence value for the CLI's `--mode write-back`. Closing a deferred site with an approved mapping requires a passing receipt from an exercised write-back check. A deletion-only receipt leaves the site open. [Why deleted data comes back](write-back.md)
 
@@ -60,10 +62,10 @@ The suggested TypeScript YAML path lets the reviewer find the HTTP case and repl
 
 ## Run it in a pull request
 
-[Download the release workflow](https://github.com/davidahma/setrya/releases/download/v1.17.0/setrya-copy-quickstart.yml) and save it under `.github/workflows/` in your repository. A read-only job with full Git history calls the SHA-pinned Setrya Action with `operation: copy-scan` and the event's base and candidate commits. It publishes a JSON report and a job summary. The scan is advisory in the Action. The `exit-code` output is 3 for sites needing review while the step succeeds. A scan error fails the step.
+[Download the release workflow](https://github.com/davidahma/setrya/releases/download/v1.18.0/setrya-copy-quickstart.yml) and save it under `.github/workflows/` in your repository. A read-only job with full Git history calls the SHA-pinned Setrya Action with `operation: copy-scan` and the event's base and candidate commits. It publishes a JSON report and a job summary. The advisory step succeeds and sets `exit-code` to 3 when sites need review or coverage is unknown. A scan error fails the step.
 
 A separate job can post the bounded summary with `operation: copy-comment` and `pull-requests: write`. Use this job on same-repository PRs, without a repository checkout or an application test step. It updates one copy review comment, including when the scan fails, and skips superseded PR commits. Fork PRs can read the workflow run and any published report. The JSON report includes sites omitted from the bounded comment and a starter mapping per site.
 
-For TypeScript, set `copy-language: typescript` under the **scan** step's `with` inputs and install `'setrya[typescript]==1.17.0'` in that job. Use `copy-language: all` for mixed repositories. Keep the comment job separate.
+For TypeScript, set `copy-language: typescript` under the **scan** step's `with` inputs and install `'setrya[typescript]==1.18.0'` in that job. Use `copy-language: all` for mixed repositories. Keep the comment job separate.
 
 Use the [first deletion drill](github-action.md) to observe what survives a completed deletion once you have a storage lead to check. The [changed-route check](coverage.md#find-changed-routes-without-matching-tests) covers registered retrieval routes and jobs as a separate view of the application.
